@@ -1,0 +1,19 @@
+appId: com.sretan.emr
+productName: Sretan EMR
+directories:
+  output: dist
+  buildResources: build
+files:
+  - '**/*'
+  - '!**/node_modules/*/{CHANGELOG.md,README.md}'
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+extraMetadata:
+  main: main.js

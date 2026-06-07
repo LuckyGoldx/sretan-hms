@@ -1,0 +1,20 @@
+{
+  "build": {
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../client/dist"
+  },
+  "app": {
+    "windows": [{
+      "title": "Sretan EMR",
+      "fullscreen": false,
+      "width": 1920,
+      "height": 1080,
+      "decorations": false,
+      "resizable": true
+    }],
+    "security": {
+      "devCsp": null,
+      "csp": "default-src 'self'; connect-src http://192.168.1.200:3000; style-src 'self' 'unsafe-inline'"
+    }
+  }
+}

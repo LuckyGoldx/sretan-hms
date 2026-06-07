@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary-color: #2563eb;
+  --secondary-color: #10b981;
+  --theme-class: theme-trust-blue;
+}
+
+.theme-trust-blue {
+  --primary-color: #2563eb;
+  --secondary-color: #10b981;
+}
+
+.theme-emerald-green {
+  --primary-color: #059669;
+  --secondary-color: #34d399;
+}
+
+.theme-charcoal-clinical {
+  --primary-color: #334155;
+  --secondary-color: #64748b;
+}
+
+.theme-royal-purple {
+  --primary-color: #7c3aed;
+  --secondary-color: #a78bfa;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #f8fafc;
+}
+
+/* Dynamic focus ring using CSS variable */
+input:focus, select:focus, textarea:focus, button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--primary-color, #3b82f6) !important;
+  border-color: transparent !important;
+}
+
+/* Remove default Tailwind focus ring override */
+.focus\:ring-blue-500:focus {
+  --tw-ring-color: var(--primary-color, #3b82f6) !important;
+}
+
+/* Auto-expanding textareas */
+textarea.auto-expand {
+  field-sizing: content;
+  min-height: 80px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+textarea.auto-expand-sm {
+  field-sizing: content;
+  min-height: 50px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #f1f5f9; }
+::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #64748b; }
