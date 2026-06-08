@@ -78,6 +78,11 @@ export interface LabOrder {
   encounter_id: string
   test_name: string
   status: string
+  specimen_type: string
+  priority: string
+  patient_name: string
+  patient_phone: string
+  referred_by: string
   created_at: string
 }
 

@@ -6,7 +6,7 @@ import DoctorDashboard from './DoctorDashboard'
 import {
   Search, Users, MoreHorizontal, Eye, Activity, LogOut, Loader2,
   UserPlus, Stethoscope, Clock, CheckCircle, Pill, AlertTriangle,
-  Package, DollarSign, FlaskConical, ClipboardList, Truck
+  Package, DollarSign, FlaskConical, ClipboardList, Truck, Calendar, Home
 } from 'lucide-react'
 
 const STATUS_OPTIONS = [
@@ -50,6 +50,13 @@ export default function PatientDashboard() {
   const [statusFilter, setStatusFilter] = useState('')
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const [pendingRx, setPendingRx] = useState(0)
+
+  useEffect(() => {
+    if (role === 'Pharmacist') {
+      api.get('/prescriptions?status=pending').then((r) => setPendingRx(r.data?.length || 0)).catch(() => {})
+    }
+  }, [role])
 
   const fetchPatients = useCallback(async () => {
     setLoading(true)
@@ -144,6 +151,14 @@ export default function PatientDashboard() {
     Paypoint: [
       { title: 'Paypoint', desc: 'Process payments', icon: DollarSign, route: '/paypoint' },
     ],
+    Nurse: [
+      { title: 'Triage', desc: 'Vitals and patient assessment', icon: Stethoscope, route: '/triage' },
+      { title: 'Register Patient', desc: 'Add new patient records', icon: UserPlus, route: '/patients/register' },
+      { title: 'Patients', desc: 'View patient list', icon: Users, route: '/patients' },
+      { title: 'Appointments', desc: 'Manage appointments', icon: Calendar, route: '/appointments' },
+      { title: 'Admissions', desc: 'Manage ward admissions', icon: Home, route: '/admissions' },
+      { title: 'Vitals History', desc: 'View patient vitals', icon: Activity, route: '/vitals' },
+    ],
   }
 
   const links = roleSpecificLinks[role || ''] || null
@@ -169,7 +184,12 @@ export default function PatientDashboard() {
                 <div className="w-11 h-11 rounded-xl bg-blue-100 flex items-center justify-center mb-4">
                   <Icon size={22} className="text-blue-600" />
                 </div>
-                <h3 className="font-semibold text-slate-800">{l.title}</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold text-slate-800">{l.title}</h3>
+                  {l.title === 'Dispensing' && pendingRx > 0 && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-xs font-bold">{pendingRx}</span>
+                  )}
+                </div>
                 <p className="text-sm text-slate-500 mt-1">{l.desc}</p>
               </button>
             )

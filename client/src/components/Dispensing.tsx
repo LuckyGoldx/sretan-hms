@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback } from 'react'
 import api from '../hooks/useAxios'
 import type { Prescription } from '../types'
 import {
-  Pill, ClipboardList, CheckCircle, Loader2, AlertTriangle, X, ArrowLeft
+  Pill, ClipboardList, CheckCircle, Loader2, AlertTriangle, X, ArrowLeft, Stethoscope
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 interface PendingPrescription extends Prescription {
   patient_name?: string
+  doctor_name?: string
 }
 
 export default function Dispensing() {
@@ -29,8 +30,15 @@ export default function Dispensing() {
           try {
             const encResp = await api.get<any>(`/encounters/${rx.encounter_id}`)
             const patResp = await api.get<any>(`/patients/${encResp.data.patient_id}`)
-            return { ...rx, patient_name: patResp.data.full_name }
-          } catch { return { ...rx, patient_name: 'Unknown' } }
+            let doctorName = ''
+            if (encResp.data.staff_id) {
+              try {
+                const docResp = await api.get<any>(`/staff/${encResp.data.staff_id}`)
+                doctorName = docResp.data?.name || ''
+              } catch {}
+            }
+            return { ...rx, patient_name: patResp.data.full_name, doctor_name: doctorName }
+          } catch { return { ...rx, patient_name: 'Unknown', doctor_name: '' } }
         })
       )
       setPrescriptions(withPatients)
@@ -78,6 +86,7 @@ export default function Dispensing() {
                 <p className="text-base font-semibold text-slate-800">{rx.drug_name}</p>
                 <p className="text-sm text-slate-500 mt-0.5">{rx.dosage} &middot; Prescribed qty: {rx.quantity}</p>
                 <p className="text-xs text-slate-400">Patient: {rx.patient_name || 'Unknown'} &middot; {rx.instructions || 'No instructions'}</p>
+                {rx.doctor_name && <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><Stethoscope size={11} /> Prescribed by: <strong>{rx.doctor_name}</strong></p>}
               </div>
               <button
                 onClick={() => setModal({ open: true, rx, quantity: rx.quantity })}
@@ -102,6 +111,7 @@ export default function Dispensing() {
                 <p className="text-sm text-slate-600"><span className="font-semibold">Drug:</span> {modal.rx.drug_name}</p>
                 <p className="text-sm text-slate-600"><span className="font-semibold">Dosage:</span> {modal.rx.dosage}</p>
                 <p className="text-sm text-slate-600"><span className="font-semibold">Patient:</span> {modal.rx.patient_name || 'Unknown'}</p>
+                {modal.rx.doctor_name && <p className="text-sm text-slate-600 flex items-center gap-1"><Stethoscope size={14} className="text-slate-400" /><span className="font-semibold">Prescribed by:</span> {modal.rx.doctor_name}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Quantity to Dispense</label>

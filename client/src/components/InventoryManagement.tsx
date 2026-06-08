@@ -18,6 +18,8 @@ interface InvModal {
   supplier: string
 }
 
+const currentRole: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role } catch {} return null })()
+
 export default function InventoryManagement() {
   const navigate = useNavigate()
   const [inventory, setInventory] = useState<InventoryItem[]>([])
@@ -86,10 +88,12 @@ export default function InventoryManagement() {
             <p className="text-sm text-slate-500">Manage stock and supplies</p>
           </div>
         </div>
-        <button onClick={() => setModal({ open: true, drug_name: '', batch_number: '', stock_count: '', reorder_level: '', expiry_date: '', supplier: '' })}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
-          <PlusCircle size={16} /> Add Item
-        </button>
+        {currentRole === 'Admin' && (
+          <button onClick={() => setModal({ open: true, drug_name: '', batch_number: '', stock_count: '', reorder_level: '', expiry_date: '', supplier: '' })}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
+            <PlusCircle size={16} /> Add Item
+          </button>
+        )}
       </div>
 
       {lowStockCount > 0 && (

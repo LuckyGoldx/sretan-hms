@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
+  ArrowLeft,
   Banknote,
   Receipt,
   BarChart3,
@@ -41,6 +43,7 @@ function generateId(): string {
 }
 
 export default function FinanceHMO() {
+  const navigate = useNavigate()
   // HMO Batch
   const [allPatients, setAllPatients] = useState<BatchPatient[]>([])
   const [insuranceFilter, setInsuranceFilter] = useState('')
@@ -147,13 +150,16 @@ export default function FinanceHMO() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">
-            Finance & HMO Management
-          </h1>
-          <p className="text-sm text-slate-400 mt-1">
-            Insurance billing, expenses & revenue oversight
-          </p>
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">
+              Finance & HMO Management
+            </h1>
+            <p className="text-sm text-slate-400 mt-1">
+              Insurance billing, expenses & revenue oversight
+            </p>
+          </div>
         </div>
       </div>
 

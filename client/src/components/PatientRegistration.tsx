@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { v4 as uuidv4 } from 'uuid'
-import { User, Phone, Shield, Check, ChevronRight, ChevronLeft, Loader2 } from 'lucide-react'
+import { User, Phone, Shield, Check, ChevronRight, ChevronLeft, Loader2, ArrowLeft } from 'lucide-react'
 import api from '../hooks/useAxios'
 
 const bloodTypes = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']
@@ -95,6 +95,7 @@ export default function PatientRegistration() {
 
   return (
     <div className="max-w-2xl mx-auto">
+      <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-slate-800">Patient Registration</h1>
         <p className="text-sm text-slate-500 mt-1">Register a new patient in the system</p>

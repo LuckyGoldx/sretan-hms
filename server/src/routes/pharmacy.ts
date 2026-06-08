@@ -13,10 +13,16 @@ function getTenantId(): string {
 router.get('/api/inventory', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { search, below_reorder } = req.query;
+    const { search, below_reorder, category } = req.query;
     let query = 'SELECT * FROM inventory_items WHERE tenant_id = $1';
     const params: any[] = [tenantId];
     let paramIndex = 2;
+
+    if (category) {
+      query += ` AND category = $${paramIndex}`;
+      params.push(category);
+      paramIndex++;
+    }
 
     if (search) {
       query += ` AND drug_name ILIKE $${paramIndex}`;
@@ -42,7 +48,7 @@ router.post('/api/inventory', async (req: Request, res: Response) => {
     await clockGuard(pool, 'inventory_items');
 
     const tenantId = getTenantId();
-    const { drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier } = req.body;
+    const { drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category } = req.body;
 
     if (!drug_name) {
       res.status(400).json({ error: true, message: 'drug_name is required' });
@@ -51,10 +57,9 @@ router.post('/api/inventory', async (req: Request, res: Response) => {
 
     const id = uuidv4();
     const result = await pool.query(
-      `INSERT INTO inventory_items (id, tenant_id, drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING *`,
-      [id, tenantId, drug_name, batch_number || null, stock_count || 0, reorder_level || 10, expiry_date || null, supplier || null]
+      `INSERT INTO inventory_items (id, tenant_id, drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+      [id, tenantId, drug_name, batch_number || null, stock_count || 0, reorder_level || 10, expiry_date || null, supplier || null, category || 'pharmacy']
     );
 
     res.status(201).json(result.rows[0]);

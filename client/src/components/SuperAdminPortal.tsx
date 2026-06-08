@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
-  Building2, Palette, Cloud, Wifi, WifiOff, Save, Plus, X, Loader2, CheckCircle, Trash2
+  ArrowLeft, Building2, Palette, Cloud, Wifi, WifiOff, Save, Plus, X, Loader2, CheckCircle, Trash2
 } from 'lucide-react'
 import api from '../hooks/useAxios'
 
@@ -85,6 +86,7 @@ function DeploymentBadge({ mode }: { mode: DeploymentMode }) {
 }
 
 export default function SuperAdminPortal() {
+  const navigate = useNavigate()
   const [tenants, setTenants] = useState<Tenant[]>(MOCK_HOSPITALS)
   const [configs, setConfigs] = useState<Record<string, TenantConfig>>(MOCK_CONFIGS as any)
   const [loading, setLoading] = useState(true)
@@ -212,9 +214,12 @@ export default function SuperAdminPortal() {
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Super Admin Portal</h1>
-          <p className="text-sm text-slate-500 mt-1">Cloud-wide hospital configuration and deployment management</p>
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Super Admin Portal</h1>
+            <p className="text-sm text-slate-500 mt-1">Cloud-wide hospital configuration and deployment management</p>
+          </div>
         </div>
         <button
           onClick={() => setShowAddModal(true)}

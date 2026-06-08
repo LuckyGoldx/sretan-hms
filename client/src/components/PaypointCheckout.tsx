@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
+  ArrowLeft,
   Receipt,
   Wallet,
   CreditCard,
@@ -48,6 +50,7 @@ function formatDateTime(): string {
 }
 
 export default function PaypointCheckout() {
+  const navigate = useNavigate()
   const [patients, setPatients] = useState<Patient[]>([])
   const [patientSearch, setPatientSearch] = useState('')
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
@@ -255,9 +258,12 @@ export default function PaypointCheckout() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Paypoint Checkout</h1>
-          <p className="text-sm text-slate-400 mt-1">Hospital payment & billing center</p>
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Paypoint Checkout</h1>
+            <p className="text-sm text-slate-400 mt-1">Hospital payment & billing center</p>
+          </div>
         </div>
         <div className="flex items-center gap-2 text-sm text-slate-500 bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-100">
           <Clock className="w-4 h-4 text-primary" />

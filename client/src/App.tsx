@@ -23,6 +23,8 @@ import {
   Activity,
   Home,
   Calendar,
+  ShoppingCart,
+  AlertTriangle,
 } from 'lucide-react'
 
 const Login = lazy(() => import('./components/Login'))
@@ -35,6 +37,10 @@ const DoctorPrescriptions = lazy(() => import('./components/DoctorPrescriptions'
 const PatientChart = lazy(() => import('./components/PatientChart'))
 const DoctorVitals = lazy(() => import('./components/DoctorVitals'))
 const AdmissionsPage = lazy(() => import('./components/AdmissionsPage'))
+const WalkInSales = lazy(() => import('./components/WalkInSales'))
+const LabInventory = lazy(() => import('./components/LabInventory'))
+const DoctorLabResults = lazy(() => import('./components/DoctorLabResults'))
+const LabLowStock = lazy(() => import('./components/LabLowStock'))
 const AppointmentsPage = lazy(() => import('./components/AppointmentsPage'))
 const LaboratoryWorkbench = lazy(() => import('./components/LaboratoryWorkbench'))
 const PharmacyDashboard = lazy(() => import('./components/PharmacyDashboard'))
@@ -61,16 +67,19 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin'] },
   { to: '/patients/register', label: 'Register Patient', icon: UserPlus, roles: ['Nurse', 'Records', 'Admin'] },
   { to: '/triage', label: 'Triage', icon: Stethoscope, roles: ['Nurse', 'Admin'] },
-  { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint'] },
+  { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse', 'Records', 'Pharmacist', 'Paypoint'] },
   { to: '/my-prescriptions', label: 'Prescriptions', icon: Pill, roles: ['Doctor', 'Admin'] },
   { to: '/lab', label: 'Laboratory', icon: Beaker, roles: ['Lab Scientist', 'Doctor', 'Admin'] },
+  { to: '/lab-inventory', label: 'Lab Inventory', icon: Package, roles: ['Lab Scientist', 'Admin'] },
+  { to: '/lab-low-stock', label: 'Lab Low Stock', icon: AlertTriangle, roles: ['Lab Scientist', 'Admin'] },
   { to: '/radiology', label: 'Radiology', icon: Scan, roles: ['Doctor', 'Admin'] },
   { to: '/appointments', label: 'Appointments', icon: Calendar, roles: ['Doctor', 'Nurse', 'Records', 'Admin'] },
-  { to: '/vitals', label: 'Vitals', icon: Activity, roles: ['Doctor', 'Admin'] },
+  { to: '/vitals', label: 'Vitals', icon: Activity, roles: ['Doctor', 'Nurse', 'Admin'] },
   { to: '/admissions', label: 'Admissions', icon: Home, roles: ['Doctor', 'Nurse', 'Admin'] },
   { to: '/consultation', label: 'Consultation', icon: Stethoscope, roles: ['Doctor', 'Admin'] },
   { to: '/pharmacy', label: 'Pharmacy', icon: Pill, roles: ['Pharmacist', 'Admin'] },
   { to: '/dispensing', label: 'Dispensing', icon: ClipboardList, roles: ['Pharmacist', 'Admin'] },
+  { to: '/walk-in-sales', label: 'Walk-in Sales', icon: ShoppingCart, roles: ['Pharmacist', 'Admin'] },
   { to: '/inventory', label: 'Inventory', icon: Package, roles: ['Pharmacist', 'Admin'] },
   { to: '/expiry', label: 'Expiry Monitor', icon: Clock, roles: ['Pharmacist', 'Admin'] },
   { to: '/purchase-orders', label: 'Purchase Orders', icon: Truck, roles: ['Pharmacist', 'Admin'] },
@@ -93,6 +102,10 @@ function getRole(): string | null {
 
 function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [user, setUser] = useState<{ name: string; role: string } | null>(null)
+  const [pendingRxCount, setPendingRxCount] = useState(0)
+  const [pendingLabCount, setPendingLabCount] = useState(0)
+  const [completedLabCount, setCompletedLabCount] = useState(0)
+  const [unreadLabCount, setUnreadLabCount] = useState(0)
 
   useEffect(() => {
     const stored = localStorage.getItem('sretan_user')
@@ -106,6 +119,33 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
       }
     }, 1000)
     return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    async function fetchCounts() {
+      try {
+        const staffId = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return '' })()
+        const [rxRes, labOrdRes, labResRes, unreadLabRes] = await Promise.all([
+          fetch('/api/prescriptions?status=pending', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+          fetch('/api/lab-orders?status=ordered', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+          fetch('/api/lab-results?status=completed', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+          staffId ? fetch(`/api/lab-orders?status=completed&doctor_id=${staffId}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }) : null,
+        ])
+        const rxData = await rxRes.json()
+        const labOrdData = await labOrdRes.json()
+        const labResData = await labResRes.json()
+        setPendingRxCount(Array.isArray(rxData) ? rxData.length : 0)
+        setPendingLabCount(Array.isArray(labOrdData) ? labOrdData.length : 0)
+        setCompletedLabCount(Array.isArray(labResData) ? labResData.length : 0)
+        if (unreadLabRes) {
+          const unreadLabData = await unreadLabRes.json()
+          setUnreadLabCount(Array.isArray(unreadLabData) ? unreadLabData.filter((o: any) => !o.doctor_read_at).length : 0)
+        }
+      } catch {}
+    }
+    fetchCounts()
+    const id = setInterval(fetchCounts, 30000)
+    return () => clearInterval(id)
   }, [])
 
   function handleLogout() {
@@ -160,6 +200,15 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
             >
               <Icon className="w-4 h-4 flex-shrink-0" />
               {label}
+              {to === '/dispensing' && pendingRxCount > 0 && (
+                <span className="ml-auto px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">{pendingRxCount}</span>
+              )}
+              {to === '/lab' && role === 'Lab Scientist' && pendingLabCount > 0 && (
+                <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingLabCount} new</span>
+              )}
+              {to === '/lab' && role === 'Doctor' && unreadLabCount > 0 && (
+                <span className="ml-auto px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold">{unreadLabCount} unread</span>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -184,6 +233,12 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
       </aside>
     </>
   )
+}
+
+function LabRouter() {
+  const role: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role } catch {} return null })()
+  if (role === 'Doctor') return <Suspense fallback={<LoadingFallback />}><DoctorLabResults /></Suspense>
+  return <Suspense fallback={<LoadingFallback />}><LaboratoryWorkbench /></Suspense>
 }
 
 function LoadingFallback() {
@@ -310,7 +365,7 @@ export default function App() {
             path="/patients"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint']}>
+                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse', 'Records', 'Pharmacist', 'Paypoint']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <MyPatients />
                   </Suspense>
@@ -347,8 +402,30 @@ export default function App() {
             element={
               <Layout>
                 <ProtectedRoute roles={['Lab Scientist', 'Doctor', 'Admin']}>
+                  <LabRouter />
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/lab-inventory"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Lab Scientist', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
-                    <LaboratoryWorkbench />
+                    <LabInventory />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/lab-low-stock"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Lab Scientist', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <LabLowStock />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>
@@ -373,6 +450,18 @@ export default function App() {
                 <ProtectedRoute roles={['Pharmacist', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <Dispensing />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/walk-in-sales"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Pharmacist', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <WalkInSales />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>

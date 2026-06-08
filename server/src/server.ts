@@ -21,6 +21,8 @@ import encountersRouter from './routes/encounters';
 import radiologyOrdersRouter from './routes/radiologyOrders';
 import admissionsRouter from './routes/admissions';
 import appointmentsRouter from './routes/appointments';
+import otcSalesRouter from './routes/otcSales';
+import nurseModuleRouter from './routes/nurseModule';
 import setupConsoleRouter from './setup/setupConsole';
 
 declare global {
@@ -49,6 +51,8 @@ app.use(encountersRouter);
 app.use(radiologyOrdersRouter);
 app.use(admissionsRouter);
 app.use(appointmentsRouter);
+app.use(otcSalesRouter);
+app.use(nurseModuleRouter);
 app.use(setupRouter);
 app.use(setupConsoleRouter);
 

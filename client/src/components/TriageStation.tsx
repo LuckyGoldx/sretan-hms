@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Heart, Activity, Thermometer, Weight, Droplets, FileText, Users, AlertTriangle, CheckCircle, XCircle } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { ArrowLeft, Heart, Activity, Thermometer, Weight, Droplets, FileText, Users, AlertTriangle, CheckCircle, Clock, Search, Loader2, Stethoscope } from 'lucide-react'
 import api from '../hooks/useAxios'
-import type { Patient, TriagePriority } from '../types/index'
+import type { Patient } from '../types/index'
 
 interface VitalsForm {
   systolic_bp: string
@@ -11,366 +12,283 @@ interface VitalsForm {
   respiration_rate: string
   weight: string
   spo2: string
-  triage_priority: TriagePriority
+  triage_priority: 'red' | 'yellow' | 'green'
   nursing_notes: string
   fluid_intake: string
   fluid_output: string
 }
 
-interface ToastState {
-  show: boolean
-  message: string
-  type: 'success' | 'error'
-}
-
 const emptyForm: VitalsForm = {
-  systolic_bp: '',
-  diastolic_bp: '',
-  pulse: '',
-  temperature: '',
-  respiration_rate: '',
-  weight: '',
-  spo2: '',
-  triage_priority: 'green',
-  nursing_notes: '',
-  fluid_intake: '',
-  fluid_output: '',
+  systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '',
+  weight: '', spo2: '', triage_priority: 'green', nursing_notes: '', fluid_intake: '', fluid_output: '',
 }
 
-function Toast({ toast, onClose }: { toast: ToastState; onClose: () => void }) {
-  useEffect(() => {
-    if (toast.show) {
-      const t = setTimeout(onClose, 3500)
-      return () => clearTimeout(t)
-    }
-  }, [toast.show, onClose])
-
-  if (!toast.show) return null
-
-  const isSuccess = toast.type === 'success'
-  return (
-    <div
-      className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-5 py-3 rounded-2xl shadow-lg border backdrop-blur-sm transition-all duration-300 ${
-        isSuccess
-          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-          : 'bg-red-50 border-red-200 text-red-800'
-      }`}
-    >
-      {isSuccess ? <CheckCircle className="w-5 h-5 text-emerald-500" /> : <XCircle className="w-5 h-5 text-red-500" />}
-      <span className="text-sm font-medium">{toast.message}</span>
-      <button onClick={onClose} className="ml-2 p-0.5 rounded-lg hover:bg-black/5 transition-colors">
-        <XCircle className="w-4 h-4" />
-      </button>
-    </div>
-  )
+const priorityColors: Record<string, string> = {
+  red: 'bg-red-500 text-white',
+  yellow: 'bg-yellow-500 text-white',
+  green: 'bg-green-500 text-white',
 }
 
 export default function TriageStation() {
-  const [patients, setPatients] = useState<Patient[]>([])
+  const navigate = useNavigate()
+  const [queue, setQueue] = useState<Patient[]>([])
+  const [triaged, setTriaged] = useState<any[]>([])
   const [selectedPatient, setSelectedPatient] = useState<string>('')
   const [form, setForm] = useState<VitalsForm>(emptyForm)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [toast, setToast] = useState<ToastState>({ show: false, message: '', type: 'success' })
+  const [tab, setTab] = useState<'queue' | 'triage' | 'history'>('queue')
+  const [search, setSearch] = useState('')
+  const [successMsg, setSuccessMsg] = useState('')
 
-  const showToast = useCallback((message: string, type: 'success' | 'error') => {
-    setToast({ show: true, message, type })
-  }, [])
+  const currentUser: { id: string; name: string; role: string } | null = (() => {
+    try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u) } catch {}
+    return null
+  })()
 
-  const dismissToast = useCallback(() => {
-    setToast((prev) => ({ ...prev, show: false }))
-  }, [])
+  useEffect(() => { loadQueue() }, [])
 
-  const fetchPatients = useCallback(async () => {
+  async function loadQueue() {
     setLoading(true)
     try {
-      const { data } = await api.get<Patient[]>('/patients', { params: { status: 'checked_in' } })
-      setPatients(data)
-    } catch {
-      showToast('Failed to load patient list', 'error')
-    } finally {
-      setLoading(false)
-    }
-  }, [showToast])
-
-  useEffect(() => {
-    fetchPatients()
-  }, [fetchPatients])
-
-  const handleChange = (field: keyof VitalsForm, value: string) => {
-    setForm((prev) => ({ ...prev, [field]: value }))
+      const [queueRes, triagedRes] = await Promise.all([
+        api.get('/patients?status=checked_in').catch(() => ({ data: [] })),
+        api.get('/patients?status=in_triage').catch(() => ({ data: [] })),
+      ])
+      setQueue(queueRes.data || [])
+      setTriaged(triagedRes.data || [])
+    } catch {} finally { setLoading(false) }
   }
 
-  const handleSubmit = async () => {
-    if (!selectedPatient) {
-      showToast('Please select a patient', 'error')
-      return
-    }
-    const numericFields: (keyof VitalsForm)[] = [
-      'systolic_bp', 'diastolic_bp', 'pulse', 'temperature',
-      'respiration_rate', 'weight', 'spo2', 'fluid_intake', 'fluid_output',
-    ]
-    for (const field of numericFields) {
-      if (form[field] !== '' && (isNaN(Number(form[field])) || Number(form[field]) < 0)) {
-        showToast('Please enter valid numeric values', 'error')
-        return
-      }
-    }
+  const filteredQueue = queue.filter((p) =>
+    p.full_name.toLowerCase().includes(search.toLowerCase())
+  )
 
+  async function handleSubmit() {
+    if (!selectedPatient) return
     setSubmitting(true)
     try {
-      const payload = {
-        encounter_id: selectedPatient,
-        systolic_bp: form.systolic_bp ? Number(form.systolic_bp) : null,
-        diastolic_bp: form.diastolic_bp ? Number(form.diastolic_bp) : null,
-        pulse: form.pulse ? Number(form.pulse) : null,
-        temperature: form.temperature ? Number(form.temperature) : null,
-        respiration_rate: form.respiration_rate ? Number(form.respiration_rate) : null,
-        weight: form.weight ? Number(form.weight) : null,
-        spo2: form.spo2 ? Number(form.spo2) : null,
+      const encRes = await api.post('/encounters', {
+        patient_id: selectedPatient, encounter_type: 'triage', chief_complaint: form.nursing_notes.slice(0, 200),
+        staff_id: currentUser?.id,
+      })
+      await api.post('/vitals', {
+        encounter_id: encRes.data.id,
+        systolic_bp: form.systolic_bp ? parseInt(form.systolic_bp) : null,
+        diastolic_bp: form.diastolic_bp ? parseInt(form.diastolic_bp) : null,
+        pulse: form.pulse ? parseInt(form.pulse) : null,
+        temperature: form.temperature ? parseFloat(form.temperature) : null,
+        respiration_rate: form.respiration_rate ? parseInt(form.respiration_rate) : null,
+        weight: form.weight ? parseFloat(form.weight) : null,
+        spo2: form.spo2 ? parseInt(form.spo2) : null,
         triage_priority: form.triage_priority,
         nursing_notes: form.nursing_notes,
-        fluid_intake: form.fluid_intake ? Number(form.fluid_intake) : null,
-        fluid_output: form.fluid_output ? Number(form.fluid_output) : null,
-      }
-      await api.post('/vitals', payload)
-      showToast('Vitals recorded successfully', 'success')
+        fluid_intake: form.fluid_intake ? parseFloat(form.fluid_intake) : null,
+        fluid_output: form.fluid_output ? parseFloat(form.fluid_output) : null,
+      })
+      await api.put(`/patients/${selectedPatient}`, { status: 'in_triage' })
+      setSuccessMsg('Vitals recorded successfully')
+      setSelectedPatient('')
       setForm(emptyForm)
-      fetchPatients()
-    } catch {
-      showToast('Failed to submit vitals', 'error')
-    } finally {
-      setSubmitting(false)
-    }
+      loadQueue()
+      setTimeout(() => setSuccessMsg(''), 3000)
+    } catch {} finally { setSubmitting(false) }
   }
 
-  const triagePills: { value: TriagePriority; label: string; bg: string }[] = [
-    { value: 'red', label: 'Emergency', bg: 'bg-red-500' },
-    { value: 'yellow', label: 'Urgent', bg: 'bg-yellow-500' },
-    { value: 'green', label: 'Routine', bg: 'bg-green-500' },
-  ]
+  async function moveToWaiting(patientId: string) {
+    await api.put(`/patients/${patientId}`, { status: 'waiting' })
+    setQueue((prev) => prev.filter((p) => p.id !== patientId))
+    setTriaged((prev) => prev.filter((p) => p.id !== patientId))
+  }
+
+  const selectForTriage = (patient: Patient) => {
+    setSelectedPatient(patient.id)
+    setForm(emptyForm)
+    setTab('triage')
+  }
+
+  if (loading) return <div className="flex justify-center py-20"><Loader2 size={32} className="animate-spin text-primary" /></div>
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <Toast toast={toast} onClose={dismissToast} />
-
+    <div className="max-w-6xl mx-auto space-y-6">
+      <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
-          <Heart className="w-5 h-5 text-primary" />
-        </div>
+        <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center"><Stethoscope size={22} className="text-amber-600" /></div>
         <div>
-          <h1 className="text-xl font-semibold text-slate-800">Triage Station</h1>
-          <p className="text-sm text-slate-400">Nursing assessment & vital signs entry</p>
+          <h1 className="text-xl font-bold text-slate-800">Triage Station</h1>
+          <p className="text-sm text-slate-500">Patient assessment and vital signs</p>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-        <label className="flex items-center gap-2 text-sm font-medium text-slate-700 mb-3">
-          <Users className="w-4 h-4 text-primary" />
-          Select Patient
-        </label>
-        {loading ? (
-          <div className="flex items-center gap-2 text-sm text-slate-400">
-            <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-            Loading patients...
-          </div>
-        ) : (
-          <select
-            value={selectedPatient}
-            onChange={(e) => setSelectedPatient(e.target.value)}
-            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow appearance-none"
-          >
-            <option value="">-- Select checked-in patient --</option>
-            {patients.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.full_name} — {p.sex} — DOB: {p.dob?.slice(0, 10)}
-              </option>
-            ))}
-          </select>
-        )}
-        {patients.length === 0 && !loading && (
-          <p className="text-xs text-slate-400 mt-2 flex items-center gap-1">
-            <AlertTriangle className="w-3 h-3" />
-            No checked-in patients found
-          </p>
-        )}
+      {successMsg && (
+        <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm font-medium">
+          <CheckCircle size={18} /> {successMsg}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        {[
+          { id: 'queue', label: `Waiting (${queue.length})`, icon: Users },
+          { id: 'triage', label: selectedPatient ? 'Vitals Entry' : 'Select Patient', icon: Activity },
+          { id: 'history', label: `Triaged (${triaged.length})`, icon: Clock },
+        ].map((t) => {
+          const Icon = t.icon
+          return (
+            <button key={t.id} onClick={() => setTab(t.id as any)}
+              className={`flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-medium transition-all ${tab === t.id ? 'bg-primary text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
+              <Icon size={16} /> {t.label}
+            </button>
+          )
+        })}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Activity className="w-4 h-4 text-primary" />
-            <h2 className="text-sm font-semibold text-slate-700">Vital Signs</h2>
+      {tab === 'queue' && (
+        <>
+          <div className="relative max-w-sm">
+            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input type="text" placeholder="Search patients..." value={search} onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white" />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1.5">Systolic BP (mmHg)</label>
-              <input
-                type="number"
-                placeholder="120"
-                value={form.systolic_bp}
-                onChange={(e) => handleChange('systolic_bp', e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-              />
+          {filteredQueue.length === 0 ? (
+            <div className="flex flex-col items-center py-20 text-slate-400">
+              <Users size={48} className="text-slate-300 mb-3" />
+              <p className="text-sm font-medium">No patients waiting for triage</p>
             </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1.5">Diastolic BP (mmHg)</label>
-              <input
-                type="number"
-                placeholder="80"
-                value={form.diastolic_bp}
-                onChange={(e) => handleChange('diastolic_bp', e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1.5">Pulse (bpm)</label>
-              <input
-                type="number"
-                placeholder="72"
-                value={form.pulse}
-                onChange={(e) => handleChange('pulse', e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1.5">Temperature (°C)</label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.1"
-                  placeholder="36.6"
-                  value={form.temperature}
-                  onChange={(e) => handleChange('temperature', e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                />
-                <Thermometer className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1.5">Respiration Rate (/min)</label>
-              <input
-                type="number"
-                placeholder="16"
-                value={form.respiration_rate}
-                onChange={(e) => handleChange('respiration_rate', e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1.5">Weight (kg)</label>
-              <div className="relative">
-                <input
-                  type="number"
-                  step="0.1"
-                  placeholder="70"
-                  value={form.weight}
-                  onChange={(e) => handleChange('weight', e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                />
-                <Weight className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
-              </div>
-            </div>
-            <div className="col-span-2">
-              <label className="block text-xs font-medium text-slate-500 mb-1.5">SpO₂ (%)</label>
-              <input
-                type="number"
-                placeholder="98"
-                value={form.spo2}
-                onChange={(e) => handleChange('spo2', e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <AlertTriangle className="w-4 h-4 text-primary" />
-              <h2 className="text-sm font-semibold text-slate-700">Triage Priority</h2>
-            </div>
-            <div className="flex gap-3">
-              {triagePills.map(({ value, label, bg }) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => handleChange('triage_priority', value)}
-                  className={`flex-1 py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 hover:scale-[1.01] active:scale-[0.99] ${
-                    form.triage_priority === value
-                      ? `${bg} ring-2 ring-offset-2 ring-${value === 'red' ? 'red' : value === 'yellow' ? 'yellow' : 'green'}-500 shadow-lg`
-                      : `${bg} opacity-60 hover:opacity-80`
-                  }`}
-                >
-                  {label}
-                </button>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredQueue.map((patient) => (
+                <div key={patient.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md transition-shadow">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center"><Users size={18} className="text-amber-600" /></div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-slate-800 truncate">{patient.full_name}</p>
+                      <p className="text-xs text-slate-400">{patient.sex} &middot; {patient.dob?.slice(0, 10) || '—'}</p>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-3">{patient.phone || '—'}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-lg bg-blue-100 text-blue-700 text-[10px] font-medium">Checked In</span>
+                    <button onClick={() => selectForTriage(patient)}
+                      className="ml-auto px-4 py-1.5 rounded-lg bg-amber-50 text-amber-600 text-xs font-medium hover:bg-amber-100 transition-colors flex items-center gap-1">
+                      <Activity size={12} /> Triage
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
+          )}
+        </>
+      )}
+
+      {tab === 'triage' && !selectedPatient && (
+        <div className="flex flex-col items-center py-20 text-slate-400">
+          <Users size={48} className="text-slate-300 mb-3" />
+          <p className="text-sm font-medium">Select a patient from the Waiting list</p>
+          <button onClick={() => setTab('queue')} className="mt-2 text-sm text-blue-600 underline">View waiting patients</button>
+        </div>
+      )}
+
+      {tab === 'triage' && selectedPatient && (
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+          <div className="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <h2 className="text-sm font-semibold text-slate-700 mb-4">
+              Vital Signs — {queue.find((p) => p.id === selectedPatient)?.full_name || ''}
+            </h2>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {[
+                { label: 'Systolic BP', key: 'systolic_bp', placeholder: '120' },
+                { label: 'Diastolic BP', key: 'diastolic_bp', placeholder: '80' },
+                { label: 'Pulse', key: 'pulse', placeholder: '72 bpm' },
+                { label: 'Temperature', key: 'temperature', placeholder: '36.5 °C' },
+                { label: 'Resp. Rate', key: 'respiration_rate', placeholder: '16' },
+                { label: 'Weight', key: 'weight', placeholder: '70 kg' },
+                { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
+              ].map((f) => (
+                <div key={f.key}>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
+                  <input type="number" step="any" placeholder={f.placeholder} value={(form as any)[f.key]}
+                    onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                </div>
+              ))}
+              <div className="col-span-2 md:col-span-3">
+                <label className="block text-xs font-medium text-slate-500 mb-1">Triage Priority</label>
+                <div className="flex gap-2">
+                  {(['red', 'yellow', 'green'] as const).map((p) => (
+                    <button key={p} onClick={() => setForm((prev) => ({ ...prev, triage_priority: p }))}
+                      className={`flex-1 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all ${form.triage_priority === p ? priorityColors[p] : 'bg-slate-100 text-slate-500'}`}>
+                      {p === 'red' ? 'Emergency' : p === 'yellow' ? 'Urgent' : 'Routine'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <FileText className="w-4 h-4 text-primary" />
-              <h2 className="text-sm font-semibold text-slate-700">Nursing Journal</h2>
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2"><FileText size={15} /> Nursing Notes</h2>
+              <textarea rows={4} placeholder="Chief complaint, observations, notes..." value={form.nursing_notes}
+                onChange={(e) => setForm((p) => ({ ...p, nursing_notes: e.target.value }))}
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
             </div>
-            <textarea
-              rows={4}
-              placeholder="Enter shift notes, observations, or handover details..."
-              value={form.nursing_notes}
-              onChange={(e) => handleChange('nursing_notes', e.target.value)}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow resize-none"
-            />
-          </div>
-
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Droplets className="w-4 h-4 text-primary" />
-              <h2 className="text-sm font-semibold text-slate-700">Fluid Balance</h2>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1.5">Intake (mL)</label>
-                <input
-                  type="number"
-                  placeholder="0"
-                  value={form.fluid_intake}
-                  onChange={(e) => handleChange('fluid_intake', e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1.5">Output (mL)</label>
-                <input
-                  type="number"
-                  placeholder="0"
-                  value={form.fluid_output}
-                  onChange={(e) => handleChange('fluid_output', e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
-                />
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2"><Droplets size={15} /> Fluid Balance</h2>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Intake (mL)</label>
+                  <input type="number" placeholder="0" value={form.fluid_intake}
+                    onChange={(e) => setForm((p) => ({ ...p, fluid_intake: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Output (mL)</label>
+                  <input type="number" placeholder="0" value={form.fluid_output}
+                    onChange={(e) => setForm((p) => ({ ...p, fluid_output: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                </div>
               </div>
             </div>
+            <button onClick={handleSubmit} disabled={submitting}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-primary text-white text-sm font-semibold hover:scale-[1.01] transition-transform disabled:opacity-50">
+              {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+              {submitting ? 'Saving...' : 'Submit Vitals & Complete Triage'}
+            </button>
           </div>
         </div>
-      </div>
+      )}
 
-      <button
-        type="button"
-        onClick={handleSubmit}
-        disabled={submitting || !selectedPatient}
-        className="w-full flex items-center justify-center gap-2 bg-primary text-white font-semibold py-3.5 px-6 rounded-xl shadow-sm hover:scale-[1.01] active:scale-[0.99] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-      >
-        {submitting ? (
-          <>
-            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            Submitting...
-          </>
-        ) : (
-          <>
-            <Heart className="w-4 h-4" />
-            Record Vitals & Complete Triage
-          </>
-        )}
-      </button>
+      {tab === 'history' && (
+        <div className="space-y-4">
+          {triaged.length === 0 ? (
+            <div className="flex flex-col items-center py-20 text-slate-400">
+              <Clock size={48} className="text-slate-300 mb-3" />
+              <p className="text-sm font-medium">No patients triaged yet</p>
+            </div>
+          ) : (
+            triaged.map((patient) => (
+              <div key={patient.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center"><Users size={18} className="text-amber-600" /></div>
+                    <div>
+                      <p className="text-sm font-semibold text-slate-800">{patient.full_name}</p>
+                      <p className="text-xs text-slate-400">{patient.sex} &middot; {patient.phone || '—'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-lg bg-yellow-100 text-yellow-700 text-[10px] font-medium">In Triage</span>
+                    <button onClick={() => moveToWaiting(patient.id)}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 text-xs font-medium hover:bg-emerald-100 transition-colors">
+                      Move to Waiting
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   )
 }

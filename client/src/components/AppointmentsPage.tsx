@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
-  Calendar, Clock, Loader2, Search, Plus, X, CheckCircle, XCircle, User, Stethoscope, FileText
+  ArrowLeft, Calendar, Clock, Loader2, Search, Plus, X, CheckCircle, XCircle, User, Stethoscope, FileText
 } from 'lucide-react'
 
 const currentUser: { id: string; name: string; role: string } | null = (() => {
@@ -28,7 +28,7 @@ export default function AppointmentsPage() {
   const [tab, setTab] = useState<'active' | 'history'>('active')
   const [confirmAction, setConfirmAction] = useState<{ id: string; action: 'completed' | 'cancelled'; patientName: string } | null>(null)
   const [confirming, setConfirming] = useState(false)
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().slice(0, 10))
+  const [selectedDate, setSelectedDate] = useState('')
   const [patientSearch, setPatientSearch] = useState('')
   const [doctorSearch, setDoctorSearch] = useState('')
   const [showPatientDropdown, setShowPatientDropdown] = useState(false)
@@ -131,6 +131,7 @@ export default function AppointmentsPage() {
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
+          <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
           <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center"><Calendar size={22} className="text-sky-600" /></div>
           <div>
             <h1 className="text-xl font-bold text-slate-800">Appointments</h1>

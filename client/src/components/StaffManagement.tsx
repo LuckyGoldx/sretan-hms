@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { v4 as uuidv4 } from 'uuid'
 import {
+  ArrowLeft,
   Users,
   Calendar,
   AlertTriangle,
@@ -113,6 +115,7 @@ function getCellStyle(role: StaffRole | null): string {
 }
 
 export default function StaffManagement() {
+  const navigate = useNavigate()
   const [staffList, setStaffList] = useState<StaffMember[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -324,9 +327,12 @@ export default function StaffManagement() {
 
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Staff Management</h1>
-          <p className="text-sm text-slate-500 mt-1">HR & Personnel Administration</p>
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Staff Management</h1>
+            <p className="text-sm text-slate-500 mt-1">HR & Personnel Administration</p>
+          </div>
         </div>
         <button
           type="button"

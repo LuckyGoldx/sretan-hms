@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Users, Clock, Activity, UserCheck, Stethoscope, LogOut, RefreshCw, FileText, Plus, X, Loader2, Home } from 'lucide-react'
+import { Search, Users, Clock, Activity, UserCheck, Stethoscope, LogOut, RefreshCw, FileText, Plus, X, Loader2, Home, Heart, ArrowLeft } from 'lucide-react'
 import api from '../hooks/useAxios'
 import type { Patient } from '../types/index'
 
@@ -88,8 +88,13 @@ export default function MyPatients() {
   const [admitModal, setAdmitModal] = useState<{ patientId: string; patientName: string } | null>(null)
   const [selectedWard, setSelectedWard] = useState('')
   const [admitting, setAdmitting] = useState(false)
+  const [vitalsPatient, setVitalsPatient] = useState<any | null>(null)
+  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
+  const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
 
   const doctorId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
+  const currentRole: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role } catch {} return null })()
+  const isNurse = currentRole === 'Nurse'
 
   const fetchPatients = useCallback(async () => {
     setLoading(true)
@@ -160,8 +165,36 @@ export default function MyPatients() {
     } catch { setError('Failed to discharge patient.') } finally { setActionLoading(null) }
   }
 
+  async function handleVitalsSubmit() {
+    if (!vitalsPatient) return
+    setVitalsSubmitting(true)
+    try {
+      const currentUser = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u) } catch {} return null })()
+      const encRes = await api.post('/encounters', {
+        patient_id: vitalsPatient.id, encounter_type: 'vitals', chief_complaint: vitalsForm.nursing_notes.slice(0, 200),
+        staff_id: currentUser?.id,
+      })
+      await api.post('/vitals', {
+        encounter_id: encRes.data.id,
+        systolic_bp: vitalsForm.systolic_bp ? parseInt(vitalsForm.systolic_bp) : null,
+        diastolic_bp: vitalsForm.diastolic_bp ? parseInt(vitalsForm.diastolic_bp) : null,
+        pulse: vitalsForm.pulse ? parseInt(vitalsForm.pulse) : null,
+        temperature: vitalsForm.temperature ? parseFloat(vitalsForm.temperature) : null,
+        respiration_rate: vitalsForm.respiration_rate ? parseInt(vitalsForm.respiration_rate) : null,
+        weight: vitalsForm.weight ? parseFloat(vitalsForm.weight) : null,
+        spo2: vitalsForm.spo2 ? parseInt(vitalsForm.spo2) : null,
+        triage_priority: vitalsForm.triage_priority,
+        nursing_notes: vitalsForm.nursing_notes,
+      })
+      setVitalsPatient(null)
+      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
+      setError('')
+    } catch (err: any) { setError(err?.response?.data?.message || 'Failed to save vitals') } finally { setVitalsSubmitting(false) }
+  }
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
           <Users className="w-5 h-5 text-primary" />
@@ -273,9 +306,11 @@ export default function MyPatients() {
                     </p>
                   </div>
                   <span
-                    className={`shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${statCfg.bg} ${statCfg.text}`}
+                    className={`shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                      admissionMap[patient.id] ? 'bg-indigo-100 text-indigo-700' : statCfg.bg
+                    } ${admissionMap[patient.id] ? '' : statCfg.text}`}
                   >
-                    {statCfg.label}
+                    {admissionMap[patient.id] ? `Admitted (${admissionMap[patient.id].ward_name})` : statCfg.label}
                   </span>
                 </div>
 
@@ -304,37 +339,50 @@ export default function MyPatients() {
                 )}
 
                 <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <button onClick={() => navigate(`/consultation/${patient.id}`)}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:scale-[1.01] transition-all duration-200 shadow-sm">
-                    <Stethoscope className="w-3.5 h-3.5" /> Consult
-                  </button>
+                  {isNurse ? (
+                    <button onClick={() => { setVitalsPatient(patient); setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' }) }}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:scale-[1.01] transition-all duration-200 shadow-sm">
+                      <Heart className="w-3.5 h-3.5" /> Vitals
+                    </button>
+                  ) : (
+                    <button onClick={() => navigate(`/consultation/${patient.id}`)}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:scale-[1.01] transition-all duration-200 shadow-sm">
+                      <Stethoscope className="w-3.5 h-3.5" /> Consult
+                    </button>
+                  )}
                   <button onClick={() => navigate(`/patient/${patient.id}`)}
                     className="flex items-center gap-1.5 px-3 py-2 bg-white text-slate-600 text-xs font-semibold rounded-xl border border-slate-200 hover:bg-slate-50 transition-all duration-200">
                     <FileText className="w-3.5 h-3.5" /> Chart
                   </button>
 
-                  {patient.status !== 'in_triage' && patient.status !== 'discharged' && (
+                  {!admissionMap[patient.id] && patient.status === 'in_triage' ? (
+                    <button onClick={() => handleStatusUpdate(patient.id, 'waiting')} disabled={actionLoading === patient.id}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-xl border border-emerald-200 hover:bg-emerald-100 transition-all duration-200 disabled:opacity-50">
+                      {actionLoading === patient.id ? <div className="w-3 h-3 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
+                      Move to Waiting
+                    </button>
+                  ) : !admissionMap[patient.id] && patient.status !== 'discharged' && patient.status !== 'in_triage' ? (
                     <button onClick={() => handleStatusUpdate(patient.id, 'in_triage')} disabled={actionLoading === patient.id}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 text-amber-700 text-xs font-semibold rounded-xl border border-amber-200 hover:bg-amber-100 transition-all duration-200 disabled:opacity-50">
+                      className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-xl border transition-all duration-200 disabled:opacity-50 ${
+                        isNurse ? 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                      }`}>
                       {actionLoading === patient.id ? <div className="w-3 h-3 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" /> : <Activity className="w-3.5 h-3.5" />}
                       Send to Triage
                     </button>
-                  )}
+                  ) : null}
 
-                  {admissionMap[patient.id] ? (
+                  {!isNurse && admissionMap[patient.id] ? (
                     <button onClick={() => handleDischarge(patient.id, admissionMap[patient.id].id)} disabled={actionLoading === patient.id}
                       className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-700 text-xs font-semibold rounded-xl border border-rose-200 hover:bg-rose-100 transition-all duration-200 disabled:opacity-50">
                       {actionLoading === patient.id ? <div className="w-3 h-3 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
                       Discharge from Ward
                     </button>
-                  ) : (
-                    patient.status !== 'discharged' && (
-                      <button onClick={() => setAdmitModal({ patientId: patient.id, patientName: patient.full_name })}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-xl border border-indigo-200 hover:bg-indigo-100 transition-all duration-200">
-                        <Home className="w-3.5 h-3.5" /> Admit to Ward
-                      </button>
-                    )
-                  )}
+                  ) : !isNurse && patient.status !== 'discharged' ? (
+                    <button onClick={() => setAdmitModal({ patientId: patient.id, patientName: patient.full_name })}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-xl border border-indigo-200 hover:bg-indigo-100 transition-all duration-200">
+                      <Home className="w-3.5 h-3.5" /> Admit to Ward
+                    </button>
+                  ) : null}
                 </div>
               </div>
             )
@@ -373,6 +421,67 @@ export default function MyPatients() {
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-all disabled:opacity-50">
                 {admitting ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                 Admit Patient
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vitals Entry Modal for Nurses */}
+      {vitalsPatient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!vitalsSubmitting) setVitalsPatient(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Heart size={18} className="text-primary" /> Record Vitals — {vitalsPatient.full_name}</h2>
+              <button onClick={() => setVitalsPatient(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {[
+                  { label: 'Systolic BP', key: 'systolic_bp', placeholder: '120' },
+                  { label: 'Diastolic BP', key: 'diastolic_bp', placeholder: '80' },
+                  { label: 'Pulse', key: 'pulse', placeholder: '72 bpm' },
+                  { label: 'Temperature', key: 'temperature', placeholder: '36.5 °C' },
+                  { label: 'Resp. Rate', key: 'respiration_rate', placeholder: '16' },
+                  { label: 'Weight', key: 'weight', placeholder: '70 kg' },
+                  { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
+                ].map((f) => (
+                  <div key={f.key}>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
+                    <input type="number" step="any" placeholder={f.placeholder} value={(vitalsForm as any)[f.key]}
+                      onChange={(e) => setVitalsForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  </div>
+                ))}
+                <div className="col-span-2 md:col-span-3">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Triage Priority</label>
+                  <div className="flex gap-2">
+                    {(['red', 'yellow', 'green'] as const).map((p) => (
+                      <button key={p} onClick={() => setVitalsForm((prev) => ({ ...prev, triage_priority: p }))}
+                        className={`flex-1 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all ${
+                          vitalsForm.triage_priority === p
+                            ? p === 'red' ? 'bg-red-500 text-white' : p === 'yellow' ? 'bg-yellow-500 text-white' : 'bg-green-500 text-white'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}>
+                        {p === 'red' ? 'Emergency' : p === 'yellow' ? 'Urgent' : 'Routine'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Nursing Notes</label>
+                <textarea rows={3} placeholder="Chief complaint, observations..." value={vitalsForm.nursing_notes}
+                  onChange={(e) => setVitalsForm((p) => ({ ...p, nursing_notes: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
+              <button onClick={() => setVitalsPatient(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={handleVitalsSubmit} disabled={vitalsSubmitting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
+                {vitalsSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Heart size={14} />}
+                {vitalsSubmitting ? 'Saving...' : 'Save Vitals'}
               </button>
             </div>
           </div>

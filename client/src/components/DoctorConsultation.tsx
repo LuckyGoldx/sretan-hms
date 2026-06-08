@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ScrollText, ClipboardList, Pill, Microscope, Scan, Search, Clock, X, Plus,
+  ArrowLeft, ScrollText, ClipboardList, Pill, Microscope, Scan, Search, Clock, X, Plus,
   ChevronDown, CheckCircle, XCircle, AlertTriangle, Loader2, Syringe, FlaskConical, Activity, Mic,
 } from 'lucide-react'
 import api from '../hooks/useAxios'
 import type { Patient, Encounter } from '../types/index'
 
-interface SoapForm { subjective: string; objective: string; assessment: string; plan: string }
+interface SoapForm { subjective: string; objective: string; assessment: string; plan: string; notes: string }
 interface ToastState { show: boolean; message: string; type: 'success' | 'error' }
 interface LabOrderForm { test_name: string }
 interface RadiologyForm { imaging_type: string }
@@ -38,7 +38,7 @@ const icd11Codes = [
   { code: 'Z00-Z99', label: 'Factors influencing health status & contact with health services' },
 ]
 const imagingTypes = ['X-Ray', 'Ultrasound', 'CT', 'MRI']
-const emptySoap: SoapForm = { subjective: '', objective: '', assessment: '', plan: '' }
+const emptySoap: SoapForm = { subjective: '', objective: '', assessment: '', plan: '', notes: '' }
 
 type TabId = 'soap' | 'orders' | 'prescribe' | 'icd'
 
@@ -114,6 +114,7 @@ function VoiceInput({ value, onChange }: { value: string; onChange: (val: string
 }
 
 export default function DoctorConsultation() {
+  const navigate = useNavigate()
   const { patientId } = useParams<{ patientId: string }>()
   const [patient, setPatient] = useState<Patient | null>(null)
   const [encounters, setEncounters] = useState<Encounter[]>([])
@@ -134,6 +135,9 @@ export default function DoctorConsultation() {
   const [selectedIcd, setSelectedIcd] = useState<string>('')
   const [icdOpen, setIcdOpen] = useState(false)
   const [labSubmitting, setLabSubmitting] = useState(false)
+  const [labTestCatalog, setLabTestCatalog] = useState<any[]>([])
+  const [labTestSearch, setLabTestSearch] = useState('')
+  const [showLabTestDropdown, setShowLabTestDropdown] = useState(false)
   const [radiologySubmitting, setRadiologySubmitting] = useState(false)
   const [prescriptionSubmitting, setPrescriptionSubmitting] = useState(false)
   const [timelineModal, setTimelineModal] = useState<TimelineModalData | null>(null)
@@ -152,6 +156,10 @@ export default function DoctorConsultation() {
     if (staffCache[id]) return staffCache[id]
     try { const res = await api.get<any>(`/staff/${id}`); const name = res.data?.name || 'Unknown'; setStaffCache((p) => ({ ...p, [id]: name })); return name } catch { return 'Unknown' }
   }
+
+  useEffect(() => {
+    api.get<any[]>('/lab-test-catalog').then((res) => setLabTestCatalog(res.data || [])).catch(() => {})
+  }, [])
 
   useEffect(() => {
     api.get<any[]>('/inventory').then((res) => {
@@ -232,7 +240,7 @@ export default function DoctorConsultation() {
     setLabSubmitting(true)
     try {
       const encId = await ensureEncounter()
-      await api.post('/lab-orders', { encounter_id: encId, test_name: labForm.test_name.trim() })
+      await api.post('/lab-orders', { encounter_id: encId, test_name: labForm.test_name.trim(), lab_number: patient?.hospital_number || undefined })
       showToast('Lab order submitted', 'success'); setLabForm({ test_name: '' }); setActiveModal(null)
     } catch { showToast('Failed to submit lab order', 'error') } finally { setLabSubmitting(false) }
   }
@@ -276,6 +284,7 @@ export default function DoctorConsultation() {
       <Toast toast={toast} onClose={dismissToast} />
 
       {/* Patient Header */}
+      <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center"><ClipboardList className="w-5 h-5 text-primary" /></div>
         <div>
@@ -299,7 +308,7 @@ export default function DoctorConsultation() {
               { label: 'RR', value: vitals.respiration_rate ? `${vitals.respiration_rate}` : '—' },
               { label: 'SpO₂', value: vitals.spo2 ? `${vitals.spo2}%` : '—' },
               { label: 'Weight', value: vitals.weight ? `${vitals.weight}kg` : '—' },
-              { label: 'Triage', value: vitals.triage_priority ? vitals.triage_priority.toUpperCase() : '—' },
+              { label: 'Triage', value: vitals.triage_priority ? ({ red: 'EMERGENCY', yellow: 'URGENT', green: 'ROUTINE' })[vitals.triage_priority as 'red' | 'yellow' | 'green'] || vitals.triage_priority : '—' },
             ].map((v) => (
               <div key={v.label} className="bg-slate-50 rounded-xl p-2.5">
                 <p className="text-[10px] text-slate-400 font-medium uppercase">{v.label}</p>
@@ -340,6 +349,14 @@ export default function DoctorConsultation() {
                   className="auto-expand w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
               </div>
             ))}
+          </div>
+          <div className="mt-4">
+            <label className="block text-xs font-medium text-slate-500 mb-1.5 flex items-center gap-1">Notes
+              <VoiceInput value={soap.notes} onChange={(val) => handleSoapChange('notes', val)} />
+            </label>
+            <textarea rows={3} placeholder="Additional notes, instructions, observations..."
+              value={soap.notes} onChange={(e) => handleSoapChange('notes', e.target.value)}
+              className="auto-expand w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
           </div>
           <button onClick={handleSoapSubmit} disabled={soapSubmitting}
             className="mt-4 w-full flex items-center justify-center gap-2 bg-primary text-white font-semibold py-3 px-6 rounded-xl shadow-sm hover:scale-[1.01] transition-all duration-200 disabled:opacity-50">
@@ -515,9 +532,24 @@ export default function DoctorConsultation() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1.5">Test Name</label>
-                  <input type="text" placeholder="e.g. Complete Blood Count" value={labForm.test_name}
-                    onChange={(e) => setLabForm({ test_name: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
+                  <div className="relative">
+                    <input type="text" placeholder="Search lab tests..." value={labTestSearch || labForm.test_name}
+                      onChange={(e) => { setLabTestSearch(e.target.value); setLabForm({ test_name: '' }); setShowLabTestDropdown(true) }}
+                      onFocus={() => setShowLabTestDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowLabTestDropdown(false), 200)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
+                    {showLabTestDropdown && (
+                      <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
+                        {labTestCatalog.filter((t: any) => t.name.toLowerCase().includes((labTestSearch || labForm.test_name).toLowerCase())).slice(0, 10).map((t: any) => (
+                          <button key={t.id} type="button" onMouseDown={() => { setLabForm({ test_name: t.name }); setLabTestSearch(''); setShowLabTestDropdown(false) }}
+                            className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors">{t.name} <span className="text-slate-400 text-xs">{t.category}</span></button>
+                        ))}
+                        {labTestCatalog.filter((t: any) => t.name.toLowerCase().includes((labTestSearch || labForm.test_name).toLowerCase())).length === 0 && (
+                          <div className="px-4 py-2.5 text-sm text-slate-400">No matching tests</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => setActiveModal(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">Cancel</button>
