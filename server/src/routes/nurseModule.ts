@@ -149,11 +149,49 @@ router.put('/api/treatment-doses/:id/skip', async (req: Request, res: Response) 
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
+// ── Fluid Sessions ──
+router.get('/api/fluid-sessions', async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    const { patient_id } = req.query;
+    let query = `SELECT fs.*, s.name as staff_name,
+                 COALESCE((SELECT SUM(intake_ml) FROM fluid_balance WHERE session_id = fs.id), 0) as total_intake,
+                 COALESCE((SELECT SUM(output_ml) FROM fluid_balance WHERE session_id = fs.id), 0) as total_output
+                 FROM fluid_sessions fs
+                 LEFT JOIN staff_users s ON s.id = fs.staff_id
+                 WHERE fs.tenant_id = $1`;
+    const params: any[] = [tenantId];
+    let idx = 2;
+
+    if (patient_id) { query += ` AND fs.patient_id = $${idx}`; params.push(patient_id); idx++; }
+
+    query += ' ORDER BY fs.session_date DESC, fs.created_at DESC';
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+router.post('/api/fluid-sessions', async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    const { patient_id, staff_id, session_date, notes } = req.body;
+    if (!patient_id) { res.status(400).json({ error: true, message: 'patient_id is required' }); return; }
+    const id = uuidv4();
+    const result = await pool.query(
+      `INSERT INTO fluid_sessions (id, tenant_id, patient_id, staff_id, session_date, notes)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [id, tenantId, patient_id, staff_id || null, session_date || new Date().toISOString().slice(0, 10), notes || null]
+    );
+    const staff = await pool.query('SELECT name FROM staff_users WHERE id = $1', [staff_id || null]);
+    res.status(201).json({ ...result.rows[0], staff_name: staff.rows[0]?.name || '' });
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
 // ── Fluid Balance ──
 router.get('/api/fluid-balance', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { patient_id } = req.query;
+    const { patient_id, session_id } = req.query;
     let query = `SELECT fb.*, s.name as staff_name FROM fluid_balance fb
                  LEFT JOIN staff_users s ON s.id = fb.staff_id
                  WHERE fb.tenant_id = $1`;
@@ -161,6 +199,7 @@ router.get('/api/fluid-balance', async (req: Request, res: Response) => {
     let idx = 2;
 
     if (patient_id) { query += ` AND fb.patient_id = $${idx}`; params.push(patient_id); idx++; }
+    if (session_id) { query += ` AND fb.session_id = $${idx}`; params.push(session_id); idx++; }
 
     query += ' ORDER BY fb.recorded_at DESC';
     const result = await pool.query(query, params);
@@ -171,13 +210,13 @@ router.get('/api/fluid-balance', async (req: Request, res: Response) => {
 router.post('/api/fluid-balance', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { patient_id, staff_id, fluid_type, intake_ml, output_ml, route: fluidRoute, notes, details } = req.body;
+    const { patient_id, staff_id, fluid_type, intake_ml, output_ml, route: fluidRoute, notes, details, session_id } = req.body;
     if (!patient_id) { res.status(400).json({ error: true, message: 'patient_id is required' }); return; }
     const id = uuidv4();
     const result = await pool.query(
-      `INSERT INTO fluid_balance (id, tenant_id, patient_id, staff_id, fluid_type, intake_ml, output_ml, route, notes, details)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [id, tenantId, patient_id, staff_id || null, fluid_type || null, intake_ml || 0, output_ml || 0, fluidRoute || null, notes || null, details ? JSON.stringify(details) : null]
+      `INSERT INTO fluid_balance (id, tenant_id, patient_id, staff_id, fluid_type, intake_ml, output_ml, route, notes, details, session_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [id, tenantId, patient_id, staff_id || null, fluid_type || null, intake_ml || 0, output_ml || 0, fluidRoute || null, notes || null, details ? JSON.stringify(details) : null, session_id || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }

@@ -5,7 +5,7 @@ import type { Patient, Encounter } from '../types'
 import {
   User, Clock, Pill, Beaker, Scan, Activity, Loader2, Home,
   AlertTriangle, ChevronRight, ArrowLeft, Stethoscope, FlaskConical, Droplets, XCircle,
-  FileText, X, Info, Plus, CheckCircle
+  FileText, X, Info, Plus, CheckCircle, Edit2
 } from 'lucide-react'
 
 const PER_PAGE = 15
@@ -71,6 +71,9 @@ export default function PatientChart() {
   const [nurseNotes, setNurseNotes] = useState<any[]>([])
   const [treatments, setTreatments] = useState<any[]>([])
   const [fluidBalance, setFluidBalance] = useState<any[]>([])
+  const [fluidSessions, setFluidSessions] = useState<any[]>([])
+  const [activeSession, setActiveSession] = useState<string | null>(null)
+  const [creatingSession, setCreatingSession] = useState(false)
   const [showNoteModal, setShowNoteModal] = useState(false)
   const [showDoctorNoteModal, setShowDoctorNoteModal] = useState(false)
   const [noteContent, setNoteContent] = useState('')
@@ -96,9 +99,13 @@ export default function PatientChart() {
   const [fluidSubmitting, setFluidSubmitting] = useState(false)
   const [showFluidDetailModal, setShowFluidDetailModal] = useState(false)
   const [fluidDetail, setFluidDetail] = useState<'intake' | 'output'>('intake')
+  const [fluidEditMode, setFluidEditMode] = useState(false)
   const [fluidSearch, setFluidSearch] = useState('')
   const [showFluidDropdown, setShowFluidDropdown] = useState(false)
   const [isFluidOther, setIsFluidOther] = useState(false)
+  const [showOutputModal, setShowOutputModal] = useState(false)
+  const [outputForm, setOutputForm] = useState({ urine: '', vomit: '', aspirate: '', bowels: '', blood_loss: '' })
+  const [outputSubmitting, setOutputSubmitting] = useState(false)
 
   const COMMON_FLUIDS = [
     // ── Crystalloids ──
@@ -340,14 +347,16 @@ export default function PatientChart() {
         setAdmissions(admRes.data || [])
 
         if (patientId) {
-          const [notesRes, txRes, fbRes] = await Promise.all([
+          const [notesRes, txRes, fbRes, sessRes] = await Promise.all([
             api.get(`/nurse-notes?patient_id=${patientId}`).catch(() => ({ data: [] })),
             api.get(`/treatments?patient_id=${patientId}`).catch(() => ({ data: [] })),
             api.get(`/fluid-balance?patient_id=${patientId}`).catch(() => ({ data: [] })),
+            api.get(`/fluid-sessions?patient_id=${patientId}`).catch(() => ({ data: [] })),
           ])
           setNurseNotes(notesRes.data || [])
           setTreatments(txRes.data || [])
           setFluidBalance(fbRes.data || [])
+          setFluidSessions(sessRes.data || [])
         }
       } catch {} finally { setLoading(false) }
     }
@@ -403,7 +412,7 @@ export default function PatientChart() {
     { id: 'radiology', label: `Radiology (${radOrders.length})`, icon: Scan },
     { id: 'admissions', label: `Admissions (${admissions.length})`, icon: Home },
     { id: 'treatment_sheet', label: `Treatments (${treatments.length})`, icon: Pill },
-    { id: 'fluid_balance', label: `Fluid (${fluidBalance.length})`, icon: Droplets },
+    { id: 'fluid_balance', label: `Fluid (${fluidSessions.length})`, icon: Droplets },
     { id: 'nurse_clinical_notes', label: `Nurses Clin. Notes (${nurseOnlyNotes.length})`, icon: FileText },
     { id: 'doctor_clinical_notes', label: `Doctors Cli. Notes (${doctorNotes.length + soapEncounters.length})`, icon: Stethoscope },
   ]
@@ -1028,6 +1037,7 @@ export default function PatientChart() {
         </div>
       )}
 
+
       {/* Doctors Clinical Notes Tab */}
       {activeSection === 'doctor_clinical_notes' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
@@ -1059,10 +1069,10 @@ export default function PatientChart() {
               {soapEncounters.length > 0 && (
                 <div className="space-y-3">
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">SOAP Notes from Encounters</p>
-                  {soapEncounters.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 15).map((enc: any) => {
-                    const soap = enc.soap_notes ? (typeof enc.soap_notes === 'string' ? JSON.parse(enc.soap_notes) : enc.soap_notes) : null
+                  {soapEncounters.slice(0, 15).map((enc: any) => {
+                    const soap = enc.soap_notes ? (typeof enc.soap_notes === "string" ? JSON.parse(enc.soap_notes) : enc.soap_notes) : null
                     const doctorName = enc.staff_id ? staffCache[enc.staff_id] : null
-                    const diagnoses = enc.diagnoses ? (Array.isArray(enc.diagnoses) ? enc.diagnoses : typeof enc.diagnoses === 'string' ? JSON.parse(enc.diagnoses) : []) : []
+                    const diagnoses = enc.diagnoses ? (Array.isArray(enc.diagnoses) ? enc.diagnoses : typeof enc.diagnoses === "string" ? JSON.parse(enc.diagnoses) : []) : []
                     return (
                       <div key={enc.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
                         <div className="flex items-center justify-between mb-2 text-xs text-slate-400">
@@ -1084,9 +1094,9 @@ export default function PatientChart() {
                         )}
                         {soap && (
                           <div className="grid grid-cols-2 gap-3 mt-2">
-                            {['subjective', 'objective', 'assessment', 'plan', 'notes'].filter((f: string) => soap[f]).map((f: string) => (
+                            {['subjective', 'objective', 'assessment', 'plan', 'notes'].filter((f) => soap[f]).map((f) => (
                               <div key={f} className="bg-white rounded-lg p-2.5 border border-slate-100">
-                                    <p className="text-[10px] font-medium text-primary capitalize mb-0.5">{f === 'notes' ? 'Notes' : f}</p>
+                                <p className="text-[10px] font-medium text-primary capitalize mb-0.5">{f === 'notes' ? 'Notes' : f}</p>
                                 <p className="text-sm text-slate-600">{soap[f]}</p>
                               </div>
                             ))}
@@ -1096,113 +1106,11 @@ export default function PatientChart() {
                     )
                   })}
                 </div>
-          )}
-
-          {/* Detailed Fluid Breakdown Modal */}
-          {showFluidDetailModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!fluidSubmitting) setShowFluidDetailModal(false) }}>
-              <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
-                  <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Droplets size={18} className="text-blue-500" /> {fluidDetail === 'intake' ? 'Intake' : 'Output'} Breakdown</h2>
-                  <button onClick={() => setShowFluidDetailModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
-                </div>
-                <div className="p-6 space-y-4 overflow-y-auto">
-                  {fluidDetail === 'intake' ? (
-                    <div>
-                      <p className="text-xs font-semibold text-blue-600 mb-3 flex items-center gap-1"><Droplets size={14} /> Intake Routes</p>
-                      <div className="space-y-3">
-                        {['Oral', 'IV', 'Foley', 'Parenteral', 'Other'].map((route) => (
-                          <div key={route}>
-                            <label className="block text-xs font-medium text-slate-500 mb-1">{route} (mL)</label>
-                            <input type="number" min={0} placeholder="0" value={(fluidForm as any)[`intake_${route.toLowerCase()}`] || ''}
-                              onChange={(e) => setFluidForm((p: any) => ({ ...p, [`intake_${route.toLowerCase()}`]: e.target.value }))}
-                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                          </div>
-                        ))}
-                        <div className="p-3 bg-blue-50 rounded-xl text-center">
-                          <span className="text-sm text-blue-700 font-semibold">
-                            Total: {(
-                              Number((fluidForm as any).intake_oral || 0) + Number((fluidForm as any).intake_iv || 0) +
-                              Number((fluidForm as any).intake_foley || 0) + Number((fluidForm as any).intake_parenteral || 0) +
-                              Number((fluidForm as any).intake_other || 0)
-                            ).toFixed(0)} mL
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div>
-                      <p className="text-xs font-semibold text-amber-600 mb-3 flex items-center gap-1"><Droplets size={14} /> Output Types</p>
-                      <div className="space-y-3">
-                        {['Urine', 'Vomit', 'Aspirate', 'Bowels', 'Blood Loss'].map((type) => {
-                          const key = `output_${type.toLowerCase().replace(' ', '_')}`
-                          return (
-                            <div key={type}>
-                              <label className="block text-xs font-medium text-slate-500 mb-1">{type} (mL)</label>
-                              <input type="number" min={0} placeholder="0" value={(fluidForm as any)[key] || ''}
-                                onChange={(e) => setFluidForm((p: any) => ({ ...p, [key]: e.target.value }))}
-                                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                            </div>
-                          )
-                        })}
-                        <div className="p-3 bg-amber-50 rounded-xl text-center">
-                          <span className="text-sm text-amber-700 font-semibold">
-                            Total: {(
-                              Number((fluidForm as any).output_urine || 0) + Number((fluidForm as any).output_vomit || 0) +
-                              Number((fluidForm as any).output_aspirate || 0) + Number((fluidForm as any).output_bowels || 0) +
-                              Number((fluidForm as any).output_blood_loss || 0)
-                            ).toFixed(0)} mL
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
-                  <button onClick={() => setShowFluidDetailModal(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-                  <button onClick={async () => {
-                    if (!patientId) return
-                    setFluidSubmitting(true)
-                    try {
-                      const intakeMap: Record<string, number> = {}
-                      const outputMap: Record<string, number> = {}
-                      let totalIntake = 0, totalOutput = 0
-                      ;['oral', 'iv', 'foley', 'parenteral', 'other'].forEach((r) => {
-                        const val = Number((fluidForm as any)[`intake_${r}`] || 0)
-                        if (val > 0) { intakeMap[r] = val; totalIntake += val }
-                      })
-                      ;['urine', 'vomit', 'aspirate', 'bowels', 'blood_loss'].forEach((t) => {
-                        const val = Number((fluidForm as any)[`output_${t}`] || 0)
-                        if (val > 0) { outputMap[t] = val; totalOutput += val }
-                      })
-                      const details = { intake: intakeMap, output: outputMap }
-                      const payload: any = {
-                        patient_id: patientId, staff_id: currentUser?.id,
-                        intake_ml: totalIntake, output_ml: totalOutput,
-                        notes: null, details,
-                      }
-                      await api.post('/fluid-balance', payload)
-                      setShowFluidDetailModal(false)
-                      Object.keys(fluidForm).forEach((k: string) => {
-                        if (k.startsWith('intake_') || k.startsWith('output_')) (fluidForm as any)[k] = ''
-                      })
-                      const res = await api.get(`/fluid-balance?patient_id=${patientId}`)
-                      setFluidBalance(res.data || [])
-                    } catch {} finally { setFluidSubmitting(false) }
-                  }} disabled={fluidSubmitting}
-                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
-                    {fluidSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Droplets size={14} />} Save
-                  </button>
-                </div>
-              </div>
+              )}
             </div>
           )}
         </div>
       )}
-        </div>
-      )}
-
-      {/* Treatment Sheet Tab */}
       {activeSection === 'treatment_sheet' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
@@ -1296,202 +1204,523 @@ export default function PatientChart() {
       {/* Fluid Balance Tab */}
       {activeSection === 'fluid_balance' && (
         <div className="space-y-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-slate-700">Fluid Balance</h2>
+
+          {/* Sessions list */}
+          {fluidSessions.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
+              <Droplets size={40} className="mx-auto text-slate-300 mb-3" />
+              <p className="text-sm font-medium text-slate-500 mb-4">No fluid balance sessions yet</p>
               {!isDoctor && (
-                <button onClick={() => { setFluidForm({ fluid_type: '', intake_ml: '', output_ml: '', route: '', notes: '' }); setFluidRoutes([]); setFluidOtherRoute(''); setFluidSearch(''); setIsFluidOther(false); setShowFluidModal(true) }}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform"><Plus size={14} /> Add Entry</button>
+                <button onClick={async () => {
+                  if (!patientId) return
+                  setCreatingSession(true)
+                  try {
+                    const res = await api.post('/fluid-sessions', { patient_id: patientId, staff_id: currentUser?.id })
+                    setFluidSessions((prev) => [res.data, ...prev])
+                    setActiveSession(res.data.id)
+                  } catch {} finally { setCreatingSession(false) }
+                }} disabled={creatingSession}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
+                  {creatingSession ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} New Session (Day)
+                </button>
               )}
             </div>
-            {fluidBalance.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">No fluid balance records</p> : (
-              <>
-                <div className="grid grid-cols-3 gap-4 mb-4">
-                  {[
-                    { label: 'Total Intake', value: fluidBalance.reduce((s, f) => s + Number(f.intake_ml), 0), color: 'text-blue-600', bg: 'bg-blue-100', key: 'intake' },
-                    { label: 'Total Output', value: fluidBalance.reduce((s, f) => s + Number(f.output_ml), 0), color: 'text-amber-600', bg: 'bg-amber-100', key: 'output' },
-                    { label: 'Net Balance', value: fluidBalance.reduce((s, f) => s + Number(f.intake_ml) - Number(f.output_ml), 0), color: 'text-emerald-600', bg: 'bg-emerald-100', key: null },
-                  ].map((s) => (
-                    s.key ? (
-                      <button key={s.label} onClick={() => { setFluidDetail(s.key as 'intake' | 'output'); setShowFluidDetailModal(true) }}
-                        className="bg-white rounded-xl border border-slate-100 p-4 text-center hover:shadow-md hover:border-slate-200 transition-all cursor-pointer w-full">
-                        <p className={`text-xl font-bold ${s.color}`}>{s.value} mL</p>
-                        <p className="text-xs text-slate-500">{s.label}</p>
-                      </button>
-                    ) : (
-                      <div key={s.label} className="bg-white rounded-xl border border-slate-100 p-4 text-center">
-                        <p className={`text-xl font-bold ${s.color}`}>{s.value} mL</p>
-                        <p className="text-xs text-slate-500">{s.label}</p>
-                      </div>
-                    )
-                  ))}
-                </div>
-                <div className="space-y-3">
-                  {usePagination(fluidBalance, fluidPage).items.map((f: any) => {
-                    const details = f.details ? (typeof f.details === 'string' ? JSON.parse(f.details) : f.details) : null
-                    const intakeRoutes = details?.intake || {}
-                    const outputTypes = details?.output || {}
-                    return (
-                      <div key={f.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                        <div className="flex items-center justify-between text-xs text-slate-400 mb-3">
-                          <span>{new Date(f.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
-                          {f.staff_name && <span>by <strong>{f.staff_name}</strong></span>}
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="bg-blue-50 rounded-xl p-3">
-                            <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-1"><Droplets size={13} /> Intake — {Number(f.intake_ml).toFixed(0)} mL</p>
-                            {Object.keys(intakeRoutes).length > 0 ? (
-                              <div className="space-y-1">
-                                {Object.entries(intakeRoutes).map(([route, ml]) => (
-                                  <div key={route} className="flex justify-between text-xs text-blue-600"><span className="capitalize">{route}</span><span className="font-medium">{String(ml)} mL</span></div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-xs text-blue-400 italic">{f.fluid_type || 'General'} ({f.route || '—'})</p>
-                            )}
-                          </div>
-                          <div className="bg-amber-50 rounded-xl p-3">
-                            <p className="text-xs font-semibold text-amber-700 mb-2 flex items-center gap-1"><Droplets size={13} /> Output — {Number(f.output_ml).toFixed(0)} mL</p>
-                            {Object.keys(outputTypes).length > 0 ? (
-                              <div className="space-y-1">
-                                {Object.entries(outputTypes).map(([type, ml]) => (
-                                  <div key={type} className="flex justify-between text-xs text-amber-600"><span className="capitalize">{type.replace('_', ' ')}</span><span className="font-medium">{String(ml)} mL</span></div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-xs text-amber-400 italic">No output recorded</p>
-                            )}
-                          </div>
-                        </div>
-                        <div className="mt-2 flex items-center justify-between">
-                          <p className="text-xs text-slate-400">Net: <strong className={`${Number(f.intake_ml) - Number(f.output_ml) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{(Number(f.intake_ml) - Number(f.output_ml)).toFixed(0)} mL</strong></p>
-                          {f.notes && <p className="text-xs text-slate-400">{f.notes}</p>}
-                        </div>
-                      </div>
-                    )
-                  })}
-                  <Pagination page={fluidPage} totalPages={usePagination(fluidBalance, fluidPage).totalPages} onChange={setFluidPage} />
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Add Fluid Balance Modal — simple */}
-          {showFluidModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!fluidSubmitting) setShowFluidModal(false) }}>
-              <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-                <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                  <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Droplets size={18} className="text-blue-500" /> Add Fluid Entry</h2>
-                  <button onClick={() => setShowFluidModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
-                </div>
-                <div className="p-6 space-y-4">
-                  <div className="relative">
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Fluid Type</label>
-                    {isFluidOther ? (
-                      <input type="text" placeholder="Type custom fluid name..." value={fluidForm.fluid_type}
-                        onChange={(e) => setFluidForm((p) => ({ ...p, fluid_type: e.target.value }))}
-                        onBlur={() => { if (!fluidForm.fluid_type) setIsFluidOther(false) }}
-                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" autoFocus />
-                    ) : (
-                      <>
-                        <input type="text" placeholder="Search or select fluid type..." value={fluidSearch || fluidForm.fluid_type}
-                          onChange={(e) => { setFluidSearch(e.target.value); setFluidForm((p) => ({ ...p, fluid_type: '' })); setShowFluidDropdown(true) }}
-                          onFocus={() => setShowFluidDropdown(true)}
-                          onBlur={() => setTimeout(() => setShowFluidDropdown(false), 200)}
-                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                        {showFluidDropdown && (
-                          <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
-                            {COMMON_FLUIDS.filter((f) => f !== 'Other' && f.toLowerCase().includes((fluidSearch || '').toLowerCase())).slice(0, 15).map((fluid) => (
-                              <button key={fluid} type="button" onMouseDown={() => {
-                                setFluidForm((p) => ({ ...p, fluid_type: fluid }))
-                                setFluidSearch(''); setShowFluidDropdown(false)
-                              }} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors">{fluid}</button>
-                            ))}
-                            {COMMON_FLUIDS.filter((f) => f !== 'Other' && f.toLowerCase().includes((fluidSearch || '').toLowerCase())).length === 0 && (
-                              <button type="button" onMouseDown={() => { setIsFluidOther(true); setFluidForm((p) => ({ ...p, fluid_type: '' })); setShowFluidDropdown(false) }}
-                                className="w-full text-left px-4 py-2.5 text-sm text-slate-500 hover:bg-slate-50 transition-colors border-t border-slate-100">
-                                + Other — type custom fluid name
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Intake (mL)</label>
-                    <input type="number" placeholder="0" value={fluidForm.intake_ml}
-                      onChange={(e) => setFluidForm((p) => ({ ...p, intake_ml: e.target.value }))}
-                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1.5">Route(s)</label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {['Oral', 'IV', 'Foley', 'Parenteral'].map((r) => {
-                        const isSelected = fluidRoutes.includes(r)
-                        return (
-                          <button key={r} type="button" onClick={() => setFluidRoutes((prev) => prev.includes(r) ? prev.filter((v) => v !== r) : [...prev, r])}
-                            className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${
-                              isSelected ? 'bg-blue-500 text-white border-blue-500 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600'
-                            }`}>{r}</button>
-                        )
-                      })}
-                      {(() => {
-                        const isOther = fluidRoutes.includes('Other')
-                        return (
-                          <button type="button" onClick={() => {
-                            if (isOther) { setFluidRoutes((prev) => prev.filter((v) => v !== 'Other')); setFluidOtherRoute('') }
-                            else setFluidRoutes((prev) => [...prev, 'Other'])
-                          }}
-                            className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${
-                              isOther ? 'bg-blue-500 text-white border-blue-500 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600'
-                            }`}>Other</button>
-                        )
-                      })()}
-                    </div>
-                    {fluidRoutes.includes('Other') && (
-                      <input type="text" placeholder="Specify other route..." value={fluidOtherRoute}
-                        onChange={(e) => setFluidOtherRoute(e.target.value)}
-                        className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Notes</label>
-                    <textarea rows={2} placeholder="Optional" value={fluidForm.notes}
-                      onChange={(e) => setFluidForm((p) => ({ ...p, notes: e.target.value }))}
-                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
-                  </div>
-                </div>
-                <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
-                  <button onClick={() => setShowFluidModal(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+          ) : (
+            <>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-slate-500">{fluidSessions.length} session{fluidSessions.length !== 1 ? 's' : ''}</p>
+                {!isDoctor && (
                   <button onClick={async () => {
                     if (!patientId) return
-                    setFluidSubmitting(true)
+                    setCreatingSession(true)
                     try {
-                      const routeStr = [...fluidRoutes, ...(fluidOtherRoute.trim() ? [fluidOtherRoute.trim()] : [])].join(', ')
-                      await api.post('/fluid-balance', {
-                        patient_id: patientId, staff_id: currentUser?.id,
-                        intake_ml: Number(fluidForm.intake_ml) || 0, output_ml: 0, notes: fluidForm.notes || null,
-                        route: routeStr || null, fluid_type: fluidForm.fluid_type || null,
-                      })
-                      setShowFluidModal(false)
-                      setFluidForm({ fluid_type: '', intake_ml: '', output_ml: '', route: '', notes: '' })
-                      setFluidRoutes([]); setFluidOtherRoute(''); setFluidSearch(''); setIsFluidOther(false)
-                      const res = await api.get(`/fluid-balance?patient_id=${patientId}`)
-                      setFluidBalance(res.data || [])
-                    } catch {} finally { setFluidSubmitting(false) }
-                  }} disabled={fluidSubmitting}
-                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
-                    {fluidSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Droplets size={14} />} Save Entry
+                      const res = await api.post('/fluid-sessions', { patient_id: patientId, staff_id: currentUser?.id })
+                      setFluidSessions((prev) => [res.data, ...prev])
+                      setActiveSession(res.data.id)
+                    } catch {} finally { setCreatingSession(false) }
+                  }} disabled={creatingSession}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
+                    {creatingSession ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} New Session (Day)
                   </button>
-                </div>
+                )}
               </div>
-            </div>
+
+              <div className="space-y-4">
+                {fluidSessions.map((sess) => {
+                  const sessEntries = fluidBalance.filter((f) => f.session_id === sess.id)
+                  const totalIntake = sessEntries.reduce((s, f) => s + Number(f.intake_ml), 0)
+                  const totalOutput = sessEntries.reduce((s, f) => s + Number(f.output_ml), 0)
+                  const isActive = activeSession === sess.id
+                  return (
+                    <div key={sess.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                      <button onClick={() => setActiveSession(isActive ? null : sess.id)}
+                        className="w-full px-5 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <Droplets size={16} className="text-primary" />
+                          <span className="text-sm font-semibold text-slate-800">{new Date(sess.session_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 text-[10px] font-medium">{sessEntries.length} entries</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-xs">
+                          {sess.staff_name && <span className="text-slate-400">by <strong>{sess.staff_name}</strong></span>}
+                          <span className={`font-semibold ${totalIntake - totalOutput >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            Net: {(totalIntake - totalOutput).toFixed(0)} mL
+                          </span>
+                        </div>
+                      </button>
+
+                      {isActive && (
+                        <div className="border-t border-slate-100 p-4 space-y-3">
+                          <div className="grid grid-cols-3 gap-3">
+                            <div className="bg-blue-50 rounded-xl p-3 text-center">
+                              <p className="text-xs text-blue-500 font-medium">Intake</p>
+                              <p className="text-lg font-bold text-blue-700">{totalIntake.toFixed(0)} mL</p>
+                            </div>
+                            <div className="bg-amber-50 rounded-xl p-3 text-center">
+                              <p className="text-xs text-amber-500 font-medium">Output</p>
+                              <p className="text-lg font-bold text-amber-700">{totalOutput.toFixed(0)} mL</p>
+                            </div>
+                            <div className="bg-emerald-50 rounded-xl p-3 text-center">
+                              <p className="text-xs text-emerald-500 font-medium">Net</p>
+                              <p className={`text-lg font-bold ${totalIntake - totalOutput >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{(totalIntake - totalOutput).toFixed(0)} mL</p>
+                            </div>
+                          </div>
+
+                          {!isDoctor && (
+                            <div className="flex gap-2">
+                              <button onClick={() => { setActiveSession(sess.id); setFluidForm({ fluid_type: '', intake_ml: '', output_ml: '', route: '', notes: '' }); setFluidRoutes([]); setFluidOtherRoute(''); setFluidSearch(''); setIsFluidOther(false); setShowFluidModal(true) }}
+                                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-colors"><Plus size={14} /> Add Intake</button>
+                              <button onClick={() => { setActiveSession(sess.id); setFluidDetail('intake'); setFluidEditMode(false); setShowFluidDetailModal(true) }}
+                                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-50 text-blue-600 text-xs font-medium hover:bg-blue-100 transition-colors"><Droplets size={14} /> Intake Detail</button>
+                              <button onClick={() => { setActiveSession(sess.id); setFluidDetail('output'); setFluidEditMode(false); setShowFluidDetailModal(true) }}
+                                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-50 text-amber-600 text-xs font-medium hover:bg-amber-100 transition-colors"><Droplets size={14} /> Output Detail</button>
+                              <button onClick={() => { setActiveSession(sess.id); setShowOutputModal(true); setOutputForm({ urine: '', vomit: '', aspirate: '', bowels: '', blood_loss: '' }) }}
+                                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-colors"><Plus size={14} /> Add Output</button>
+                            </div>
+                          )}
+
+                          {sessEntries.length > 0 ? (
+                            <div className="space-y-3 pt-2">
+                              {/* Intake Entries */}
+                              <div>
+                                <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-1.5"><Droplets size={13} /> Intake Entries ({sessEntries.filter((e: any) => Number(e.intake_ml) > 0).length})</p>
+                                {sessEntries.filter((e: any) => Number(e.intake_ml) > 0).length > 0 ? (
+                                  <div className="space-y-1.5">
+                                    {sessEntries.filter((e: any) => Number(e.intake_ml) > 0).sort((a: any, b: any) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime()).slice(0, 5).map((f: any) => {
+                                      const details = f.details ? (typeof f.details === 'string' ? JSON.parse(f.details) : f.details) : null
+                                      const intakeRoutes = details?.intake || {}
+                                      return (
+                                        <div key={f.id} className="p-2.5 rounded-xl bg-blue-50 border border-blue-100">
+                                          <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                                            <span>{new Date(f.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                                            {f.staff_name && <span>by {f.staff_name}</span>}
+                                          </div>
+                                          <p className="text-xs font-semibold text-blue-700">Intake: {Number(f.intake_ml).toFixed(0)} mL</p>
+                                          {Object.keys(intakeRoutes).length > 0 && (
+                                            <div className="text-[10px] text-blue-500 mt-0.5 space-y-0.5">
+                                              {Object.entries(intakeRoutes).map(([r, ml]) => (
+                                                <div className="flex gap-2 text-[10px] text-blue-500"><span className="capitalize">{r}:</span><span className="font-medium">{String(ml)}</span></div>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                ) : <p className="text-xs text-blue-400 italic">No intake recorded this session</p>}
+                              </div>
+
+                              {/* Output Entries */}
+                              <div>
+                                <p className="text-xs font-semibold text-amber-700 mb-2 flex items-center gap-1.5"><Droplets size={13} /> Output Entries ({sessEntries.filter((e: any) => Number(e.output_ml) > 0).length})</p>
+                                {sessEntries.filter((e: any) => Number(e.output_ml) > 0).length > 0 ? (
+                                  <div className="space-y-1.5">
+                                    {sessEntries.filter((e: any) => Number(e.output_ml) > 0).sort((a: any, b: any) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime()).slice(0, 5).map((f: any) => {
+                                      const details = f.details ? (typeof f.details === 'string' ? JSON.parse(f.details) : f.details) : null
+                                      const outputTypes = details?.output || {}
+                                      return (
+                                        <div key={f.id} className="p-2.5 rounded-xl bg-amber-50 border border-amber-100">
+                                          <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                                            <span>{new Date(f.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                                            {f.staff_name && <span>by {f.staff_name}</span>}
+                                          </div>
+                                          <p className="text-xs font-semibold text-amber-700">Output: {Number(f.output_ml).toFixed(0)} mL</p>
+                                          {Object.keys(outputTypes).length > 0 && (
+                                            <div className="text-[10px] text-amber-500 mt-0.5 space-y-0.5">
+                                              {Object.entries(outputTypes).map(([t, ml]) => (
+                                                <div key={t} className="flex gap-2 text-[10px] text-amber-500"><span className="capitalize">{t.replace('_', ' ')}:</span><span className="font-medium">{String(ml)}</span></div>
+                                              ))}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )
+                                    })}
+                                  </div>
+                                ) : <p className="text-xs text-amber-400 italic">No output recorded this session</p>}
+                              </div>
+                              {sessEntries.length > 10 && <p className="text-[11px] text-slate-400 text-center">+ {sessEntries.length - 10} more entries</p>}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-400 italic text-center py-3">No entries yet. Click "Add Intake" or "Add Output" to record.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </>
           )}
         </div>
       )}
 
+      {/* Add Fluid Balance Modal — simple */}
+      {showFluidModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!fluidSubmitting) setShowFluidModal(false) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Droplets size={18} className="text-blue-500" /> Add Fluid Entry</h2>
+              <button onClick={() => setShowFluidModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="relative">
+                <label className="block text-xs font-medium text-slate-500 mb-1">Fluid Type</label>
+                {isFluidOther ? (
+                  <input type="text" placeholder="Type custom fluid name..." value={fluidForm.fluid_type}
+                    onChange={(e) => setFluidForm((p) => ({ ...p, fluid_type: e.target.value }))}
+                    onBlur={() => { if (!fluidForm.fluid_type) setIsFluidOther(false) }}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" autoFocus />
+                ) : (
+                  <>
+                    <input type="text" placeholder="Search or select fluid type..." value={fluidSearch || fluidForm.fluid_type}
+                      onChange={(e) => { setFluidSearch(e.target.value); setFluidForm((p) => ({ ...p, fluid_type: '' })); setShowFluidDropdown(true) }}
+                      onFocus={() => setShowFluidDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowFluidDropdown(false), 200)}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                    {showFluidDropdown && (
+                      <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
+                        {COMMON_FLUIDS.filter((f) => f !== 'Other' && f.toLowerCase().includes((fluidSearch || '').toLowerCase())).slice(0, 15).map((fluid) => (
+                          <button key={fluid} type="button" onMouseDown={() => { setFluidForm((p) => ({ ...p, fluid_type: fluid })); setFluidSearch(''); setShowFluidDropdown(false) }}
+                            className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors">{fluid}</button>
+                        ))}
+                        {COMMON_FLUIDS.filter((f) => f !== 'Other' && f.toLowerCase().includes((fluidSearch || '').toLowerCase())).length === 0 && (
+                          <button type="button" onMouseDown={() => { setIsFluidOther(true); setFluidForm((p) => ({ ...p, fluid_type: '' })); setShowFluidDropdown(false) }}
+                            className="w-full text-left px-4 py-2.5 text-sm text-slate-500 hover:bg-slate-50 transition-colors border-t border-slate-100">+ Other — type custom fluid name</button>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Intake (mL)</label>
+                <input type="number" placeholder="0" value={fluidForm.intake_ml}
+                  onChange={(e) => setFluidForm((p) => ({ ...p, intake_ml: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1.5">Route(s)</label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {['Oral', 'IV', 'Foley', 'Parenteral'].map((r) => {
+                    const isSelected = fluidRoutes.includes(r)
+                    return (
+                      <button key={r} type="button" onClick={() => setFluidRoutes((prev) => prev.includes(r) ? prev.filter((v) => v !== r) : [...prev, r])}
+                        className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${isSelected ? 'bg-blue-500 text-white border-blue-500 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600'}`}>{r}</button>
+                    )
+                  })}
+                  {(() => {
+                    const isOther = fluidRoutes.includes('Other')
+                    return (
+                      <button type="button" onClick={() => { if (isOther) { setFluidRoutes((prev) => prev.filter((v) => v !== 'Other')); setFluidOtherRoute('') } else setFluidRoutes((prev) => [...prev, 'Other']) }}
+                        className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${isOther ? 'bg-blue-500 text-white border-blue-500 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600'}`}>Other</button>
+                    )
+                  })()}
+                </div>
+                {fluidRoutes.includes('Other') && (
+                  <input type="text" placeholder="Specify other route..." value={fluidOtherRoute}
+                    onChange={(e) => setFluidOtherRoute(e.target.value)}
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Notes</label>
+                <textarea rows={2} placeholder="Optional" value={fluidForm.notes}
+                  onChange={(e) => setFluidForm((p) => ({ ...p, notes: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setShowFluidModal(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={async () => {
+                if (!patientId || !activeSession) return
+                setFluidSubmitting(true)
+                try {
+                  const routeStr = [...fluidRoutes, ...(fluidOtherRoute.trim() ? [fluidOtherRoute.trim()] : [])].join(', ')
+                  await api.post('/fluid-balance', {
+                    patient_id: patientId, staff_id: currentUser?.id,
+                    intake_ml: Number(fluidForm.intake_ml) || 0, output_ml: 0, notes: fluidForm.notes || null,
+                    route: routeStr || null, fluid_type: fluidForm.fluid_type || null, session_id: activeSession,
+                  })
+                  setShowFluidModal(false)
+                  setFluidForm({ fluid_type: '', intake_ml: '', output_ml: '', route: '', notes: '' })
+                  setFluidRoutes([]); setFluidOtherRoute(''); setFluidSearch(''); setIsFluidOther(false)
+                  const [fbRes, sessRes] = await Promise.all([
+                    api.get(`/fluid-balance?patient_id=${patientId}`).catch(() => ({ data: [] })),
+                    api.get(`/fluid-sessions?patient_id=${patientId}`).catch(() => ({ data: [] })),
+                  ])
+                  setFluidBalance(fbRes.data || [])
+                  setFluidSessions(sessRes.data || [])
+                } catch {} finally { setFluidSubmitting(false) }
+              }} disabled={fluidSubmitting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
+                {fluidSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Droplets size={14} />} Save Entry
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Modals ── */}
+
+      {/* Fluid Detail Modal — View & Edit */}
+      {showFluidDetailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!fluidSubmitting) setShowFluidDetailModal(false) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                <Droplets size={18} className={fluidDetail === 'intake' ? 'text-blue-500' : 'text-amber-500'} />
+                {fluidDetail === 'intake' ? 'Intake Breakdown' : 'Output Breakdown'}
+                {!fluidEditMode && <span className="text-xs font-normal text-slate-400 ml-2">(view only)</span>}
+              </h2>
+              <button onClick={() => setShowFluidDetailModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto">
+              {fluidEditMode ? (
+                fluidDetail === 'intake' ? (
+                  <div>
+                    <p className="text-xs font-semibold text-blue-600 mb-3">Enter intake amounts per route</p>
+                    <div className="space-y-3">
+                      {['Oral', 'IV', 'Foley', 'Parenteral', 'Other'].map((route) => (
+                        <div key={route}>
+                          <label className="block text-xs font-medium text-slate-500 mb-1">{route} (mL)</label>
+                          <input type="number" min={0} placeholder="0" value={(fluidForm as any)[`intake_${route.toLowerCase()}`] || ''}
+                            onChange={(e) => setFluidForm((p: any) => ({ ...p, [`intake_${route.toLowerCase()}`]: e.target.value }))}
+                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                        </div>
+                      ))}
+                      <div className="p-3 bg-blue-50 rounded-xl text-center">
+                        <span className="text-sm text-blue-700 font-semibold">Total: {(
+                          ['oral', 'iv', 'foley', 'parenteral', 'other'].reduce((s, r) => s + Number((fluidForm as any)[`intake_${r}`] || 0), 0)
+                        ).toFixed(0)} mL</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <p className="text-xs font-semibold text-amber-600 mb-3">Enter output amounts per type</p>
+                    <div className="space-y-3">
+                      {['Urine', 'Vomit', 'Aspirate', 'Bowels', 'Blood Loss'].map((type) => {
+                        const key = `output_${type.toLowerCase().replace(' ', '_')}`
+                        return (
+                          <div key={type}>
+                            <label className="block text-xs font-medium text-slate-500 mb-1">{type} (mL)</label>
+                            <input type="number" min={0} placeholder="0" value={(fluidForm as any)[key] || ''}
+                              onChange={(e) => setFluidForm((p: any) => ({ ...p, [key]: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                          </div>
+                        )
+                      })}
+                      <div className="p-3 bg-amber-50 rounded-xl text-center">
+                        <span className="text-sm text-amber-700 font-semibold">Total: {(
+                          ['urine', 'vomit', 'aspirate', 'bowels', 'blood_loss'].reduce((s, t) => s + Number((fluidForm as any)[`output_${t}`] || 0), 0)
+                        ).toFixed(0)} mL</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div>
+                  {fluidDetail === 'intake' ? (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Accumulated Intake by Route</p>
+                      <div className="space-y-2 bg-blue-50 rounded-xl p-4">
+                        {(() => {
+                          const totals: Record<string, number> = {}
+                          const sessionEntries = activeSession ? fluidBalance.filter((f: any) => f.session_id === activeSession) : fluidBalance
+                          sessionEntries.forEach((f: any) => {
+                            const d = f.details ? (typeof f.details === 'string' ? JSON.parse(f.details) : f.details) : null
+                            if (d?.intake) Object.entries(d.intake).forEach(([r, ml]) => { totals[r] = (totals[r] || 0) + Number(ml) })
+                          })
+                          const intakeEntries = Object.entries(totals)
+                          const grandTotal = intakeEntries.reduce((s, [, ml]) => s + ml, 0)
+                          return intakeEntries.length > 0 ? (
+                            <>
+                              {intakeEntries.map(([route, ml]) => (
+                                <div key={route} className="flex justify-between text-sm text-blue-700 border-b border-blue-100 pb-1.5 last:border-0">
+                                  <span className="font-medium capitalize">{route}</span>
+                                  <span className="font-bold">{ml.toFixed(0)} mL</span>
+                                </div>
+                              ))}
+                              <div className="flex justify-between text-sm text-blue-800 font-bold pt-1 border-t border-blue-200 mt-1">
+                                <span>Total Intake</span>
+                                <span>{grandTotal.toFixed(0)} mL</span>
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-sm text-blue-400 italic text-center py-4">No intake breakdown data recorded</p>
+                          )
+                        })()}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Accumulated Output by Type</p>
+                      <div className="space-y-2 bg-amber-50 rounded-xl p-4">
+                        {(() => {
+                          const totals: Record<string, number> = {}
+                          const sessionEntries = activeSession ? fluidBalance.filter((f: any) => f.session_id === activeSession) : fluidBalance
+                          sessionEntries.forEach((f: any) => {
+                            const d = f.details ? (typeof f.details === 'string' ? JSON.parse(f.details) : f.details) : null
+                            if (d?.output) Object.entries(d.output).forEach(([t, ml]) => { totals[t] = (totals[t] || 0) + Number(ml) })
+                          })
+                          const outputEntries = Object.entries(totals)
+                          const grandTotal = outputEntries.reduce((s, [, ml]) => s + ml, 0)
+                          return outputEntries.length > 0 ? (
+                            <>
+                              {outputEntries.map(([type, ml]) => (
+                                <div key={type} className="flex justify-between text-sm text-amber-700 border-b border-amber-100 pb-1.5 last:border-0">
+                                  <span className="font-medium capitalize">{type.replace('_', ' ')}</span>
+                                  <span className="font-bold">{ml.toFixed(0)} mL</span>
+                                </div>
+                              ))}
+                              <div className="flex justify-between text-sm text-amber-800 font-bold pt-1 border-t border-amber-200 mt-1">
+                                <span>Total Output</span>
+                                <span>{grandTotal.toFixed(0)} mL</span>
+                              </div>
+                            </>
+                          ) : (
+                            <p className="text-sm text-amber-400 italic text-center py-4">No output breakdown data recorded</p>
+                          )
+                        })()}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
+              <button onClick={() => setShowFluidDetailModal(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">{fluidEditMode ? 'Cancel' : 'Close'}</button>
+              {fluidEditMode && (
+                <button onClick={async () => {
+                  if (!patientId) return
+                  setFluidSubmitting(true)
+                  try {
+                    const intakeMap: Record<string, number> = {}
+                    const outputMap: Record<string, number> = {}
+                    let totalIntake = 0, totalOutput = 0
+                    ;['oral', 'iv', 'foley', 'parenteral', 'other'].forEach((r) => {
+                      const val = Number((fluidForm as any)[`intake_${r}`] || 0)
+                      if (val > 0) { intakeMap[r] = val; totalIntake += val }
+                    })
+                    ;['urine', 'vomit', 'aspirate', 'bowels', 'blood_loss'].forEach((t) => {
+                      const val = Number((fluidForm as any)[`output_${t}`] || 0)
+                      if (val > 0) { outputMap[t] = val; totalOutput += val }
+                    })
+                    const details = { intake: intakeMap, output: outputMap }
+                    await api.post('/fluid-balance', {
+                      patient_id: patientId, staff_id: currentUser?.id,
+                      intake_ml: totalIntake, output_ml: totalOutput, notes: null, details,
+                    })
+                    setShowFluidDetailModal(false)
+                    Object.keys(fluidForm).forEach((k: string) => {
+                      if (k.startsWith('intake_') || k.startsWith('output_')) (fluidForm as any)[k] = ''
+                    })
+                    const res = await api.get(`/fluid-balance?patient_id=${patientId}`)
+                    setFluidBalance(res.data || [])
+                  } catch {} finally { setFluidSubmitting(false) }
+                }} disabled={fluidSubmitting}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
+                  {fluidSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Droplets size={14} />} Save
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Output Modal */}
+      {showOutputModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!outputSubmitting) setShowOutputModal(false) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Droplets size={18} className="text-amber-500" /> Record Output</h2>
+              <button onClick={() => setShowOutputModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-3">
+                {[
+                  { key: 'urine', label: 'Urine (mL)' },
+                  { key: 'vomit', label: 'Vomit (mL)' },
+                  { key: 'aspirate', label: 'Aspirate (mL)' },
+                  { key: 'bowels', label: 'Bowels (mL)' },
+                  { key: 'blood_loss', label: 'Blood Loss (mL)' },
+                ].map((f) => (
+                  <div key={f.key}>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
+                    <input type="number" min={0} placeholder="0" value={(outputForm as any)[f.key] || ''}
+                      onChange={(e) => setOutputForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  </div>
+                ))}
+                <div className="p-3 bg-amber-50 rounded-xl text-center">
+                  <span className="text-sm text-amber-700 font-semibold">
+                    Total Output: {(
+                      Number(outputForm.urine || 0) + Number(outputForm.vomit || 0) +
+                      Number(outputForm.aspirate || 0) + Number(outputForm.bowels || 0) +
+                      Number(outputForm.blood_loss || 0)
+                    ).toFixed(0)} mL
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setShowOutputModal(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={async () => {
+                if (!patientId || !activeSession) return
+                setOutputSubmitting(true)
+                try {
+                  const outputMap: Record<string, number> = {}
+                  let totalOutput = 0
+                  ;['urine', 'vomit', 'aspirate', 'bowels', 'blood_loss'].forEach((k) => {
+                    const val = Number((outputForm as any)[k] || 0)
+                    if (val > 0) { outputMap[k] = val; totalOutput += val }
+                  })
+                  if (totalOutput > 0) {
+                    await api.post('/fluid-balance', {
+                      patient_id: patientId, staff_id: currentUser?.id,
+                      intake_ml: 0, output_ml: totalOutput, notes: null,
+                      details: { intake: {}, output: outputMap },
+                      session_id: activeSession,
+                    })
+                  }
+                  setShowOutputModal(false)
+                  setOutputForm({ urine: '', vomit: '', aspirate: '', bowels: '', blood_loss: '' })
+                  const [fbRes, sessRes] = await Promise.all([
+                    api.get(`/fluid-balance?patient_id=${patientId}`).catch(() => ({ data: [] })),
+                    api.get(`/fluid-sessions?patient_id=${patientId}`).catch(() => ({ data: [] })),
+                  ])
+                  setFluidBalance(fbRes.data || [])
+                  setFluidSessions(sessRes.data || [])
+                } catch {} finally { setOutputSubmitting(false) }
+              }} disabled={outputSubmitting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition-transform disabled:opacity-50">
+                {outputSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Droplets size={14} />} Save Output
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Clinical Note Modal */}
       {showNoteModal && (
