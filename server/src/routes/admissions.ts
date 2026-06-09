@@ -117,16 +117,53 @@ router.put('/api/admissions/:id/bed', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { bed_number } = req.body;
+    // Get the admission first to check ward_id
+    const adm = await pool.query('SELECT ward_id FROM admissions WHERE id = $1 AND status = $2', [id, 'active']);
+    if (adm.rows.length === 0) {
+      res.status(404).json({ error: true, message: 'Active admission not found' });
+      return;
+    }
+    const wardId = adm.rows[0].ward_id;
+    // Check no other active admission in same ward has this bed
+    const dup = await pool.query('SELECT id FROM admissions WHERE ward_id = $1 AND bed_number = $2 AND status = $3 AND id != $4',
+      [wardId, bed_number, 'active', id]);
+    if (dup.rows.length > 0) {
+      res.status(409).json({ error: true, message: 'Bed already assigned to another patient in this ward' });
+      return;
+    }
     const result = await pool.query(
       `UPDATE admissions SET bed_number = COALESCE($1, bed_number) WHERE id = $2 AND status = 'active' RETURNING *`,
       [bed_number || null, id]
     );
-    if (result.rows.length === 0) {
-      res.status(404).json({ error: true, message: 'Active admission not found' });
-      return;
-    }
     res.json(result.rows[0]);
   } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+
+
+router.get('/api/beds', async (req: Request, res: Response) => {
+  try {
+    const { ward_id } = req.query;
+    let query = 'SELECT b.*, CASE WHEN a.id IS NOT NULL THEN true ELSE false END as occupied FROM beds b LEFT JOIN admissions a ON a.bed_number = b.bed_number AND a.ward_id = b.ward_id AND a.status = $1';
+    const params: any[] = ['active'];
+    if (ward_id) { query += ' AND b.ward_id = $2'; params.push(ward_id); }
+    query += ' ORDER BY b.bed_number';
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+router.post('/api/beds', async (req: Request, res: Response) => {
+  try {
+    const { ward_id, bed_number } = req.body;
+    if (!ward_id || !bed_number) { res.status(400).json({ error: true, message: 'ward_id and bed_number are required' }); return; }
+    const id = uuidv4();
+    const result = await pool.query('INSERT INTO beds (id, ward_id, bed_number) VALUES ($1, $2, $3) RETURNING *', [id, ward_id, bed_number]);
+    res.status(201).json(result.rows[0]);
+  } catch (err: any) {
+    if (err.code === '23505') { res.status(409).json({ error: true, message: 'Bed already exists in this ward' }); return; }
     res.status(500).json({ error: true, message: err.message });
   }
 });

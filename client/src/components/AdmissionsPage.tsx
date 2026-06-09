@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
   ArrowLeft, Home, Loader2, Users, Clock, LogOut, Stethoscope, Search, X, CheckCircle, AlertTriangle, FileText,
-  ChevronUp, ChevronDown
+  ChevronUp, ChevronDown, Heart, Plus
 } from 'lucide-react'
 
 const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
@@ -26,6 +26,13 @@ export default function AdmissionsPage() {
   const [bedModal, setBedModal] = useState<any | null>(null)
   const [bedNumber, setBedNumber] = useState('')
   const [bedAssigning, setBedAssigning] = useState(false)
+  const [bedsList, setBedsList] = useState<any[]>([])
+  const [bedsLoading, setBedsLoading] = useState(false)
+  const [showNewBedInput, setShowNewBedInput] = useState(false)
+  const [newBedNumber, setNewBedNumber] = useState('')
+  const [vitalsPatient, setVitalsPatient] = useState<any | null>(null)
+  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
+  const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
   const [sortField, setSortField] = useState<SortField>('admitted_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [wardFilter, setWardFilter] = useState('')
@@ -289,14 +296,25 @@ export default function AdmissionsPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0 ml-4">
-                      <button onClick={() => navigate(`/patient/${a.patient_id}`)}
-                        className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
-                      <button onClick={() => navigate(`/consultation/${a.patient_id}`)}
-                        className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-xs font-medium hover:bg-blue-100 transition-colors">Consult</button>
-                      {isNurse && <button onClick={() => { setBedModal(a); setBedNumber(a.bed_number || '') }}
-                        className="px-3 py-1.5 rounded-lg bg-teal-50 text-teal-600 text-xs font-medium hover:bg-teal-100 transition-colors flex items-center gap-1"><Home size={12} /> Bed</button>}
-                      <button onClick={() => setDischargeModal(a)}
-                        className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors flex items-center gap-1"><LogOut size={12} /> Discharge</button>
+                      {isNurse ? (
+                        <>
+                        <button onClick={() => { setVitalsPatient(a); setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' }) }}
+                          className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary/90 transition-colors flex items-center gap-1"><Heart size={12} /> Vitals</button>
+                        <button onClick={() => navigate(`/patient/${a.patient_id}`)}
+                          className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
+                      {isNurse && <button onClick={() => { setBedModal(a); setBedNumber(a.bed_number || ''); setShowNewBedInput(false); setNewBedNumber(''); setBedsLoading(true); api.get(`/beds?ward_id=${a.ward_id}`).then((r) => setBedsList(r.data || [])).catch(() => {}).finally(() => setBedsLoading(false)) }}
+                        className="px-3 py-1.5 rounded-lg bg-teal-50 text-teal-600 text-xs font-medium hover:bg-teal-100 transition-colors flex items-center gap-1"><Home size={12} /> {a.bed_number ? a.bed_number : 'Bed'}</button>}
+                      </>
+                      ) : (
+                        <>
+                        <button onClick={() => navigate(`/patient/${a.patient_id}`)}
+                          className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
+                        <button onClick={() => navigate(`/consultation/${a.patient_id}`)}
+                          className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-xs font-medium hover:bg-blue-100 transition-colors">Consult</button>
+                        <button onClick={() => setDischargeModal(a)}
+                          className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors flex items-center gap-1"><LogOut size={12} /> Discharge</button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -372,10 +390,48 @@ export default function AdmissionsPage() {
             <div className="p-6 space-y-4">
               <p className="text-sm text-slate-600">Patient: <strong>{bedModal.patient_name}</strong> &middot; Ward: <strong>{bedModal.ward_name}</strong></p>
               <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Bed Number</label>
-                <input type="text" placeholder="e.g. GEN-12, ICU-03" value={bedNumber}
-                  onChange={(e) => setBedNumber(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                <label className="block text-xs font-medium text-slate-500 mb-1">Select Bed</label>
+                {bedsLoading ? (
+                  <div className="flex items-center justify-center py-4"><Loader2 size={16} className="animate-spin text-primary" /></div>
+                ) : (
+                  <>
+                    {!showNewBedInput ? (
+                      <div className="space-y-1.5">
+                        {bedsList.length > 0 ? bedsList.filter((b: any) => !b.occupied).map((b: any) => (
+                          <button key={b.id} onClick={() => setBedNumber(b.bed_number)}
+                            className={`w-full text-left px-4 py-2.5 rounded-xl border text-sm transition-all ${
+                              bedNumber === b.bed_number ? 'bg-teal-50 border-teal-300 text-teal-700 font-medium' : 'bg-white border-slate-200 text-slate-700 hover:border-teal-200'
+                            }`}>{b.bed_number}</button>
+                        )) : <p className="text-sm text-slate-400 italic py-2">No available beds</p>}
+                        <button onClick={() => setShowNewBedInput(true)}
+                          className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-slate-300 text-sm text-slate-500 hover:border-primary hover:text-primary transition-all mt-1">
+                          <Plus size={14} /> Add custom bed
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <input type="text" placeholder="Enter bed number..." value={newBedNumber}
+                          onChange={(e) => setNewBedNumber(e.target.value)}
+                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" autoFocus />
+                        <div className="flex gap-2">
+                          <button onClick={async () => {
+                            if (!newBedNumber.trim()) return
+                            try {
+                              const res = await api.post('/beds', { ward_id: bedModal.ward_id, bed_number: newBedNumber.trim() })
+                              setBedsList((prev) => [...prev, res.data])
+                              setBedNumber(newBedNumber.trim())
+                              setShowNewBedInput(false)
+                              setNewBedNumber('')
+                            } catch (err: any) {
+                              if (err.response?.status === 409) { setBedNumber(newBedNumber.trim()); setShowNewBedInput(false); setNewBedNumber('') }
+                            }
+                          }} className="flex-1 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:bg-primary/90 transition-colors">Add & Select</button>
+                          <button onClick={() => { setShowNewBedInput(false); setNewBedNumber('') }} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-colors">Cancel</button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
@@ -392,6 +448,74 @@ export default function AdmissionsPage() {
               }} disabled={bedAssigning || !bedNumber.trim()}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-transform disabled:opacity-50">
                 {bedAssigning ? <Loader2 size={14} className="animate-spin" /> : <Home size={14} />} Save Bed
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vitals Modal */}
+      {vitalsPatient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!vitalsSubmitting) setVitalsPatient(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Heart size={18} className="text-primary" /> Record Vitals</h2>
+              <button onClick={() => setVitalsPatient(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">Patient: <strong>{vitalsPatient.patient_name}</strong></p>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {[
+                  { label: 'Systolic BP', key: 'systolic_bp', placeholder: '120' },
+                  { label: 'Diastolic BP', key: 'diastolic_bp', placeholder: '80' },
+                  { label: 'Pulse', key: 'pulse', placeholder: '72 bpm' },
+                  { label: 'Temperature', key: 'temperature', placeholder: '36.5 C' },
+                  { label: 'Resp. Rate', key: 'respiration_rate', placeholder: '16' },
+                  { label: 'Weight', key: 'weight', placeholder: '70 kg' },
+                  { label: 'SpO2', key: 'spo2', placeholder: '98 %' },
+                ].map((f) => (
+                  <div key={f.key}>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
+                    <input type="number" step="any" placeholder={f.placeholder} value={(vitalsForm as any)[f.key]}
+                      onChange={(e) => setVitalsForm((p: any) => ({ ...p, [f.key]: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  </div>
+                ))}
+                <div className="col-span-2 md:col-span-3">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Nursing Notes</label>
+                  <textarea rows={3} placeholder="Observations..." value={vitalsForm.nursing_notes}
+                    onChange={(e) => setVitalsForm((p: any) => ({ ...p, nursing_notes: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setVitalsPatient(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={async () => {
+                if (!vitalsPatient) return
+                setVitalsSubmitting(true)
+                try {
+                  const encRes = await api.post('/encounters', {
+                    patient_id: vitalsPatient.patient_id, encounter_type: 'vitals', chief_complaint: vitalsForm.nursing_notes.slice(0, 200),
+                    staff_id: currentUserId,
+                  })
+                  await api.post('/vitals', {
+                    encounter_id: encRes.data.id,
+                    systolic_bp: vitalsForm.systolic_bp ? parseInt(vitalsForm.systolic_bp) : null,
+                    diastolic_bp: vitalsForm.diastolic_bp ? parseInt(vitalsForm.diastolic_bp) : null,
+                    pulse: vitalsForm.pulse ? parseInt(vitalsForm.pulse) : null,
+                    temperature: vitalsForm.temperature ? parseFloat(vitalsForm.temperature) : null,
+                    respiration_rate: vitalsForm.respiration_rate ? parseInt(vitalsForm.respiration_rate) : null,
+                    weight: vitalsForm.weight ? parseFloat(vitalsForm.weight) : null,
+                    spo2: vitalsForm.spo2 ? parseInt(vitalsForm.spo2) : null,
+                    nursing_notes: vitalsForm.nursing_notes,
+                  })
+                  setVitalsPatient(null)
+                  setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
+                } catch {} finally { setVitalsSubmitting(false) }
+              }} disabled={vitalsSubmitting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
+                {vitalsSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Heart size={14} />} Save Vitals
               </button>
             </div>
           </div>

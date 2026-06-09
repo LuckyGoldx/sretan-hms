@@ -33,3 +33,4 @@ CREATE TABLE IF NOT EXISTS admissions (
 CREATE TRIGGER update_admissions_updated_at
   BEFORE UPDATE ON admissions
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+\n\n-- Beds\nCREATE TABLE IF NOT EXISTS beds (\n  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n  ward_id UUID REFERENCES wards(id) ON DELETE CASCADE,\n  bed_number VARCHAR(20) NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW(),\n  UNIQUE(ward_id, bed_number)\n);\n\nINSERT INTO beds (ward_id, bed_number) \nSELECT w.id, b.bed FROM wards w CROSS JOIN (\n  VALUES ('Bed 1'),('Bed 2'),('Bed 3'),('Bed 4'),('Bed 5')\n) AS b(bed)\nON CONFLICT (ward_id, bed_number) DO NOTHING;
