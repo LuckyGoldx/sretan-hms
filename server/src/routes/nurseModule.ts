@@ -133,7 +133,12 @@ router.put('/api/treatment-doses/:id/administer', async (req: Request, res: Resp
       [administered_by || null, notes || null, id]
     );
     if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Dose not found' }); return; }
-    res.json(result.rows[0]);
+    const enriched = await pool.query(
+      `SELECT td.*, s.name as administered_by_name FROM treatment_doses td
+       LEFT JOIN staff_users s ON s.id = td.administered_by
+       WHERE td.id = $1`, [id]
+    );
+    res.json(enriched.rows[0]);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
@@ -145,7 +150,12 @@ router.put('/api/treatment-doses/:id/skip', async (req: Request, res: Response) 
       `UPDATE treatment_doses SET status = 'skipped', notes = $1, administered_at = NOW(), administered_by = $2 WHERE id = $3`,
       [notes || null, administered_by || null, id]
     );
-    res.json({ success: true });
+    const enriched = await pool.query(
+      `SELECT td.*, s.name as administered_by_name FROM treatment_doses td
+       LEFT JOIN staff_users s ON s.id = td.administered_by
+       WHERE td.id = $1`, [id]
+    );
+    res.json(enriched.rows[0] || { success: true });
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 

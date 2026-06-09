@@ -272,6 +272,7 @@ CREATE OR REPLACE TRIGGER on_auth_user_created
 - Uses `lucide-react` for icons
 - Components use CSS variables (`var(--primary-color)`) for dynamic theming
 - Connects to local Express API via Axios
+- **Responsive design required:** Every page must fit any screen size (320px+) without a horizontal page scrollbar. Use `flex-wrap`, `truncate`, responsive grid columns (`grid-cols-N sm:grid-cols-N md:grid-cols-N`), and `overflow-x-auto` for scrollable tables/tabs. All `flex items-center justify-between` rows with potentially long text must include `flex-wrap` and `min-w-0` with `truncate` on text spans. The Layout component provides `overflow-x-hidden` on `<main>` — do not rely on it alone; ensure all content fits within the viewport width.
 
 ### Module 0 — Dynamic Branding & White-Label Login Component
 

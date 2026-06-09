@@ -106,6 +106,18 @@ export default function PatientChart() {
   const [showOutputModal, setShowOutputModal] = useState(false)
   const [outputForm, setOutputForm] = useState({ urine: '', vomit: '', aspirate: '', bowels: '', blood_loss: '' })
   const [outputSubmitting, setOutputSubmitting] = useState(false)
+  const [showEntryModal, setShowEntryModal] = useState(false)
+  const [selectedEntry, setSelectedEntry] = useState<any>(null)
+
+  async function autoCompleteTreatment(treatmentId: string, doses: any[]) {
+    if (doses.length === 0) return
+    const allDone = doses.every((d: any) => d.status === 'administered' || d.status === 'skipped')
+    if (!allDone) return
+    try {
+      const res = await api.put(`/treatments/${treatmentId}`, { status: 'completed', end_date: new Date().toISOString(), ended_by: currentUser?.id })
+      setTreatments((prev) => prev.map((x: any) => x.id === treatmentId ? { ...x, ...res.data, status: 'completed' } : x))
+    } catch {}
+  }
 
   const COMMON_FLUIDS = [
     // ── Crystalloids ──
@@ -417,25 +429,31 @@ export default function PatientChart() {
     { id: 'doctor_clinical_notes', label: `Doctors Cli. Notes (${doctorNotes.length + soapEncounters.length})`, icon: Stethoscope },
   ]
 
+  const visibleSections = sections.filter((s) => {
+    if (isDoctor) return !['treatment_sheet', 'fluid_balance', 'nurse_clinical_notes'].includes(s.id)
+    if (isNurse) return !['prescriptions', 'radiology', 'doctor_clinical_notes'].includes(s.id)
+    return true
+  })
+
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6 overflow-x-hidden">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
-        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center"><User className="w-5 h-5 text-primary" /></div>
-        <div>
-          <h1 className="text-xl font-semibold text-slate-800">Patient Chart</h1>
-          <p className="text-sm text-slate-400">{patient.full_name} &middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; {patient.blood_type || 'N/A'}</p>
+      <div className="flex items-start gap-3 flex-wrap">
+        <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100 flex-shrink-0 mt-0.5"><ArrowLeft size={20} className="text-slate-500" /></button>
+        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5"><User className="w-5 h-5 text-primary" /></div>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-semibold text-slate-800 truncate">Patient Chart</h1>
+          <p className="text-sm text-slate-400 truncate">{patient.full_name} &middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; {patient.blood_type || 'N/A'}</p>
         </div>
         {isNurse || isDoctor ? (
-          <div className="ml-auto flex items-center gap-2">
+          <div className="w-full lg:w-auto flex items-center gap-2 lg:ml-auto pt-2 lg:pt-0">
             <button onClick={() => { setShowVitalsForm(true); setActiveSection('vitals') }}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
+              className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
               <Activity size={15} /> Record Vitals
             </button>
             {isDoctor && (
               <button onClick={() => navigate(`/consultation/${patientId}`)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-medium hover:bg-slate-50 transition-colors">
+                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-medium hover:bg-slate-50 transition-colors">
                 <Stethoscope size={15} /> Consult
               </button>
             )}
@@ -444,15 +462,15 @@ export default function PatientChart() {
       </div>
 
       {/* Section Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {sections.map((s) => {
+      <div className="flex flex-wrap gap-1.5">
+        {visibleSections.map((s) => {
           const Icon = s.icon
           return (
             <button key={s.id} onClick={() => setActiveSection(s.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all ${
+              className={`flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
                 activeSection === s.id ? 'bg-primary text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
               }`}>
-              <Icon size={15} /> {s.label}
+              <Icon size={12} className="hidden sm:inline" /> {s.label}
             </button>
           )
         })}
@@ -472,7 +490,7 @@ export default function PatientChart() {
                 { label: 'Phone', value: patient.phone || '—' },
                 { label: 'Insurance', value: patient.insurance || '—' },
                 { label: 'Next of Kin', value: patient.next_of_kin || '—' },
-                { label: 'Status', value: patient.status?.replace('_', ' ') || '—' },
+                { label: 'Hospital No.', value: patient.hospital_number || '—' },
               ].map((f) => (
                 <div key={f.label}>
                   <p className="text-xs text-slate-400">{f.label}</p>
@@ -480,6 +498,41 @@ export default function PatientChart() {
                 </div>
               ))}
             </div>
+            {(() => {
+  const activeAdmission = admissions.find((a: any) => a.status === 'active')
+  if (activeAdmission) {
+    return (
+      <div className="mt-4 pt-4 border-t border-slate-100">
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="text-xs text-slate-400 font-medium">Current Status</span>
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-emerald-50 border-emerald-200 text-emerald-700">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+            Admitted — {activeAdmission.ward_name}
+          </span>
+        </div>
+      </div>
+    )
+  }
+  const statusMap: Record<string, { label: string; color: string; bg: string }> = {
+    checked_in: { label: 'Checked In', color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' },
+    in_triage: { label: 'In Triage', color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' },
+    waiting: { label: 'Waiting', color: 'text-purple-700', bg: 'bg-purple-50 border-purple-200' },
+    with_doctor: { label: 'With Doctor', color: 'text-indigo-700', bg: 'bg-indigo-50 border-indigo-200' },
+    discharged: { label: 'Discharged', color: 'text-slate-600', bg: 'bg-slate-50 border-slate-200' },
+  }
+  const s = statusMap[patient.status] || { label: patient.status?.replace('_', ' ') || 'Unknown', color: 'text-slate-700', bg: 'bg-slate-50 border-slate-200' }
+  return (
+    <div className="mt-4 pt-4 border-t border-slate-100">
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-xs text-slate-400 font-medium">Current Status</span>
+        <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border ${s.bg} ${s.color}`}>
+          {patient.status === 'in_triage' && <span className="inline-block w-2 h-2 rounded-full animate-pulse bg-amber-500" />}
+          {s.label}
+        </span>
+      </div>
+    </div>
+  )
+})()}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -490,8 +543,8 @@ export default function PatientChart() {
                   {rxList.slice(0, 5).map((rx: any) => (
                     <button key={rx.id} onClick={() => setModalRx(rx)}
                       className="w-full flex justify-between text-xs p-2 rounded-lg hover:bg-slate-50 transition-colors text-left">
-                      <span className="text-slate-700 font-medium">{rx.drug_name}</span>
-                      <span className="text-slate-400">{rx.quantity} × {rx.dosage}</span>
+                      <span className="text-slate-700 font-medium truncate min-w-0">{rx.drug_name}</span>
+                      <span className="text-slate-400 flex-shrink-0">{rx.quantity} × {rx.dosage}</span>
                     </button>
                   ))}
                 </div>
@@ -502,7 +555,7 @@ export default function PatientChart() {
               {labOrders.length === 0 ? <p className="text-xs text-slate-400">None</p> : (
                 <div className="space-y-2">
                   {labOrders.slice(0, 5).map((l: any) => (
-                    <div key={l.id} className="flex justify-between text-xs"><span className="text-slate-700">{l.test_name}</span><span className={`px-1.5 py-0.5 rounded text-[10px] ${l.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{l.status}</span></div>
+                    <div key={l.id} className="flex justify-between text-xs gap-2"><span className="text-slate-700 truncate min-w-0">{l.test_name}</span><span className={`px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ${l.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{l.status}</span></div>
                   ))}
                 </div>
               )}
@@ -519,11 +572,11 @@ export default function PatientChart() {
               {(() => {
                 const active = admissions.find((a: any) => a.status === 'active')
                 return active ? (
-                  <div className="mt-2 text-xs bg-emerald-50 border border-emerald-100 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5">
-                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+                  <div className="mt-2 text-xs bg-emerald-50 border border-emerald-100 rounded-lg px-2.5 py-1.5 flex items-center gap-1.5 flex-wrap">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
                     <span className="text-emerald-700 font-medium">Currently admitted</span>
-                    <span className="text-emerald-400">·</span>
-                    <span className="text-emerald-600">{active.ward_name}</span>
+                    <span className="text-emerald-400 flex-shrink-0">·</span>
+                    <span className="text-emerald-600 truncate min-w-0">{active.ward_name}</span>
                   </div>
                 ) : (
                   <div className="mt-2 text-xs bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5 text-slate-500">Not admitted</div>
@@ -575,7 +628,7 @@ export default function PatientChart() {
 
       {/* Prescriptions */}
       {activeSection === 'prescriptions' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
           {rxList.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-8">No prescriptions</p>
           ) : (
@@ -592,7 +645,7 @@ export default function PatientChart() {
                 <tbody className="divide-y divide-slate-50">
                   {usePagination(rxList, rxPage).items.map((rx: any) => (
                     <tr key={rx.id} onClick={() => setModalRx(rx)} className="hover:bg-slate-50 cursor-pointer">
-                      <td className="px-5 py-3 font-medium text-slate-800">{rx.drug_name}</td>
+                      <td className="px-5 py-3 font-medium text-slate-800 truncate max-w-[160px]">{rx.drug_name}</td>
                       <td className="px-5 py-3 text-slate-500">{rx.dosage || '—'}</td>
                       <td className="px-5 py-3">{rx.quantity}</td>
                       <td className="px-5 py-3 text-xs text-slate-600">{rx.doctor_name || '—'}</td>
@@ -621,9 +674,9 @@ export default function PatientChart() {
               'bg-blue-100 text-blue-700'
             return (
               <div key={lab.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-                <div className="px-5 py-3 flex items-center justify-between border-b border-slate-50">
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-semibold text-slate-800">{lab.test_name}</span>
+                <div className="px-5 py-3 flex items-center justify-between border-b border-slate-50 gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-sm font-semibold text-slate-800 truncate">{lab.test_name}</span>
                     <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${statusStyle}`}>
                       {lab.status.charAt(0).toUpperCase() + lab.status.slice(1)}
                     </span>
@@ -631,19 +684,19 @@ export default function PatientChart() {
                   <span className="text-xs text-slate-400">{new Date(lab.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
                 <div className="px-5 py-3">
-                  <div className="flex items-center gap-3 text-xs text-slate-500 mb-3">
+                  <div className="flex items-center gap-2 sm:gap-3 text-xs text-slate-500 flex-wrap">
                     {lab.doctor_name && <span>Ordered by: <strong>{lab.doctor_name}</strong></span>}
                     {lab.lab_number && <span className="font-mono">#{lab.lab_number}</span>}
                   </div>
                   {results.length > 0 ? (
                     <div className="space-y-1.5">
                       {results.map((r: any) => (
-                        <div key={r.id} className={`flex items-center gap-3 text-xs px-3 py-2 rounded-xl ${r.is_abnormal ? 'bg-rose-50' : 'bg-slate-50'}`}>
-                          <span className="font-medium flex-1 text-slate-700">{r.analyte_name}</span>
-                          <span className={`font-bold ${r.is_abnormal ? 'text-rose-600' : 'text-slate-800'}`}>{r.value}</span>
-                          <span className="text-slate-400">({r.reference_range_low || '?'}–{r.reference_range_high || '?'})</span>
-                          {r.is_abnormal && <AlertTriangle size={12} className="text-rose-500" />}
-                          {r.result_number && <span className="text-xs text-slate-300 font-mono">#{r.result_number}</span>}
+                        <div key={r.id} className={`flex items-center gap-2 text-xs px-3 py-2 rounded-xl flex-wrap ${r.is_abnormal ? 'bg-rose-50' : 'bg-slate-50'}`}>
+                          <span className="font-medium flex-1 min-w-0 text-slate-700">{r.analyte_name}</span>
+                          <span className={`font-bold flex-shrink-0 ${r.is_abnormal ? 'text-rose-600' : 'text-slate-800'}`}>{r.value}</span>
+                          <span className="text-slate-400 flex-shrink-0">({r.reference_range_low || '?'}–{r.reference_range_high || '?'})</span>
+                          {r.is_abnormal && <AlertTriangle size={12} className="text-rose-500 flex-shrink-0" />}
+                          {r.result_number && <span className="text-xs text-slate-300 font-mono flex-shrink-0">#{r.result_number}</span>}
                         </div>
                       ))}
                     </div>
@@ -689,12 +742,12 @@ export default function PatientChart() {
                 {(labResults[viewLabModal.id] || []).length > 0 ? (
                   <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
                     {(labResults[viewLabModal.id] || []).map((r: any) => (
-                      <div key={r.id} className={`px-4 py-3 flex items-center justify-between text-sm ${r.is_abnormal ? 'bg-rose-50' : 'bg-white'}`}>
+                      <div key={r.id} className={`px-4 py-3 flex items-center gap-2 text-sm flex-wrap ${r.is_abnormal ? 'bg-rose-50' : 'bg-white'}`}>
                         <div className="flex items-center gap-3 min-w-0 flex-1">
                           <span className="font-medium text-slate-700">{r.analyte_name}</span>
                           <span className={`font-bold ${r.is_abnormal ? 'text-rose-600' : 'text-slate-800'}`}>{r.value}</span>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                        <div className="flex items-center gap-2 flex-shrink-0">
                           <span className="text-xs text-slate-400">Ref: {r.reference_range_low || '?'}–{r.reference_range_high || '?'}</span>
                           {r.is_abnormal && <AlertTriangle size={14} className="text-rose-500" />}
                         </div>
@@ -721,12 +774,12 @@ export default function PatientChart() {
           ) : (
             <div className="space-y-3">
               {usePagination(radOrders, radPage).items.map((rad: any) => (
-                <div key={rad.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="flex items-center justify-between mb-1">
-                    <p className="text-sm font-medium text-slate-800">{rad.imaging_type}</p>
+                  <div key={rad.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                    <div className="flex items-center justify-between mb-1 gap-3">
+                      <p className="text-sm font-medium text-slate-800 truncate">{rad.imaging_type}</p>
                     <span className={`px-2.5 py-0.5 rounded-lg text-xs font-medium ${rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{rad.status}</span>
                   </div>
-                  <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                  <div className="flex items-center gap-2 sm:gap-3 text-[11px] text-slate-500 flex-wrap">
                     {rad.doctor_name && <span>Ordered by: <strong>{rad.doctor_name}</strong></span>}
                     <span>{new Date(rad.created_at).toLocaleString()}</span>
                   </div>
@@ -746,16 +799,16 @@ export default function PatientChart() {
           ) : (
             <>
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-3xl font-bold text-slate-900">{admissions.length}</p>
-                    <p className="text-sm text-slate-500">Total admissions</p>
-                  </div>
-                  {(() => {
-                    const active = admissions.find((a: any) => a.status === 'active')
-                    if (!active) return <div className="text-sm text-slate-400 bg-slate-50 rounded-xl px-4 py-2">Not currently admitted</div>
-                    return (
-                      <div className="flex items-center gap-2 text-sm bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2">
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div>
+                        <p className="text-3xl font-bold text-slate-900">{admissions.length}</p>
+                        <p className="text-sm text-slate-500">Total admissions</p>
+                      </div>
+                      {(() => {
+                        const active = admissions.find((a: any) => a.status === 'active')
+                        if (!active) return <div className="text-sm text-slate-400 bg-slate-50 rounded-xl px-4 py-2">Not currently admitted</div>
+                        return (
+                          <div className="flex items-center gap-2 text-sm bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 truncate max-w-full">
                         <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" />
                         <span className="text-emerald-700 font-medium">Active — {active.ward_name}</span>
                       </div>
@@ -765,11 +818,11 @@ export default function PatientChart() {
               </div>
               {usePagination(admissions, admPage).items.map((a: any, idx: number) => (
                 <div key={a.id || idx} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                  <div className={`px-5 py-3 border-b flex items-center justify-between ${a.status === 'active' ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100'}`}>
-                    <div className="flex items-center gap-2">
-                      <Home size={15} className={a.status === 'active' ? 'text-emerald-600' : 'text-slate-500'} />
-                      <span className="text-sm font-semibold text-slate-700">{a.ward_name}</span>
-                      <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-semibold ${
+                  <div className={`px-5 py-3 border-b flex items-center gap-2 flex-wrap ${a.status === 'active' ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100'}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Home size={15} className={`flex-shrink-0 ${a.status === 'active' ? 'text-emerald-600' : 'text-slate-500'}`} />
+                      <span className="text-sm font-semibold text-slate-700 truncate">{a.ward_name}</span>
+                      <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-semibold flex-shrink-0 ${
                         a.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'
                       }`}>{a.status === 'active' ? 'Active' : 'Discharged'}</span>
                     </div>
@@ -824,7 +877,7 @@ export default function PatientChart() {
       {/* Encounter Detail Modal */}
       {modalEnc && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setModalEnc(null); setModalEncData(null) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-2xl mx-4 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-2xl mx-4 max-h-[85vh] overflow-y-auto overflow-x-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl z-10">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
                 <Clock size={18} className="text-primary" />
@@ -871,7 +924,7 @@ export default function PatientChart() {
                       {fields.map((f) => soap[f] ? (
                         <div key={f} className="bg-slate-50 rounded-xl p-3">
                           <p className="text-xs font-medium text-primary capitalize mb-0.5">{f}</p>
-                          <p className="text-sm text-slate-700">{soap[f]}</p>
+                          <p className="text-sm text-slate-700 break-words">{soap[f]}</p>
                         </div>
                       ) : null)}
                     </div>
@@ -885,9 +938,9 @@ export default function PatientChart() {
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Pill size={12} /> Prescriptions ({modalEncData.prescriptions.length})</p>
                       <div className="space-y-1.5">
                         {modalEncData.prescriptions.map((rx: any) => (
-                          <div key={rx.id} className="flex items-center justify-between bg-slate-50 rounded-xl p-3 text-sm">
-                            <div><span className="font-medium text-slate-800">{rx.drug_name}</span> <span className="text-slate-400">{rx.dosage}</span></div>
-                            <span className="text-slate-500">Qty: {rx.quantity}</span>
+                          <div key={rx.id} className="flex items-center justify-between bg-slate-50 rounded-xl p-3 text-sm gap-3">
+                            <div className="min-w-0 truncate"><span className="font-medium text-slate-800 truncate">{rx.drug_name}</span> <span className="text-slate-400">{rx.dosage}</span></div>
+                            <span className="text-slate-500 flex-shrink-0">Qty: {rx.quantity}</span>
                           </div>
                         ))}
                       </div>
@@ -906,11 +959,11 @@ export default function PatientChart() {
                                 <span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${lab.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{lab.status}</span>
                               </div>
                               {results.length > 0 && results.map((r: any) => (
-                                <div key={r.id} className={`flex items-center gap-3 text-xs px-2.5 py-1 rounded-lg mt-1 ${r.is_abnormal ? 'bg-rose-50 text-rose-700' : 'bg-white text-slate-600'}`}>
-                                  <span className="font-medium flex-1">{r.analyte_name}</span>
-                                  <span className="font-bold">{r.value}</span>
-                                  <span className="text-slate-400">({r.reference_range_low || '?'}–{r.reference_range_high || '?'})</span>
-                                  {r.is_abnormal && <AlertTriangle size={10} className="text-rose-500" />}
+                                <div key={r.id} className={`flex items-center gap-2 sm:gap-3 text-xs px-2.5 py-1 rounded-lg mt-1 flex-wrap ${r.is_abnormal ? 'bg-rose-50 text-rose-700' : 'bg-white text-slate-600'}`}>
+                                  <span className="font-medium flex-1 min-w-0 truncate">{r.analyte_name}</span>
+                                  <span className="font-bold flex-shrink-0">{r.value}</span>
+                                  <span className="text-slate-400 flex-shrink-0">({r.reference_range_low || '?'}–{r.reference_range_high || '?'})</span>
+                                  {r.is_abnormal && <AlertTriangle size={10} className="text-rose-500 flex-shrink-0" />}
                                 </div>
                               ))}
                             </div>
@@ -924,9 +977,9 @@ export default function PatientChart() {
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Scan size={12} /> Radiology Orders ({modalEncData.radiologyOrders.length})</p>
                       <div className="space-y-1.5">
                         {modalEncData.radiologyOrders.map((rad: any) => (
-                          <div key={rad.id} className="flex items-center justify-between bg-slate-50 rounded-xl p-3 text-sm">
-                            <span className="font-medium text-slate-800">{rad.imaging_type}</span>
-                            <span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{rad.status}</span>
+                          <div key={rad.id} className="flex items-center justify-between bg-slate-50 rounded-xl p-3 text-sm gap-3">
+                            <span className="font-medium text-slate-800 truncate min-w-0">{rad.imaging_type}</span>
+                            <span className={`px-2 py-0.5 rounded-lg text-xs font-medium flex-shrink-0 ${rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{rad.status}</span>
                           </div>
                         ))}
                       </div>
@@ -954,10 +1007,10 @@ export default function PatientChart() {
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center text-sm text-slate-400">No vitals recorded</div>
           ) : usePagination(vitalsList, vitPage).items.map((v: any, idx: number) => (
             <div key={v.id || idx} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="flex items-center justify-between px-5 py-3 bg-slate-50 border-b border-slate-100">
-                <div className="flex items-center gap-3">
-                  <Activity size={15} className="text-primary" />
-                  <span className="text-xs font-semibold text-slate-700 uppercase">
+              <div className="flex items-center gap-2 flex-wrap px-5 py-3 bg-slate-50 border-b border-slate-100">
+                <div className="flex items-center gap-2 flex-wrap min-w-0">
+                  <Activity size={15} className="text-primary flex-shrink-0" />
+                  <span className="text-sm font-semibold text-slate-700 uppercase">
                     Vitals — {new Date(v.encounter_date || v.created_at).toLocaleDateString('en-GB', {
                       day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
                     })}
@@ -978,7 +1031,7 @@ export default function PatientChart() {
                 )}
               </div>
               <div className="p-5">
-                <div className="grid grid-cols-4 sm:grid-cols-7 gap-3 text-center">
+                <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 gap-2 sm:gap-3 text-center">
                   {[
                     { label: 'BP', value: v.systolic_bp && v.diastolic_bp ? `${v.systolic_bp}/${v.diastolic_bp}` : '—' },
                     { label: 'Pulse', value: v.pulse ? `${v.pulse}` : '—' },
@@ -1021,7 +1074,7 @@ export default function PatientChart() {
             <div className="space-y-3">
               {usePagination(nurseOnlyNotes, notePage).items.map((n: any) => (
                 <div key={n.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="flex items-center justify-between mb-2 text-xs text-slate-400">
+                  <div className="flex items-center gap-1 flex-wrap mb-2 text-xs text-slate-400">
                     <div className="flex items-center gap-2">
                       {n.note_type && <span className="px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium uppercase">{n.note_type}</span>}
                       <span>{new Date(n.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
@@ -1057,7 +1110,7 @@ export default function PatientChart() {
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Written Notes</p>
                   {usePagination(doctorNotes, notePage).items.map((n: any) => (
                     <div key={n.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                      <div className="flex items-center justify-between mb-2 text-xs text-slate-400">
+                      <div className="flex items-center gap-1 flex-wrap mb-2 text-xs text-slate-400">
                         <span>{new Date(n.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
                         {n.staff_name && <span>by <strong>{n.staff_name}</strong></span>}
                       </div>
@@ -1075,12 +1128,12 @@ export default function PatientChart() {
                     const diagnoses = enc.diagnoses ? (Array.isArray(enc.diagnoses) ? enc.diagnoses : typeof enc.diagnoses === "string" ? JSON.parse(enc.diagnoses) : []) : []
                     return (
                       <div key={enc.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-                        <div className="flex items-center justify-between mb-2 text-xs text-slate-400">
+                        <div className="flex items-center gap-1 flex-wrap mb-2 text-xs text-slate-400">
                           <div className="flex items-center gap-2">
-                            <Stethoscope size={13} className="text-primary" />
+                            <Stethoscope size={13} className="text-primary flex-shrink-0" />
                             <span className="font-semibold text-slate-700 uppercase text-[10px]">{enc.encounter_type}</span>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span>{new Date(enc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
                             {doctorName && <span>by <strong>{doctorName}</strong></span>}
                           </div>
@@ -1124,26 +1177,25 @@ export default function PatientChart() {
             <div className="space-y-4">
               {usePagination(treatments, treatmentPage).items.map((t: any) => {
                 const doses = doseMap[t.id] || []
-                const allDone = doses.length > 0 && doses.every((d: any) => d.status === 'administered')
+                const allDone = doses.length > 0 && doses.every((d: any) => d.status === 'administered' || d.status === 'skipped')
+                const displayStatus = allDone ? 'completed' : t.status
                 return (
                   <div key={t.id} className="rounded-2xl border overflow-hidden">
-                    <div className={`px-5 py-3 border-b flex items-center justify-between ${t.status === 'active' ? 'bg-blue-50 border-blue-100' : 'bg-slate-50 border-slate-100'}`}>
+                    <div className={`px-5 py-3 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 ${t.status === 'active' && !allDone ? 'bg-blue-50 border-blue-100' : 'bg-slate-50 border-slate-100'}`}>
                       <div className="flex items-center gap-3">
                         <span className="text-sm font-semibold text-slate-800">{t.treatment}</span>
-                        <button onClick={() => setDoseDetail({ type: 'treatment', data: t })} className={`px-2 py-0.5 rounded-lg text-[10px] font-medium cursor-pointer hover:opacity-80 ${t.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
-                          {t.status === 'active' ? 'Active' : 'Expired'}
+                        <button onClick={() => setDoseDetail({ type: 'treatment', data: t })} className={`px-2 py-0.5 rounded-lg text-[10px] font-medium cursor-pointer hover:opacity-80 ${displayStatus === 'active' ? 'bg-emerald-100 text-emerald-700' : displayStatus === 'completed' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'}`}>
+                          {displayStatus === 'active' ? 'Active' : displayStatus === 'completed' ? 'Completed' : 'Expired'}
                         </button>
                       </div>
-                      <div className="flex flex-col items-end gap-0.5">
+                      <div className="flex flex-col items-start sm:items-end gap-0.5">
                         <span className="text-[11px] text-slate-400">
                           Started {new Date(t.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} by {t.staff_name || '—'}
                         </span>
-                        {t.status === 'expired' && (
-                          <span className="text-[11px] text-slate-400">
-                            Ended {t.end_date ? new Date(t.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'} by {t.ended_by_name || '—'}
-                          </span>
+                        {(displayStatus === 'expired' || displayStatus === 'completed') && (
+                          <span className="text-[11px] text-slate-400">{displayStatus === 'completed' ? 'Completed' : 'Ended'} — all doses recorded</span>
                         )}
-                        {t.status === 'active' && (
+                        {t.status === 'active' && !allDone && (
                           <button onClick={() => setEndTreatment({ treatmentId: t.id, treatmentName: t.treatment })} className="px-3 py-1 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors">End</button>
                         )}
                       </div>
@@ -1254,13 +1306,13 @@ export default function PatientChart() {
                   return (
                     <div key={sess.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                       <button onClick={() => setActiveSession(isActive ? null : sess.id)}
-                        className="w-full px-5 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <Droplets size={16} className="text-primary" />
+                        className="w-full px-5 py-3 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors flex-wrap">
+                        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                          <Droplets size={16} className="text-primary flex-shrink-0" />
                           <span className="text-sm font-semibold text-slate-800">{new Date(sess.session_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                          <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 text-[10px] font-medium">{sessEntries.length} entries</span>
+                          <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 text-[10px] font-medium flex-shrink-0">{sessEntries.length} entries</span>
                         </div>
-                        <div className="flex items-center gap-3 text-xs">
+                        <div className="flex items-center gap-2 sm:gap-3 text-xs flex-wrap">
                           {sess.staff_name && <span className="text-slate-400">by <strong>{sess.staff_name}</strong></span>}
                           <span className={`font-semibold ${totalIntake - totalOutput >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                             Net: {(totalIntake - totalOutput).toFixed(0)} mL
@@ -1271,11 +1323,11 @@ export default function PatientChart() {
                       {isActive && (
                         <div className="border-t border-slate-100 p-4 space-y-3">
                           <div className="grid grid-cols-3 gap-3">
-                            <div className="bg-blue-50 rounded-xl p-3 text-center">
+                            <div onClick={() => { setActiveSession(sess.id); setFluidDetail('intake'); setFluidEditMode(false); setShowFluidDetailModal(true) }} className="bg-blue-50 rounded-xl p-3 text-center cursor-pointer hover:bg-blue-100 transition-colors">
                               <p className="text-xs text-blue-500 font-medium">Intake</p>
                               <p className="text-lg font-bold text-blue-700">{totalIntake.toFixed(0)} mL</p>
                             </div>
-                            <div className="bg-amber-50 rounded-xl p-3 text-center">
+                            <div onClick={() => { setActiveSession(sess.id); setFluidDetail('output'); setFluidEditMode(false); setShowFluidDetailModal(true) }} className="bg-amber-50 rounded-xl p-3 text-center cursor-pointer hover:bg-amber-100 transition-colors">
                               <p className="text-xs text-amber-500 font-medium">Output</p>
                               <p className="text-lg font-bold text-amber-700">{totalOutput.toFixed(0)} mL</p>
                             </div>
@@ -1286,7 +1338,7 @@ export default function PatientChart() {
                           </div>
 
                           {!isDoctor && (
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 flex-wrap">
                               <button onClick={() => { setActiveSession(sess.id); setFluidForm({ fluid_type: '', intake_ml: '', output_ml: '', route: '', notes: '' }); setFluidRoutes([]); setFluidOtherRoute(''); setFluidSearch(''); setIsFluidOther(false); setShowFluidModal(true) }}
                                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-colors"><Plus size={14} /> Add Intake</button>
                               <button onClick={() => { setActiveSession(sess.id); setFluidDetail('intake'); setFluidEditMode(false); setShowFluidDetailModal(true) }}
@@ -1309,19 +1361,24 @@ export default function PatientChart() {
                                       const details = f.details ? (typeof f.details === 'string' ? JSON.parse(f.details) : f.details) : null
                                       const intakeRoutes = details?.intake || {}
                                       return (
-                                        <div key={f.id} className="p-2.5 rounded-xl bg-blue-50 border border-blue-100">
-                                          <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                                        <div key={f.id} onClick={() => { setSelectedEntry(f); setShowEntryModal(true) }} className="p-2.5 rounded-xl bg-blue-50 border border-blue-100 cursor-pointer hover:bg-blue-100 transition-colors">
+                                          <div className="flex items-center gap-1 flex-wrap text-[11px] text-slate-500 mb-1">
                                             <span>{new Date(f.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
                                             {f.staff_name && <span>by {f.staff_name}</span>}
                                           </div>
-                                          <p className="text-xs font-semibold text-blue-700">Intake: {Number(f.intake_ml).toFixed(0)} mL</p>
-                                          {Object.keys(intakeRoutes).length > 0 && (
+                                          <div className="flex items-center gap-1 flex-wrap">
+                                            <p className="text-xs font-semibold text-blue-700">Intake: {Number(f.intake_ml).toFixed(0)} mL</p>
+                                            {f.fluid_type && <span className="text-[10px] text-blue-600 font-medium truncate max-w-[120px] sm:max-w-[160px]">{f.fluid_type}</span>}
+                                          </div>
+                                          {Object.keys(intakeRoutes).length > 0 ? (
                                             <div className="text-[10px] text-blue-500 mt-0.5 space-y-0.5">
                                               {Object.entries(intakeRoutes).map(([r, ml]) => (
-                                                <div className="flex gap-2 text-[10px] text-blue-500"><span className="capitalize">{r}:</span><span className="font-medium">{String(ml)}</span></div>
+                                                <div key={r} className="flex gap-2"><span className="capitalize">{r}:</span><span className="font-medium">{String(ml)} mL</span></div>
                                               ))}
                                             </div>
-                                          )}
+                                          ) : f.route ? (
+                                            <div className="text-[10px] text-blue-400 mt-0.5">Route: <span className="font-medium capitalize">{f.route}</span></div>
+                                          ) : null}
                                         </div>
                                       )
                                     })}
@@ -1338,8 +1395,8 @@ export default function PatientChart() {
                                       const details = f.details ? (typeof f.details === 'string' ? JSON.parse(f.details) : f.details) : null
                                       const outputTypes = details?.output || {}
                                       return (
-                                        <div key={f.id} className="p-2.5 rounded-xl bg-amber-50 border border-amber-100">
-                                          <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                                        <div key={f.id} onClick={() => { setSelectedEntry(f); setShowEntryModal(true) }} className="p-2.5 rounded-xl bg-amber-50 border border-amber-100 cursor-pointer hover:bg-amber-100 transition-colors">
+                                          <div className="flex items-center gap-1 flex-wrap text-[11px] text-slate-500 mb-1">
                                             <span>{new Date(f.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
                                             {f.staff_name && <span>by {f.staff_name}</span>}
                                           </div>
@@ -1454,11 +1511,19 @@ export default function PatientChart() {
                 if (!patientId || !activeSession) return
                 setFluidSubmitting(true)
                 try {
-                  const routeStr = [...fluidRoutes, ...(fluidOtherRoute.trim() ? [fluidOtherRoute.trim()] : [])].join(', ')
+                  const activeRoutes = [...fluidRoutes, ...(fluidOtherRoute.trim() ? [fluidOtherRoute.trim()] : [])]
+                  const routeStr = activeRoutes.join(', ')
+                  const intakeAmount = Number(fluidForm.intake_ml) || 0
+                  const intakeDetails: Record<string, number> = {}
+                  if (activeRoutes.length > 0 && intakeAmount > 0) {
+                    const perRoute = intakeAmount / activeRoutes.length
+                    activeRoutes.forEach(r => { intakeDetails[r.toLowerCase()] = perRoute })
+                  }
                   await api.post('/fluid-balance', {
                     patient_id: patientId, staff_id: currentUser?.id,
-                    intake_ml: Number(fluidForm.intake_ml) || 0, output_ml: 0, notes: fluidForm.notes || null,
-                    route: routeStr || null, fluid_type: fluidForm.fluid_type || null, session_id: activeSession,
+                    intake_ml: intakeAmount, output_ml: 0, notes: fluidForm.notes || null,
+                    route: routeStr || null, fluid_type: fluidForm.fluid_type || null,
+                    session_id: activeSession, details: { intake: intakeDetails, output: {} },
                   })
                   setShowFluidModal(false)
                   setFluidForm({ fluid_type: '', intake_ml: '', output_ml: '', route: '', notes: '' })
@@ -1546,28 +1611,55 @@ export default function PatientChart() {
                       <div className="space-y-2 bg-blue-50 rounded-xl p-4">
                         {(() => {
                           const totals: Record<string, number> = {}
+                          const individualEntries: any[] = []
                           const sessionEntries = activeSession ? fluidBalance.filter((f: any) => f.session_id === activeSession) : fluidBalance
                           sessionEntries.forEach((f: any) => {
+                            if (Number(f.intake_ml) <= 0) return
+                            individualEntries.push(f)
                             const d = f.details ? (typeof f.details === 'string' ? JSON.parse(f.details) : f.details) : null
-                            if (d?.intake) Object.entries(d.intake).forEach(([r, ml]) => { totals[r] = (totals[r] || 0) + Number(ml) })
+                            if (d?.intake) {
+                              Object.entries(d.intake).forEach(([r, ml]) => { totals[r] = (totals[r] || 0) + Number(ml) })
+                            } else {
+                              const routes = f.route ? f.route.split(',').map((r: string) => r.trim().toLowerCase()).filter(Boolean) : ['other']
+                              const perRoute = Number(f.intake_ml) / routes.length
+                              routes.forEach((r: string) => { totals[r] = (totals[r] || 0) + perRoute })
+                            }
                           })
-                          const intakeEntries = Object.entries(totals)
-                          const grandTotal = intakeEntries.reduce((s, [, ml]) => s + ml, 0)
-                          return intakeEntries.length > 0 ? (
+                          const routeEntries = Object.entries(totals)
+                          const grandTotal = routeEntries.reduce((s, [, ml]) => s + ml, 0)
+                          return (routeEntries.length > 0 || individualEntries.length > 0) ? (
                             <>
-                              {intakeEntries.map(([route, ml]) => (
-                                <div key={route} className="flex justify-between text-sm text-blue-700 border-b border-blue-100 pb-1.5 last:border-0">
-                                  <span className="font-medium capitalize">{route}</span>
-                                  <span className="font-bold">{ml.toFixed(0)} mL</span>
+                              {individualEntries.length > 0 && (
+                                <div className="space-y-2 mb-4">
+                                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Entries</p>
+                                  {individualEntries.map((f: any) => (
+                                    <div key={f.id} className="bg-white rounded-xl p-3 border border-blue-100">
+                                      <div className="flex items-center justify-between mb-1">
+                                        <span className="text-xs font-semibold text-blue-700">{f.fluid_type || 'Fluid'}</span>
+                                        <span className="text-xs font-bold text-blue-700">{Number(f.intake_ml).toFixed(0)} mL</span>
+                                      </div>
+                                      {f.route && <div className="text-[10px] text-blue-400">Route: <span className="font-medium capitalize">{f.route}</span></div>}
+                                      <div className="text-[10px] text-slate-400 mt-1">{new Date(f.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}{f.staff_name ? ` by ${f.staff_name}` : ''}</div>
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
-                              <div className="flex justify-between text-sm text-blue-800 font-bold pt-1 border-t border-blue-200 mt-1">
-                                <span>Total Intake</span>
-                                <span>{grandTotal.toFixed(0)} mL</span>
+                              )}
+                              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Accumulated by Route</p>
+                              <div className="space-y-2 bg-blue-50 rounded-xl p-4">
+                                {routeEntries.map(([route, ml]) => (
+                                  <div key={route} className="flex justify-between text-sm text-blue-700 border-b border-blue-100 pb-1.5 last:border-0">
+                                    <span className="font-medium capitalize">{route}</span>
+                                    <span className="font-bold">{ml.toFixed(0)} mL</span>
+                                  </div>
+                                ))}
+                                <div className="flex justify-between text-sm text-blue-800 font-bold pt-1 border-t border-blue-200 mt-1">
+                                  <span>Total Intake</span>
+                                  <span>{grandTotal.toFixed(0)} mL</span>
+                                </div>
                               </div>
                             </>
                           ) : (
-                            <p className="text-sm text-blue-400 italic text-center py-4">No intake breakdown data recorded</p>
+                            <p className="text-sm text-blue-400 italic text-center py-4">No intake recorded this session</p>
                           )
                         })()}
                       </div>
@@ -1966,9 +2058,10 @@ export default function PatientChart() {
             </div>
             <div className="px-6 pb-4 flex flex-col gap-2">
               <button onClick={() => {
-                api.put(`/treatment-doses/${confirmDose.doseId}/administer`, { administered_by: currentUser?.id }).then(() => {
-                  const updated = doseMap[confirmDose.treatmentId]?.map((x: any) => x.id === confirmDose.doseId ? { ...x, status: 'administered', administered_at: new Date().toISOString(), administered_by_name: currentUser?.name } : x)
+                api.put(`/treatment-doses/${confirmDose.doseId}/administer`, { administered_by: currentUser?.id }).then((res) => {
+                  const updated = doseMap[confirmDose.treatmentId]?.map((x: any) => x.id === confirmDose.doseId ? { ...x, ...res.data, status: 'administered' } : x)
                   setDoseMap((prev) => ({ ...prev, [confirmDose.treatmentId]: updated }))
+                  autoCompleteTreatment(confirmDose.treatmentId, updated || [])
                 }).catch(() => {})
                 setConfirmDose(null)
               }}
@@ -2046,9 +2139,10 @@ export default function PatientChart() {
             <div className="px-6 pb-4 flex flex-col gap-2">
               <button onClick={() => {
                 const reason = skipReasonText.trim() || 'Not given'
-                api.put(`/treatment-doses/${skipReason.doseId}/skip`, { notes: reason, administered_by: currentUser?.id }).then(() => {
-                  const updated = doseMap[skipReason.treatmentId]?.map((x: any) => x.id === skipReason.doseId ? { ...x, status: 'skipped', notes: reason, administered_at: new Date().toISOString(), administered_by_name: currentUser?.name } : x)
+                api.put(`/treatment-doses/${skipReason.doseId}/skip`, { notes: reason, administered_by: currentUser?.id }).then((res) => {
+                  const updated = doseMap[skipReason.treatmentId]?.map((x: any) => x.id === skipReason.doseId ? { ...x, ...res.data, status: 'skipped' } : x)
                   setDoseMap((prev) => ({ ...prev, [skipReason.treatmentId]: updated }))
+                  autoCompleteTreatment(skipReason.treatmentId, updated || [])
                 }).catch(() => {})
                 setSkipReason(null)
               }}
@@ -2109,7 +2203,7 @@ export default function PatientChart() {
                   <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
                     <div className="flex justify-between"><span className="text-slate-500">Status</span><span className={`font-medium ${doseDetail.status === 'administered' ? 'text-emerald-600' : 'text-rose-600'}`}>{doseDetail.status === 'administered' ? 'Given' : 'Skipped'}</span></div>
                     <div className="flex justify-between"><span className="text-slate-500">Scheduled Time</span><span className="font-medium text-slate-700">{doseDetail.scheduled_time?.slice(0, 5)}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Recorded At</span><span className="font-medium text-slate-700">{doseDetail.administered_at ? new Date(doseDetail.administered_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '—'}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Recorded At</span><span className="font-medium text-slate-700">{doseDetail.administered_at ? new Date(doseDetail.administered_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'}</span></div>
                     <div className="flex justify-between"><span className="text-slate-500">Recorded By</span><span className="font-medium text-slate-700">{doseDetail.administered_by_name || '—'}</span></div>
                     {doseDetail.status === 'skipped' && doseDetail.notes && (
                       <div className="pt-2 border-t border-slate-200">
@@ -2123,6 +2217,101 @@ export default function PatientChart() {
             )}
             <div className="px-6 pb-4">
               <button onClick={() => setDoseDetail(null)} className="w-full py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fluid Entry Detail Modal */}
+      {showEntryModal && selectedEntry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowEntryModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                {Number(selectedEntry.intake_ml) > 0 ? (
+                  <><Droplets size={18} className="text-blue-500" /> Intake Detail</>
+                ) : (
+                  <><Droplets size={18} className="text-amber-500" /> Output Detail</>
+                )}
+              </h2>
+              <button onClick={() => setShowEntryModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              {(() => {
+                const e = selectedEntry
+                const isIntake = Number(e.intake_ml) > 0
+                const details = e.details ? (typeof e.details === 'string' ? JSON.parse(e.details) : e.details) : null
+                const intakeRoutes = details?.intake || {}
+                const outputTypes = details?.output || {}
+                return (
+                  <div className="space-y-4">
+                    <div className="bg-slate-50 rounded-xl p-4 space-y-3 text-sm">
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-500">Type</span>
+                        <span className={`font-semibold ${isIntake ? 'text-blue-600' : 'text-amber-600'}`}>{isIntake ? 'Intake' : 'Output'}</span>
+                      </div>
+                      {isIntake && e.fluid_type && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Fluid Type</span>
+                          <span className="font-medium text-slate-700 text-right max-w-[60%]">{e.fluid_type}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between">
+                        <span className="text-slate-500">Amount</span>
+                        <span className="font-bold text-slate-800">{Number(isIntake ? e.intake_ml : e.output_ml).toFixed(0)} mL</span>
+                      </div>
+                      {isIntake && Object.keys(intakeRoutes).length > 0 && (
+                        <div>
+                          <span className="text-slate-500 text-xs block mb-1">Routes</span>
+                          <div className="space-y-1">
+                            {Object.entries(intakeRoutes).map(([r, ml]) => (
+                              <div key={r} className="flex justify-between text-blue-700 bg-blue-50 rounded-lg px-3 py-1.5">
+                                <span className="font-medium capitalize">{r}</span>
+                                <span className="font-semibold">{String(ml)} mL</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {isIntake && Object.keys(intakeRoutes).length === 0 && e.route && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-500">Route</span>
+                          <span className="font-medium text-slate-700 capitalize">{e.route}</span>
+                        </div>
+                      )}
+                      {!isIntake && Object.keys(outputTypes).length > 0 && (
+                        <div>
+                          <span className="text-slate-500 text-xs block mb-1">Output Types</span>
+                          <div className="space-y-1">
+                            {Object.entries(outputTypes).map(([t, ml]) => (
+                              <div key={t} className="flex justify-between text-amber-700 bg-amber-50 rounded-lg px-3 py-1.5">
+                                <span className="font-medium capitalize">{String(t).replace('_', ' ')}</span>
+                                <span className="font-semibold">{String(ml)} mL</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {e.notes && (
+                        <div className="pt-2 border-t border-slate-200">
+                          <span className="text-slate-500 text-xs block mb-1">Notes</span>
+                          <p className="text-sm text-slate-700 whitespace-pre-wrap">{e.notes}</p>
+                        </div>
+                      )}
+                      <div className="pt-2 border-t border-slate-200">
+                        <span className="text-slate-500 text-xs">Recorded</span>
+                        <p className="font-medium text-slate-700 mt-0.5">
+                          {new Date(e.recorded_at).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                          {e.staff_name ? ` by ${e.staff_name}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end">
+              <button onClick={() => setShowEntryModal(false)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Close</button>
             </div>
           </div>
         </div>

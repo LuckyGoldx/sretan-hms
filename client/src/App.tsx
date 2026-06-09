@@ -287,7 +287,7 @@ function Layout({ children }: { children: React.ReactNode }) {
       >
         <Menu className="w-5 h-5 text-slate-600" />
       </button>
-      <main className="flex-1 p-4 lg:ml-64 lg:p-6 pt-16 lg:pt-6">{children}</main>
+      <main className="flex-1 p-4 lg:ml-64 lg:p-6 pt-16 lg:pt-6 overflow-x-hidden">{children}</main>
     </div>
   )
 }
