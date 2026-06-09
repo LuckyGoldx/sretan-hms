@@ -425,8 +425,8 @@ export default function AdmissionsPage() {
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        <input type="text" placeholder="Enter bed number..." value={newBedNumber}
-                          onChange={(e) => setNewBedNumber(e.target.value)}
+                        <input type="number" placeholder="Enter bed number..." value={newBedNumber}
+                          onChange={(e) => setNewBedNumber(e.target.value.replace(/\D/g, ""))}
                           className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" autoFocus />
                         <div className="flex gap-2">
                           <button onClick={async () => {
