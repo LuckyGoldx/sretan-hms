@@ -11,7 +11,7 @@ const currentRole: string | null = (() => { try { const u = localStorage.getItem
 const isNurse = currentRole === 'Nurse'
 const isAdmin = currentRole === 'Admin'
 
-type SortField = 'ward_name' | 'admitted_at' | 'discharged_at' | 'patient_name'
+type SortField = 'ward_name' | 'admitted_at' | 'discharged_at' | 'patient_name' | 'bed_number'
 
 export default function AdmissionsPage() {
   const navigate = useNavigate()
@@ -341,6 +341,7 @@ export default function AdmissionsPage() {
                     {([
                       { key: 'patient_name', label: 'Patient' },
                       { key: 'ward_name', label: 'Ward' },
+                      { key: 'bed_number', label: 'Bed' },
                       { key: 'admitted_at', label: 'Admitted' },
                       { key: 'discharged_at', label: 'Discharged' },
                     ] as const).map((h) => (
@@ -363,6 +364,7 @@ export default function AdmissionsPage() {
                         <p className="text-xs text-slate-400">{a.hospital_number || a.patient_id?.slice(0, 8)}</p>
                       </td>
                       <td className="px-5 py-3.5 text-slate-600">{a.ward_name}</td>
+                      <td className="px-5 py-3.5 text-xs text-slate-500">{a.bed_number || "—"}</td>
                       <td className="px-5 py-3.5 text-xs text-slate-500">{new Date(a.admitted_at).toLocaleString()}</td>
                       <td className="px-5 py-3.5 text-xs text-slate-500">{a.discharged_at ? new Date(a.discharged_at).toLocaleString() : '—'}</td>
                       <td className="px-5 py-3.5 text-xs text-slate-600">{a.admitted_by_name || '—'}</td>
@@ -441,7 +443,7 @@ export default function AdmissionsPage() {
                             }
                             try {
                               const res = await api.post('/beds', { ward_id: bedModal.ward_id, bed_number: newBedNumber.trim() })
-                              setBedsList((prev) => [...prev, { ...res.data, occupied: false }])
+                              setBedsList((prev) => { var sorted = [...prev, { ...res.data, occupied: false }]; sorted.sort(function(x, y) { var xn = parseInt(x.bed_number.replace(/\D/g, '')) || 0; var yn = parseInt(y.bed_number.replace(/\D/g, '')) || 0; return xn - yn; }); return sorted; })
                               setBedNumber(newBedNumber.trim())
                               setShowNewBedInput(false)
                               setNewBedNumber('')
