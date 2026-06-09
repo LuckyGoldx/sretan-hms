@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS admissions (
   admitted_at TIMESTAMPTZ DEFAULT NOW(),
   discharged_at TIMESTAMPTZ,
   status VARCHAR(20) DEFAULT 'active',
+  bed_number VARCHAR(20),
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

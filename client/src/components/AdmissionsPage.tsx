@@ -7,6 +7,8 @@ import {
 } from 'lucide-react'
 
 const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
+const currentRole: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role } catch {} return null })()
+const isNurse = currentRole === 'Nurse'
 
 type SortField = 'ward_name' | 'admitted_at' | 'discharged_at' | 'patient_name'
 
@@ -21,6 +23,9 @@ export default function AdmissionsPage() {
   const [historySearch, setHistorySearch] = useState('')
   const [dischargeModal, setDischargeModal] = useState<any | null>(null)
   const [discharging, setDischarging] = useState(false)
+  const [bedModal, setBedModal] = useState<any | null>(null)
+  const [bedNumber, setBedNumber] = useState('')
+  const [bedAssigning, setBedAssigning] = useState(false)
   const [sortField, setSortField] = useState<SortField>('admitted_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [wardFilter, setWardFilter] = useState('')
@@ -279,6 +284,7 @@ export default function AdmissionsPage() {
                       <p className="text-xs text-slate-400">{a.hospital_number || a.patient_id?.slice(0, 8)}</p>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-slate-500">
                         <span className="flex items-center gap-1"><Clock size={11} />Admitted {new Date(a.admitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+                        {a.bed_number && <span className="flex items-center gap-1"><Home size={11} />Bed {a.bed_number}</span>}
                         {a.admitted_by_name && <span className="flex items-center gap-1"><Stethoscope size={11} />by {a.admitted_by_name}</span>}
                       </div>
                     </div>
@@ -287,6 +293,8 @@ export default function AdmissionsPage() {
                         className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
                       <button onClick={() => navigate(`/consultation/${a.patient_id}`)}
                         className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-xs font-medium hover:bg-blue-100 transition-colors">Consult</button>
+                      {isNurse && <button onClick={() => { setBedModal(a); setBedNumber(a.bed_number || '') }}
+                        className="px-3 py-1.5 rounded-lg bg-teal-50 text-teal-600 text-xs font-medium hover:bg-teal-100 transition-colors flex items-center gap-1"><Home size={12} /> Bed</button>}
                       <button onClick={() => setDischargeModal(a)}
                         className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors flex items-center gap-1"><LogOut size={12} /> Discharge</button>
                     </div>
@@ -350,6 +358,43 @@ export default function AdmissionsPage() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Bed Assignment Modal */}
+      {bedModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!bedAssigning) setBedModal(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Home size={18} className="text-teal-500" /> Assign Bed</h2>
+              <button onClick={() => setBedModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">Patient: <strong>{bedModal.patient_name}</strong> &middot; Ward: <strong>{bedModal.ward_name}</strong></p>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Bed Number</label>
+                <input type="text" placeholder="e.g. GEN-12, ICU-03" value={bedNumber}
+                  onChange={(e) => setBedNumber(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setBedModal(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={async () => {
+                if (!bedNumber.trim()) return
+                setBedAssigning(true)
+                try {
+                  await api.put(`/admissions/${bedModal.id}/bed`, { bed_number: bedNumber.trim() })
+                  setActiveAdmissions((prev) => prev.map((x: any) => x.id === bedModal.id ? { ...x, bed_number: bedNumber.trim() } : x))
+                  setBedModal(null)
+                  setBedNumber('')
+                } catch {} finally { setBedAssigning(false) }
+              }} disabled={bedAssigning || !bedNumber.trim()}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-transform disabled:opacity-50">
+                {bedAssigning ? <Loader2 size={14} className="animate-spin" /> : <Home size={14} />} Save Bed
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

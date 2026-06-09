@@ -111,4 +111,24 @@ router.get('/api/admissions/active', async (_req: Request, res: Response) => {
   }
 });
 
+
+
+router.put('/api/admissions/:id/bed', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { bed_number } = req.body;
+    const result = await pool.query(
+      `UPDATE admissions SET bed_number = COALESCE($1, bed_number) WHERE id = $2 AND status = 'active' RETURNING *`,
+      [bed_number || null, id]
+    );
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: true, message: 'Active admission not found' });
+      return;
+    }
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
 export default router;

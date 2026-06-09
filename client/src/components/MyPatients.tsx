@@ -83,11 +83,14 @@ export default function MyPatients() {
   const [statusFilter, setStatusFilter] = useState('')
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [tab, setTab] = useState<'all' | 'mine'>('all')
-  const [admissionMap, setAdmissionMap] = useState<Record<string, { id: string; ward_name: string; admitted_at: string; admitted_by_name?: string }>>({})
+  const [admissionMap, setAdmissionMap] = useState<Record<string, { id: string; ward_name: string; admitted_at: string; admitted_by_name?: string; bed_number?: string }>>({})
   const [wards, setWards] = useState<{ id: string; name: string }[]>([])
   const [admitModal, setAdmitModal] = useState<{ patientId: string; patientName: string } | null>(null)
   const [selectedWard, setSelectedWard] = useState('')
   const [admitting, setAdmitting] = useState(false)
+  const [bedModal, setBedModal] = useState<{ admissionId: string; patientName: string; currentBed?: string } | null>(null)
+  const [bedNumber, setBedNumber] = useState('')
+  const [bedAssigning, setBedAssigning] = useState(false)
   const [vitalsPatient, setVitalsPatient] = useState<any | null>(null)
   const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
@@ -104,9 +107,9 @@ export default function MyPatients() {
       const { data } = await api.get<Patient[]>(`/patients${params}`)
       setPatients(data)
       const admRes = await api.get('/admissions?status=active').catch(() => ({ data: [] }))
-      const map: Record<string, { id: string; ward_name: string; admitted_at: string; admitted_by_name?: string }> = {}
+      const map: Record<string, { id: string; ward_name: string; admitted_at: string; admitted_by_name?: string; bed_number?: string }> = {}
       ;(admRes.data || []).forEach((a: any) => {
-        map[a.patient_id] = { id: a.id, ward_name: a.ward_name, admitted_at: a.admitted_at, admitted_by_name: a.admitted_by_name }
+        map[a.patient_id] = { id: a.id, ward_name: a.ward_name, admitted_at: a.admitted_at, admitted_by_name: a.admitted_by_name, bed_number: a.bed_number }
       })
       setAdmissionMap(map)
     } catch {
@@ -329,7 +332,7 @@ export default function MyPatients() {
 
                 {admissionMap[patient.id] && (
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-indigo-600 bg-indigo-50 rounded-lg px-2.5 py-1.5 mb-1.5">
-                    <div className="flex items-center gap-1"><Home size={12} /><span className="font-medium">{admissionMap[patient.id].ward_name}</span></div>
+                    <div className="flex items-center gap-1"><Home size={12} /><span className="font-medium">{admissionMap[patient.id].ward_name}</span>{admissionMap[patient.id].bed_number && <><span className="text-indigo-300">·</span><span>Bed {admissionMap[patient.id].bed_number}</span></>}</div>
                     <span className="text-indigo-300">·</span>
                     <span>Admitted {new Date(admissionMap[patient.id].admitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                     {admissionMap[patient.id].admitted_by_name && (
@@ -340,10 +343,18 @@ export default function MyPatients() {
 
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   {isNurse ? (
+                    <>
                     <button onClick={() => { setVitalsPatient(patient); setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' }) }}
                       className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:scale-[1.01] transition-all duration-200 shadow-sm">
                       <Heart className="w-3.5 h-3.5" /> Vitals
                     </button>
+                    {admissionMap[patient.id] && (
+                      <button onClick={() => setBedModal({ admissionId: admissionMap[patient.id].id, patientName: patient.full_name, currentBed: admissionMap[patient.id].bed_number })}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-teal-50 text-teal-700 text-xs font-semibold rounded-xl border border-teal-200 hover:bg-teal-100 transition-all duration-200">
+                        <Home className="w-3.5 h-3.5" /> {admissionMap[patient.id].bed_number ? "Bed " + admissionMap[patient.id].bed_number : "Assign Bed"}
+                      </button>
+                    )}
+                    </>
                   ) : (
                     <button onClick={() => navigate(`/consultation/${patient.id}`)}
                       className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:scale-[1.01] transition-all duration-200 shadow-sm">

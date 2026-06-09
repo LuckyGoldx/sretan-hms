@@ -417,16 +417,16 @@ export default function PatientChart() {
 
   const sections = [
     { id: 'summary', label: 'Summary', icon: FileText },
-    { id: 'vitals', label: `Vitals (${vitalsList.length})`, icon: Activity },
-    { id: 'encounters', label: `Encounters (${encounters.filter((e: any) => e.soap_notes && (e.soap_notes.subjective || e.soap_notes.objective || e.soap_notes.assessment || e.soap_notes.plan)).length})`, icon: Clock },
-    { id: 'prescriptions', label: `Rx (${rxList.length})`, icon: Pill },
-    { id: 'lab', label: `Lab (${labOrders.length})`, icon: FlaskConical },
-    { id: 'radiology', label: `Radiology (${radOrders.length})`, icon: Scan },
-    { id: 'admissions', label: `Admissions (${admissions.length})`, icon: Home },
-    { id: 'treatment_sheet', label: `Treatments (${treatments.length})`, icon: Pill },
-    { id: 'fluid_balance', label: `Fluid (${fluidSessions.length})`, icon: Droplets },
-    { id: 'nurse_clinical_notes', label: `Nurses Clin. Notes (${nurseOnlyNotes.length})`, icon: FileText },
-    { id: 'doctor_clinical_notes', label: `Doctors Cli. Notes (${doctorNotes.length + soapEncounters.length})`, icon: Stethoscope },
+    { id: 'vitals', label: vitalsList.length > 0 ? `Vitals (${vitalsList.length})` : 'Vitals', icon: Activity },
+    { id: 'encounters', label: encounters.filter((e: any) => e.soap_notes && (e.soap_notes.subjective || e.soap_notes.objective || e.soap_notes.assessment || e.soap_notes.plan)).length > 0 ? `Encounters (${encounters.filter((e: any) => e.soap_notes && (e.soap_notes.subjective || e.soap_notes.objective || e.soap_notes.assessment || e.soap_notes.plan)).length})` : 'Encounters', icon: Clock },
+    { id: 'prescriptions', label: rxList.length > 0 ? `Rx (${rxList.length})` : 'Rx', icon: Pill },
+    { id: 'lab', label: labOrders.length > 0 ? `Lab (${labOrders.length})` : 'Lab', icon: FlaskConical },
+    { id: 'radiology', label: radOrders.length > 0 ? `Radiology (${radOrders.length})` : 'Radiology', icon: Scan },
+    { id: 'admissions', label: admissions.length > 0 ? `Admissions (${admissions.length})` : 'Admissions', icon: Home },
+    { id: 'treatment_sheet', label: treatments.length > 0 ? `Treatments (${treatments.length})` : 'Treatments', icon: Pill },
+    { id: 'fluid_balance', label: fluidSessions.length > 0 ? `Fluid (${fluidSessions.length})` : 'Fluid', icon: Droplets },
+    { id: 'nurse_clinical_notes', label: nurseOnlyNotes.length > 0 ? `Nurses Clin. Notes (${nurseOnlyNotes.length})` : 'Nurses Clin. Notes', icon: FileText },
+    { id: 'doctor_clinical_notes', label: (doctorNotes.length + soapEncounters.length) > 0 ? `Doctors Cli. Notes (${doctorNotes.length + soapEncounters.length})` : 'Doctors Cli. Notes', icon: Stethoscope },
   ]
 
   const visibleSections = sections.filter((s) => {
@@ -507,7 +507,7 @@ export default function PatientChart() {
           <span className="text-xs text-slate-400 font-medium">Current Status</span>
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-emerald-50 border-emerald-200 text-emerald-700">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
-            Admitted — {activeAdmission.ward_name}
+            Admitted — {activeAdmission.ward_name}{activeAdmission.bed_number ? " " + activeAdmission.bed_number : ""}
           </span>
         </div>
       </div>
