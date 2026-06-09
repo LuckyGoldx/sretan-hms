@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Users, Clock, Activity, UserCheck, Stethoscope, LogOut, RefreshCw, FileText, Plus, X, Loader2, Home, Heart, ArrowLeft } from 'lucide-react'
+import { Search, Users, Clock, Activity, UserCheck, Stethoscope, LogOut, RefreshCw, FileText, Plus, X, Loader2, Bed, Home, Heart, ArrowLeft } from 'lucide-react'
 import api from '../hooks/useAxios'
 import type { Patient } from '../types/index'
 
@@ -329,7 +329,7 @@ export default function MyPatients() {
 
                 {admissionMap[patient.id] && (
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-indigo-600 bg-indigo-50 rounded-lg px-2.5 py-1.5 mb-1.5">
-                    <div className="flex items-center gap-1"><Home size={12} /><span className="font-medium">{admissionMap[patient.id].ward_name}</span>{admissionMap[patient.id].bed_number && <><span className="text-indigo-300">·</span><span>Bed {admissionMap[patient.id].bed_number}</span></>}</div>
+                    <div className="flex items-center gap-1"><Bed size={12} /><span className="font-medium">{admissionMap[patient.id].ward_name}</span>{admissionMap[patient.id].bed_number && <span className="ml-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-bold"><Bed size={9} />{admissionMap[patient.id].bed_number}</span>}</div>
                     <span className="text-indigo-300">·</span>
                     <span>Admitted {new Date(admissionMap[patient.id].admitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                     {admissionMap[patient.id].admitted_by_name && (

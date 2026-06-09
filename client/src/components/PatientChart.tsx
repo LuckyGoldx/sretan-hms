@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import type { Patient, Encounter } from '../types'
 import {
-  User, Clock, Pill, Beaker, Scan, Activity, Loader2, Home,
+  User, Clock, Pill, Beaker, Scan, Activity, Loader2, Bed,
   AlertTriangle, ChevronRight, ArrowLeft, Stethoscope, FlaskConical, Droplets, XCircle,
   FileText, X, Info, Plus, CheckCircle, Edit2
 } from 'lucide-react'
@@ -422,7 +422,7 @@ export default function PatientChart() {
     { id: 'prescriptions', label: rxList.length > 0 ? `Rx (${rxList.length})` : 'Rx', icon: Pill },
     { id: 'lab', label: labOrders.length > 0 ? `Lab (${labOrders.length})` : 'Lab', icon: FlaskConical },
     { id: 'radiology', label: radOrders.length > 0 ? `Radiology (${radOrders.length})` : 'Radiology', icon: Scan },
-    { id: 'admissions', label: admissions.length > 0 ? `Admissions (${admissions.length})` : 'Admissions', icon: Home },
+    { id: 'admissions', label: admissions.length > 0 ? `Admissions (${admissions.length})` : 'Admissions', icon: Bed },
     { id: 'treatment_sheet', label: treatments.length > 0 ? `Treatments (${treatments.length})` : 'Treatments', icon: Pill },
     { id: 'fluid_balance', label: fluidSessions.length > 0 ? `Fluid (${fluidSessions.length})` : 'Fluid', icon: Droplets },
     { id: 'nurse_clinical_notes', label: nurseOnlyNotes.length > 0 ? `Nurses Clin. Notes (${nurseOnlyNotes.length})` : 'Nurses Clin. Notes', icon: FileText },
@@ -507,7 +507,7 @@ export default function PatientChart() {
           <span className="text-xs text-slate-400 font-medium">Current Status</span>
           <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-emerald-50 border-emerald-200 text-emerald-700">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
-            Admitted — {activeAdmission.ward_name}{activeAdmission.bed_number ? " " + activeAdmission.bed_number : ""}
+            Admitted — {activeAdmission.ward_name}{activeAdmission.bed_number ? <span className="ml-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-emerald-200 text-emerald-800 text-[10px] font-bold"><Bed size={9} />{activeAdmission.bed_number}</span> : null}
           </span>
         </div>
       </div>
@@ -566,7 +566,7 @@ export default function PatientChart() {
               <p className="text-xs text-slate-400">Total visits</p>
             </div>
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-              <div className="flex items-center gap-2 mb-3"><Home size={16} className="text-indigo-500" /><h3 className="text-sm font-semibold">Admissions</h3></div>
+              <div className="flex items-center gap-2 mb-3"><Bed size={16} className="text-indigo-500" /><h3 className="text-sm font-semibold">Admissions</h3></div>
               <p className="text-2xl font-bold text-slate-900">{admissions.length}</p>
               <p className="text-xs text-slate-400">Total admissions</p>
               {(() => {
@@ -820,7 +820,7 @@ export default function PatientChart() {
                 <div key={a.id || idx} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                   <div className={`px-5 py-3 border-b flex items-center gap-2 flex-wrap ${a.status === 'active' ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100'}`}>
                     <div className="flex items-center gap-2 min-w-0">
-                      <Home size={15} className={`flex-shrink-0 ${a.status === 'active' ? 'text-emerald-600' : 'text-slate-500'}`} />
+                      <Bed size={15} className={`flex-shrink-0 ${a.status === 'active' ? 'text-emerald-600' : 'text-slate-500'}`} />
                       <span className="text-sm font-semibold text-slate-700 truncate">{a.ward_name}</span>
                       <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-semibold flex-shrink-0 ${
                         a.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'

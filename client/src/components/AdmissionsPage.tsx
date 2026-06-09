@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
-  ArrowLeft, Home, Loader2, Users, Clock, LogOut, Stethoscope, Search, X, CheckCircle, AlertTriangle, FileText,
+  ArrowLeft, Home, Loader2, Users, Clock, LogOut, Stethoscope, Search, X, CheckCircle, AlertTriangle, FileText, Bed,
   ChevronUp, ChevronDown, Heart, Plus, Trash2
 } from 'lucide-react'
 
@@ -277,7 +277,7 @@ export default function AdmissionsPage() {
                 <div key={a.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
                   <div className="px-5 py-3 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <Home size={16} className="text-indigo-600" />
+                      <Bed size={16} className="text-indigo-600" />
                       <div>
                         <span className="text-sm font-semibold text-indigo-800">{a.ward_name}</span>
                         <span className="ml-2 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-700">Active</span>
@@ -292,7 +292,7 @@ export default function AdmissionsPage() {
                       <p className="text-xs text-slate-400">{a.hospital_number || a.patient_id?.slice(0, 8)}</p>
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-xs text-slate-500">
                         <span className="flex items-center gap-1"><Clock size={11} />Admitted {new Date(a.admitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
-                        {a.bed_number && <span className="flex items-center gap-1"><Home size={11} />Bed {a.bed_number}</span>}
+                        {a.bed_number && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 text-xs font-bold"><Bed size={11} />{a.bed_number}</span>}
                         {a.admitted_by_name && <span className="flex items-center gap-1"><Stethoscope size={11} />by {a.admitted_by_name}</span>}
                       </div>
                     </div>
@@ -304,7 +304,7 @@ export default function AdmissionsPage() {
                         <button onClick={() => navigate(`/patient/${a.patient_id}`)}
                           className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
                       {isNurse && <button onClick={() => { setBedModal(a); setBedNumber(a.bed_number || ''); setShowNewBedInput(false); setNewBedNumber(''); setBedsLoading(true); api.get(`/beds?ward_id=${a.ward_id}`).then((r) => setBedsList(r.data || [])).catch(() => {}).finally(() => setBedsLoading(false)) }}
-                        className="px-3 py-1.5 rounded-lg bg-teal-50 text-teal-600 text-xs font-medium hover:bg-teal-100 transition-colors flex items-center gap-1"><Home size={12} /> {a.bed_number ? 'Reassign Bed' : 'Assign Bed'}</button>}
+                        className="px-3 py-1.5 rounded-lg bg-teal-50 text-teal-600 text-xs font-medium hover:bg-teal-100 transition-colors flex items-center gap-1"><Bed size={12} /> {a.bed_number ? 'Reassign Bed' : 'Assign Bed'}</button>}
                       </>
                       ) : (
                         <>
@@ -385,7 +385,7 @@ export default function AdmissionsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!bedAssigning) setBedModal(null) }}>
           <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Home size={18} className="text-teal-500" /> {bedModal?.bed_number ? "Reassign Bed" : "Assign Bed"}</h2>
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Bed size={18} className="text-teal-500" /> {bedModal?.bed_number ? "Reassign Bed" : "Assign Bed"}</h2>
               <button onClick={() => setBedModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
             <div className="p-6 space-y-4">
@@ -403,7 +403,7 @@ export default function AdmissionsPage() {
                               <button onClick={() => setBedNumber(b.bed_number)}
                                 className={`flex-1 text-left px-4 py-2.5 rounded-xl border text-sm transition-all ${
                                   bedNumber === b.bed_number ? 'bg-teal-50 border-teal-300 text-teal-700 font-medium' : 'bg-white border-slate-200 text-slate-700 hover:border-teal-200'
-                                }`}>{b.bed_number}</button>
+                                }`}>{b.bed_number.startsWith('Bed ') ? b.bed_number : 'Bed ' + b.bed_number}</button>
                               {isAdmin && b.bed_number.startsWith('Bed ') === false && (
                                 <button onClick={async () => {
                                   if (!confirm('Delete this bed?')) return
