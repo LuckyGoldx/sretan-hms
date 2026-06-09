@@ -164,4 +164,20 @@ router.post("/api/beds", async (req: Request, res: Response) => {
   }
 });
 
+
+
+router.delete('/api/beds/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query('DELETE FROM beds WHERE id = $1 RETURNING *', [id]);
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: true, message: 'Bed not found' });
+      return;
+    }
+    res.json({ success: true, bed: result.rows[0] });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
 export default router;

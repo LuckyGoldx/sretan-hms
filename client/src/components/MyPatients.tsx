@@ -88,9 +88,6 @@ export default function MyPatients() {
   const [admitModal, setAdmitModal] = useState<{ patientId: string; patientName: string } | null>(null)
   const [selectedWard, setSelectedWard] = useState('')
   const [admitting, setAdmitting] = useState(false)
-  const [bedModal, setBedModal] = useState<{ admissionId: string; patientName: string; currentBed?: string } | null>(null)
-  const [bedNumber, setBedNumber] = useState('')
-  const [bedAssigning, setBedAssigning] = useState(false)
   const [vitalsPatient, setVitalsPatient] = useState<any | null>(null)
   const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
@@ -348,12 +345,7 @@ export default function MyPatients() {
                       className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:scale-[1.01] transition-all duration-200 shadow-sm">
                       <Heart className="w-3.5 h-3.5" /> Vitals
                     </button>
-                    {admissionMap[patient.id] && (
-                      <button onClick={() => setBedModal({ admissionId: admissionMap[patient.id].id, patientName: patient.full_name, currentBed: admissionMap[patient.id].bed_number })}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-teal-50 text-teal-700 text-xs font-semibold rounded-xl border border-teal-200 hover:bg-teal-100 transition-all duration-200">
-                        <Home className="w-3.5 h-3.5" /> {admissionMap[patient.id].bed_number ? "Bed " + admissionMap[patient.id].bed_number : "Assign Bed"}
-                      </button>
-                    )}
+                    
                     </>
                   ) : (
                     <button onClick={() => navigate(`/consultation/${patient.id}`)}

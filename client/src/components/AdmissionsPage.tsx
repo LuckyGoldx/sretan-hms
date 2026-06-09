@@ -3,12 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
   ArrowLeft, Home, Loader2, Users, Clock, LogOut, Stethoscope, Search, X, CheckCircle, AlertTriangle, FileText,
-  ChevronUp, ChevronDown, Heart, Plus
+  ChevronUp, ChevronDown, Heart, Plus, Trash2
 } from 'lucide-react'
 
 const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
 const currentRole: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role } catch {} return null })()
 const isNurse = currentRole === 'Nurse'
+const isAdmin = currentRole === 'Admin'
 
 type SortField = 'ward_name' | 'admitted_at' | 'discharged_at' | 'patient_name'
 
@@ -303,7 +304,7 @@ export default function AdmissionsPage() {
                         <button onClick={() => navigate(`/patient/${a.patient_id}`)}
                           className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
                       {isNurse && <button onClick={() => { setBedModal(a); setBedNumber(a.bed_number || ''); setShowNewBedInput(false); setNewBedNumber(''); setBedsLoading(true); api.get(`/beds?ward_id=${a.ward_id}`).then((r) => setBedsList(r.data || [])).catch(() => {}).finally(() => setBedsLoading(false)) }}
-                        className="px-3 py-1.5 rounded-lg bg-teal-50 text-teal-600 text-xs font-medium hover:bg-teal-100 transition-colors flex items-center gap-1"><Home size={12} /> {a.bed_number ? a.bed_number : 'Bed'}</button>}
+                        className="px-3 py-1.5 rounded-lg bg-teal-50 text-teal-600 text-xs font-medium hover:bg-teal-100 transition-colors flex items-center gap-1"><Home size={12} /> {a.bed_number ? 'Reassign Bed' : 'Assign Bed'}</button>}
                       </>
                       ) : (
                         <>
@@ -384,7 +385,7 @@ export default function AdmissionsPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!bedAssigning) setBedModal(null) }}>
           <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Home size={18} className="text-teal-500" /> Assign Bed</h2>
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Home size={18} className="text-teal-500" /> {bedModal?.bed_number ? "Reassign Bed" : "Assign Bed"}</h2>
               <button onClick={() => setBedModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
             <div className="p-6 space-y-4">
@@ -398,10 +399,24 @@ export default function AdmissionsPage() {
                     {!showNewBedInput ? (
                       <div className="space-y-1.5">
                         {bedsList.length > 0 ? bedsList.filter((b: any) => !b.occupied).map((b: any) => (
-                          <button key={b.id} onClick={() => setBedNumber(b.bed_number)}
-                            className={`w-full text-left px-4 py-2.5 rounded-xl border text-sm transition-all ${
-                              bedNumber === b.bed_number ? 'bg-teal-50 border-teal-300 text-teal-700 font-medium' : 'bg-white border-slate-200 text-slate-700 hover:border-teal-200'
-                            }`}>{b.bed_number}</button>
+                          <div key={b.id} className="flex items-center gap-1">
+                              <button onClick={() => setBedNumber(b.bed_number)}
+                                className={`flex-1 text-left px-4 py-2.5 rounded-xl border text-sm transition-all ${
+                                  bedNumber === b.bed_number ? 'bg-teal-50 border-teal-300 text-teal-700 font-medium' : 'bg-white border-slate-200 text-slate-700 hover:border-teal-200'
+                                }`}>{b.bed_number}</button>
+                              {isAdmin && b.bed_number.startsWith('Bed ') === false && (
+                                <button onClick={async () => {
+                                  if (!confirm('Delete this bed?')) return
+                                  try {
+                                    await api.delete(`/beds/${b.id}`)
+                                    setBedsList((prev) => prev.filter((x: any) => x.id !== b.id))
+                                    if (bedNumber === b.bed_number) setBedNumber('')
+                                  } catch {}
+                                }} className="p-2 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors flex-shrink-0">
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                            </div>
                         )) : <p className="text-sm text-slate-400 italic py-2">No available beds</p>}
                         <button onClick={() => setShowNewBedInput(true)}
                           className="w-full flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-slate-300 text-sm text-slate-500 hover:border-primary hover:text-primary transition-all mt-1">
@@ -416,9 +431,17 @@ export default function AdmissionsPage() {
                         <div className="flex gap-2">
                           <button onClick={async () => {
                             if (!newBedNumber.trim()) return
+                            // Check if bed already exists in the list (Bed 1-5 or custom added)
+                            const exists = bedsList.find((b: any) => b.bed_number.toLowerCase() === newBedNumber.trim().toLowerCase())
+                            if (exists) {
+                              setBedNumber(exists.bed_number)
+                              setShowNewBedInput(false)
+                              setNewBedNumber('')
+                              return
+                            }
                             try {
                               const res = await api.post('/beds', { ward_id: bedModal.ward_id, bed_number: newBedNumber.trim() })
-                              setBedsList((prev) => [...prev, res.data])
+                              setBedsList((prev) => [...prev, { ...res.data, occupied: false }])
                               setBedNumber(newBedNumber.trim())
                               setShowNewBedInput(false)
                               setNewBedNumber('')
@@ -447,7 +470,7 @@ export default function AdmissionsPage() {
                 } catch {} finally { setBedAssigning(false) }
               }} disabled={bedAssigning || !bedNumber.trim()}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-teal-600 text-white text-sm font-medium hover:bg-teal-700 transition-transform disabled:opacity-50">
-                {bedAssigning ? <Loader2 size={14} className="animate-spin" /> : <Home size={14} />} Save Bed
+                {bedAssigning ? <Loader2 size={14} className="animate-spin" /> : <Home size={14} />} {bedModal?.bed_number ? "Reassign Bed" : "Assign Bed"}
               </button>
             </div>
           </div>
