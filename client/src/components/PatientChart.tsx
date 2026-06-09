@@ -430,7 +430,6 @@ export default function PatientChart() {
   ]
 
   const visibleSections = sections.filter((s) => {
-    if (isDoctor) return !['treatment_sheet', 'fluid_balance', 'nurse_clinical_notes'].includes(s.id)
     if (isNurse) return !['prescriptions', 'radiology', 'doctor_clinical_notes'].includes(s.id)
     return true
   })
