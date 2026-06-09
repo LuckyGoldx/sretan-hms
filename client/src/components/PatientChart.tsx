@@ -561,7 +561,7 @@ export default function PatientChart() {
             </div>
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
               <div className="flex items-center gap-2 mb-3"><Activity size={16} className="text-primary" /><h3 className="text-sm font-semibold">Encounters</h3></div>
-              <p className="text-2xl font-bold text-slate-900">{encounters.length}</p>
+              <p className="text-2xl font-bold text-slate-900">{soapEncounters.length}</p>
               <p className="text-xs text-slate-400">Total visits</p>
             </div>
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
