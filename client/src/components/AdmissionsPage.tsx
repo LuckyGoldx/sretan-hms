@@ -303,7 +303,7 @@ export default function AdmissionsPage() {
                           className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary/90 transition-colors flex items-center gap-1"><Heart size={12} /> Vitals</button>
                         <button onClick={() => navigate(`/patient/${a.patient_id}`)}
                           className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
-                      {isNurse && <button onClick={() => { setBedModal(a); setBedNumber(a.bed_number || ''); setShowNewBedInput(false); setNewBedNumber(''); setBedsLoading(true); api.get(`/beds?ward_id=${a.ward_id}`).then((r) => setBedsList(r.data || [])).catch(() => {}).finally(() => setBedsLoading(false)) }}
+                      {isNurse && <button onClick={() => { setBedModal(a); setBedNumber(a.bed_number || ''); setShowNewBedInput(false); setNewBedNumber(''); setBedsLoading(true); api.get(`/beds?ward_id=${a.ward_id}`).then((r) => { var list = (r.data || []).slice(); list.sort(function(x: any, y: any) { var xn = parseInt(x.bed_number.replace(/\D/g, '')) || 0; var yn = parseInt(y.bed_number.replace(/\D/g, '')) || 0; return xn - yn; }); setBedsList(list); }).catch(() => {}).finally(() => setBedsLoading(false)) }}
                         className="px-3 py-1.5 rounded-lg bg-teal-50 text-teal-600 text-xs font-medium hover:bg-teal-100 transition-colors flex items-center gap-1"><Bed size={12} /> {a.bed_number ? 'Reassign Bed' : 'Assign Bed'}</button>}
                       </>
                       ) : (
