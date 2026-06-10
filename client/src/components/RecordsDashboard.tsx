@@ -77,7 +77,7 @@ export default function RecordsDashboard() {
         {searchResults.length > 0 && (
           <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-lg z-20 max-h-64 overflow-y-auto">
             {searchResults.map((p: any) => (
-              <button key={p.id} onClick={() => navigate(`/patient/${p.id}`)}
+              <button key={p.id} onClick={() => navigate(`/records/documents/${p.id}`)}
                 className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-50 last:border-0">
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0"><UserPlus size={14} className="text-primary" /></div>
                 <div className="min-w-0 flex-1">

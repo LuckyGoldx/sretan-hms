@@ -65,10 +65,10 @@ interface SidebarLink {
 }
 
 const sidebarLinks: SidebarLink[] = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin'] },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Doctor', 'Nurse', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin'] },
   { to: '/patients/register', label: 'Register Patient', icon: UserPlus, roles: ['Nurse', 'Records', 'Admin'] },
   { to: '/triage', label: 'Triage', icon: Stethoscope, roles: ['Nurse', 'Admin'] },
-  { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse', 'Records', 'Pharmacist', 'Paypoint'] },
+  { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse', 'Pharmacist', 'Paypoint'] },
   { to: '/my-prescriptions', label: 'Prescriptions', icon: Pill, roles: ['Doctor', 'Admin'] },
   { to: '/lab', label: 'Laboratory', icon: Beaker, roles: ['Lab Scientist', 'Doctor', 'Admin'] },
   { to: '/lab-inventory', label: 'Lab Inventory', icon: Package, roles: ['Lab Scientist', 'Admin'] },
@@ -76,7 +76,6 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/radiology', label: 'Radiology', icon: Scan, roles: ['Doctor', 'Admin'] },
   { to: '/records', label: 'Records Dashboard', icon: FileText, roles: ['Records', 'Admin'] },
   { to: '/records/requests', label: 'Record Requests', icon: FileText, roles: ['Records', 'Admin'] },
-  { to: '/patients', label: 'Patient List', icon: Users, roles: ['Records', 'Admin'] },
   { to: '/appointments', label: 'Appointments', icon: Calendar, roles: ['Doctor', 'Nurse', 'Records', 'Admin'] },
   { to: '/vitals', label: 'Vitals', icon: Activity, roles: ['Doctor', 'Nurse', 'Admin'] },
   { to: '/admissions', label: 'Admissions', icon: Home, roles: ['Doctor', 'Nurse', 'Admin'] },
@@ -396,7 +395,7 @@ export default function App() {
             path="/patient/:patientId"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse', 'Records']}>
+                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <PatientChart />
                   </Suspense>
