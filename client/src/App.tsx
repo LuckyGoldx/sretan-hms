@@ -25,6 +25,7 @@ import {
   Calendar,
   ShoppingCart,
   AlertTriangle,
+  FileText,
 } from 'lucide-react'
 
 const Login = lazy(() => import('./components/Login'))
@@ -73,6 +74,9 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/lab-inventory', label: 'Lab Inventory', icon: Package, roles: ['Lab Scientist', 'Admin'] },
   { to: '/lab-low-stock', label: 'Lab Low Stock', icon: AlertTriangle, roles: ['Lab Scientist', 'Admin'] },
   { to: '/radiology', label: 'Radiology', icon: Scan, roles: ['Doctor', 'Admin'] },
+  { to: '/records', label: 'Records Dashboard', icon: FileText, roles: ['Records', 'Admin'] },
+  { to: '/records/requests', label: 'Record Requests', icon: FileText, roles: ['Records', 'Admin'] },
+  { to: '/patients', label: 'Patient List', icon: Users, roles: ['Records', 'Admin'] },
   { to: '/appointments', label: 'Appointments', icon: Calendar, roles: ['Doctor', 'Nurse', 'Records', 'Admin'] },
   { to: '/vitals', label: 'Vitals', icon: Activity, roles: ['Doctor', 'Nurse', 'Admin'] },
   { to: '/admissions', label: 'Admissions', icon: Home, roles: ['Doctor', 'Nurse', 'Admin'] },
@@ -275,6 +279,9 @@ function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?
   return <>{children}</>
 }
 
+const RecordsDashboard = lazy(() => import('./components/RecordsDashboard'))
+const RecordRequests = lazy(() => import('./components/RecordRequests'))
+const DocumentManager = lazy(() => import('./components/DocumentManager'))
 function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -305,7 +312,19 @@ export default function App() {
             path="/dashboard"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin']}>
+                <ProtectedRoute roles={['Records']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <RecordsDashboard />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/dashboard"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Doctor', 'Nurse', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <PatientDashboard />
                   </Suspense>
@@ -522,6 +541,42 @@ export default function App() {
                 <ProtectedRoute roles={['Doctor', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <RadiologyModule />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/records"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Records', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <RecordsDashboard />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/records/requests"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Records', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <RecordRequests />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/records/documents/:patientId"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Records', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <DocumentManager />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>

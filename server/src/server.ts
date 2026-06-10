@@ -23,6 +23,7 @@ import admissionsRouter from './routes/admissions';
 import appointmentsRouter from './routes/appointments';
 import otcSalesRouter from './routes/otcSales';
 import nurseModuleRouter from './routes/nurseModule';
+import recordsRouter from './routes/records';
 import setupConsoleRouter from './setup/setupConsole';
 
 declare global {
@@ -53,6 +54,7 @@ app.use(admissionsRouter);
 app.use(appointmentsRouter);
 app.use(otcSalesRouter);
 app.use(nurseModuleRouter);
+app.use(recordsRouter);
 app.use(setupRouter);
 app.use(setupConsoleRouter);
 
