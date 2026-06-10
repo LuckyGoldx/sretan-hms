@@ -75,6 +75,7 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/lab-low-stock', label: 'Lab Low Stock', icon: AlertTriangle, roles: ['Lab Scientist', 'Admin'] },
   { to: '/radiology', label: 'Radiology', icon: Scan, roles: ['Doctor', 'Admin'] },
   { to: '/records', label: 'Records Dashboard', icon: FileText, roles: ['Records', 'Admin'] },
+  { to: '/records/patients', label: 'Patient Records', icon: Users, roles: ['Records', 'Admin'] },
   { to: '/records/requests', label: 'Record Requests', icon: FileText, roles: ['Records', 'Admin'] },
   { to: '/appointments', label: 'Appointments', icon: Calendar, roles: ['Doctor', 'Nurse', 'Records', 'Admin'] },
   { to: '/vitals', label: 'Vitals', icon: Activity, roles: ['Doctor', 'Nurse', 'Admin'] },
@@ -281,6 +282,7 @@ function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?
 const RecordsDashboard = lazy(() => import('./components/RecordsDashboard'))
 const RecordRequests = lazy(() => import('./components/RecordRequests'))
 const DocumentManager = lazy(() => import('./components/DocumentManager'))
+const RecordsPatientList = lazy(() => import('./components/RecordsPatientList'))
 function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -307,18 +309,6 @@ export default function App() {
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
           <Route path="/" element={<Login />} />
-          <Route
-            path="/dashboard"
-            element={
-              <Layout>
-                <ProtectedRoute roles={['Records']}>
-                  <Suspense fallback={<LoadingFallback />}>
-                    <RecordsDashboard />
-                  </Suspense>
-                </ProtectedRoute>
-              </Layout>
-            }
-          />
           <Route
             path="/dashboard"
             element={
@@ -564,6 +554,18 @@ export default function App() {
                 <ProtectedRoute roles={['Records', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <RecordRequests />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/records/patients"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Records', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <RecordsPatientList />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>
