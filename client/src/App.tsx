@@ -65,7 +65,7 @@ interface SidebarLink {
 }
 
 const sidebarLinks: SidebarLink[] = [
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Doctor', 'Nurse', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin'] },
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin'] },
   { to: '/patients/register', label: 'Register Patient', icon: UserPlus, roles: ['Nurse', 'Records', 'Admin'] },
   { to: '/triage', label: 'Triage', icon: Stethoscope, roles: ['Nurse', 'Admin'] },
   { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse', 'Pharmacist', 'Paypoint'] },
@@ -74,7 +74,6 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/lab-inventory', label: 'Lab Inventory', icon: Package, roles: ['Lab Scientist', 'Admin'] },
   { to: '/lab-low-stock', label: 'Lab Low Stock', icon: AlertTriangle, roles: ['Lab Scientist', 'Admin'] },
   { to: '/radiology', label: 'Radiology', icon: Scan, roles: ['Doctor', 'Admin'] },
-  { to: '/records', label: 'Records Dashboard', icon: FileText, roles: ['Records', 'Admin'] },
   { to: '/records/patients', label: 'Patient Records', icon: Users, roles: ['Records', 'Admin'] },
   { to: '/records/requests', label: 'Record Requests', icon: FileText, roles: ['Records', 'Admin'] },
   { to: '/appointments', label: 'Appointments', icon: Calendar, roles: ['Doctor', 'Nurse', 'Records', 'Admin'] },
@@ -309,6 +308,18 @@ export default function App() {
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
           <Route path="/" element={<Login />} />
+          <Route
+            path="/dashboard"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Records']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <RecordsDashboard />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
           <Route
             path="/dashboard"
             element={

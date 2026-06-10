@@ -57,7 +57,7 @@ export default function RecordsPatientList() {
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/records')} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
+          <button onClick={() => navigate('/dashboard')} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
           <div><h1 className="text-xl font-semibold text-slate-800">Patient Records</h1><p className="text-sm text-slate-400">View and update patient demographic information</p></div>
         </div>
         <button onClick={() => navigate('/patients/register')}
