@@ -66,7 +66,7 @@ interface SidebarLink {
 
 const sidebarLinks: SidebarLink[] = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin'] },
-  { to: '/patients/register', label: 'Register Patient', icon: UserPlus, roles: ['Nurse', 'Records', 'Admin'] },
+  { to: '/patients/register', label: 'Register Patient', icon: UserPlus, roles: ['Records', 'Admin'] },
   { to: '/triage', label: 'Triage', icon: Stethoscope, roles: ['Nurse', 'Admin'] },
   { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse', 'Pharmacist', 'Paypoint'] },
   { to: '/my-prescriptions', label: 'Prescriptions', icon: Pill, roles: ['Doctor', 'Admin'] },
@@ -252,6 +252,13 @@ function LoadingFallback() {
   )
 }
 
+
+function DashboardRouter() {
+  var role = getRole()
+  if (role === 'Records') return <RecordsDashboard />
+  return <PatientDashboard />
+}
+
 function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const role = getRole()
   if (!role) {
@@ -313,21 +320,9 @@ export default function App() {
             path="/dashboard"
             element={
               <Layout>
-                <ProtectedRoute roles={['Records']}>
+                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
-                    <RecordsDashboard />
-                  </Suspense>
-                </ProtectedRoute>
-              </Layout>
-            }
-          />
-          <Route
-            path="/dashboard"
-            element={
-              <Layout>
-                <ProtectedRoute roles={['Doctor', 'Nurse', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin']}>
-                  <Suspense fallback={<LoadingFallback />}>
-                    <PatientDashboard />
+                    <DashboardRouter />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>
@@ -337,7 +332,7 @@ export default function App() {
             path="/patients/register"
             element={
               <Layout>
-                <ProtectedRoute roles={['Nurse', 'Records', 'Admin']}>
+                <ProtectedRoute roles={['Records', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <PatientRegistration />
                   </Suspense>
