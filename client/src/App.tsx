@@ -282,6 +282,7 @@ const RecordsDashboard = lazy(() => import('./components/RecordsDashboard'))
 const RecordRequests = lazy(() => import('./components/RecordRequests'))
 const DocumentManager = lazy(() => import('./components/DocumentManager'))
 const RecordsPatientList = lazy(() => import('./components/RecordsPatientList'))
+const RecordsPatientDetail = lazy(() => import('./components/RecordsPatientDetail'))
 function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -565,6 +566,18 @@ export default function App() {
                 <ProtectedRoute roles={['Records', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <RecordRequests />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/records/patients/:patientId"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Records', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <RecordsPatientDetail />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>

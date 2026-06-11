@@ -1,6 +1,23 @@
+import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
+
+const DOCUMENTS_DIR = 'C:/hms/assets/documents';
+if (!fs.existsSync(DOCUMENTS_DIR)) fs.mkdirSync(DOCUMENTS_DIR, { recursive: true });
+
+var storage = multer.diskStorage({
+  destination: function(_req, _file, cb) { cb(null, DOCUMENTS_DIR); },
+  filename: function(_req, file, cb) {
+    var uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    var ext = path.extname(file.originalname);
+    cb(null, uniqueSuffix + ext);
+  },
+});
+var upload = multer({ storage: storage, limits: { fileSize: 20 * 1024 * 1024 } });
+
 
 const router = Router();
 
@@ -19,19 +36,22 @@ router.get('/api/patients/:patientId/documents', async (req: Request, res: Respo
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
-router.post('/api/patients/:patientId/documents', async (req: Request, res: Response) => {
+router.post('/api/patients/:patientId/documents', upload.single('file'), async (req: Request, res: Response) => {
   try {
     const { patientId } = req.params;
-    const { document_type, file_name, file_size, notes, uploaded_by } = req.body;
-    if (!document_type || !file_name) {
-      res.status(400).json({ error: true, message: 'document_type and file_name are required' });
+    const { document_type, notes, uploaded_by } = req.body;
+    if (!document_type) {
+      res.status(400).json({ error: true, message: 'document_type is required' });
       return;
     }
-    const id = uuidv4();
+    var file = req.file;
+    var fileName = file ? file.originalname : (req.body.file_name || 'unnamed');
+    var fileSize = file ? file.size : null;
+    var filePath = file ? file.filename : null;
+    var id = uuidv4();
     const result = await pool.query(
-      `INSERT INTO patient_documents (id, patient_id, document_type, file_name, file_size, notes, uploaded_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [id, patientId, document_type, file_name, file_size || null, notes || null, uploaded_by || null]
+      'INSERT INTO patient_documents (id, patient_id, document_type, file_name, file_size, file_path, notes, uploaded_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
+      [id, patientId, document_type, fileName, fileSize, filePath, notes || null, uploaded_by || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
@@ -110,6 +130,35 @@ router.get('/api/patients/search', async (req: Request, res: Response) => {
       [searchTerm]
     );
     res.json(result.rows);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+
+
+router.get('/api/patients/:patientId/audit', async (req: Request, res: Response) => {
+  try {
+    const { patientId } = req.params;
+    const result = await pool.query(
+      `SELECT a.*, s.name as performed_by_name FROM audit_logs a
+       LEFT JOIN staff_users s ON s.id = a.performed_by
+       WHERE a.record_id = $1 AND a.table_name = 'patients'
+       ORDER BY a.created_at DESC LIMIT 50`,
+      [patientId]
+    );
+    res.json(result.rows);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+
+
+router.get('/api/documents/:filename', async (req: Request, res: Response) => {
+  try {
+    var filePath = path.join(DOCUMENTS_DIR, req.params.filename);
+    if (!fs.existsSync(filePath)) {
+      res.status(404).json({ error: true, message: 'File not found' });
+      return;
+    }
+    res.sendFile(filePath);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 

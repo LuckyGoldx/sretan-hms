@@ -84,7 +84,7 @@ export default function RecordsPatientList() {
       ) : (
         <div className="space-y-3">
           {paged.map((p) => (
-            <div key={p.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md transition-shadow">
+            <div key={p.id} onClick={() => navigate(`/records/patients/${p.id}`)} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md transition-shadow cursor-pointer">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1">
@@ -101,9 +101,9 @@ export default function RecordsPatientList() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <button onClick={() => { setEditPatient(p); setEditForm({ full_name: p.full_name, dob: p.dob?.slice(0, 10), sex: p.sex, phone: p.phone, email: p.email || '', address: p.address || '', next_of_kin: p.next_of_kin || '', emergency_contact_name: p.emergency_contact_name || '', emergency_contact_phone: p.emergency_contact_phone || '', insurance: p.insurance || '', blood_type: p.blood_type || '', occupation: p.occupation || '', marital_status: p.marital_status || '', nationality: p.nationality || '' }) }}
+                  <button onClick={(e) => { e.stopPropagation(); setEditPatient(p); setEditForm({ full_name: p.full_name, dob: p.dob?.slice(0, 10), sex: p.sex, phone: p.phone, email: p.email || '', address: p.address || '', next_of_kin: p.next_of_kin || '', emergency_contact_name: p.emergency_contact_name || '', emergency_contact_phone: p.emergency_contact_phone || '', insurance: p.insurance || '', blood_type: p.blood_type || '', occupation: p.occupation || '', marital_status: p.marital_status || '', nationality: p.nationality || '' }) }}
                     className="p-2 rounded-lg bg-slate-50 text-slate-500 hover:bg-primary/10 hover:text-primary transition-colors"><Edit2 size={14} /></button>
-                  <button onClick={() => navigate(`/records/documents/${p.id}`)}
+                  <button onClick={() => navigate(`/records/patients/${p.id}`)}
                     className="p-2 rounded-lg bg-slate-50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"><FileText size={14} /></button>
                 </div>
               </div>

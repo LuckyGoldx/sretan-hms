@@ -77,7 +77,7 @@ export default function RecordsDashboard() {
         {searchResults.length > 0 && (
           <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-lg z-20 max-h-64 overflow-y-auto">
             {searchResults.map((p: any) => (
-              <button key={p.id} onClick={() => navigate(`/records/documents/${p.id}`)}
+              <button key={p.id} onClick={() => navigate(`/records/patients/${p.id}`)}
                 className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left border-b border-slate-50 last:border-0">
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0"><UserPlus size={14} className="text-primary" /></div>
                 <div className="min-w-0 flex-1">
@@ -117,7 +117,7 @@ export default function RecordsDashboard() {
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><UserPlus size={16} className="text-emerald-500" /> Recent Registrations</h3>
-            <button onClick={() => navigate('/patients')} className="text-xs text-primary font-medium hover:underline flex items-center gap-1">View All <ArrowRight size={12} /></button>
+            <button onClick={() => navigate('/records/patients')} className="text-xs text-primary font-medium hover:underline flex items-center gap-1">View All <ArrowRight size={12} /></button>
           </div>
           {recentPatients.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-6">No patients registered yet</p>
@@ -170,7 +170,7 @@ export default function RecordsDashboard() {
           <h3 className="text-sm font-semibold text-slate-700">Register Patient</h3>
           <p className="text-xs text-slate-400 mt-1">New patient intake and registration</p>
         </button>
-        <button onClick={() => navigate('/patients')}
+        <button onClick={() => navigate('/records/patients')}
           className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md transition-shadow text-left">
           <div className="flex items-center gap-3 mb-3"><Users size={20} className="text-emerald-500" /></div>
           <h3 className="text-sm font-semibold text-slate-700">Patient List</h3>
