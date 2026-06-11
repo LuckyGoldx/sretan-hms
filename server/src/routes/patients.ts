@@ -93,10 +93,10 @@ router.post('/api/patients', async (req: Request, res: Response) => {
     const nextNum = seqResult.rows[0]?.next_num || 1;
     const hospitalNumber = `SRT-2026-${String(nextNum).padStart(5, '0')}`;
     const result = await pool.query(
-      `INSERT INTO patients (id, tenant_id, hospital_number, full_name, dob, sex, phone, next_of_kin, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+      `INSERT INTO patients (id, tenant_id, hospital_number, full_name, dob, sex, phone, next_of_kin, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
        RETURNING *`,
-      [id, tenantId, hospitalNumber, full_name, dob, sex, phone || null, next_of_kin || null, insurance || null, blood_type || null, status || 'checked_in', email || null, address || null, emergency_contact_name || null, emergency_contact_phone || null, occupation || null, marital_status || null, nationality || null]
+      [id, tenantId, hospitalNumber, full_name, dob, sex, phone || null, next_of_kin || null, insurance || null, blood_type || null, status || 'checked_in', email || null, address || null, emergency_contact_name || null, emergency_contact_phone || null, occupation || null, marital_status || null, nationality || null, state_of_origin || null, lga || null, next_of_kin_address || null, relationship || null, insurance_type || null, insurance_sub_type || null]
     );
 
     res.status(201).json(result.rows[0]);
@@ -111,7 +111,7 @@ router.put('/api/patients/:id', async (req: Request, res: Response) => {
 
     const tenantId = getTenantId();
     const { id } = req.params;
-    const { full_name, dob, sex, phone, next_of_kin, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality } = req.body;
+    const { full_name, dob, sex, phone, next_of_kin, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type } = req.body;
 
     const existing = await pool.query(
       'SELECT * FROM patients WHERE id = $1 AND tenant_id = $2',
@@ -139,8 +139,14 @@ router.put('/api/patients/:id', async (req: Request, res: Response) => {
         emergency_contact_phone = COALESCE($12, emergency_contact_phone),
         occupation = COALESCE($13, occupation),
         marital_status = COALESCE($14, marital_status),
-        nationality = COALESCE($15, nationality)
-       WHERE id = $16 AND tenant_id = $17
+        nationality = COALESCE($15, nationality),
+        state_of_origin = COALESCE($16, state_of_origin),
+        lga = COALESCE($17, lga),
+        next_of_kin_address = COALESCE($18, next_of_kin_address),
+        relationship = COALESCE($19, relationship),
+        insurance_type = COALESCE($20, insurance_type),
+        insurance_sub_type = COALESCE($21, insurance_sub_type)
+       WHERE id = $22 AND tenant_id = $23
        RETURNING *`,
       [full_name, dob, sex, phone, next_of_kin, insurance, blood_type, status, id, tenantId]
     );
