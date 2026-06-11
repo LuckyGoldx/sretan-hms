@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { v4 as uuidv4 } from 'uuid'
-import { User, Phone, Shield, Check, ChevronRight, ChevronLeft, Loader2, ArrowLeft, Mail, MapPin, Heart, Briefcase, Globe, Upload, X } from 'lucide-react'
+import { User, Phone, Shield, Check, ChevronRight, ChevronLeft, Loader2, ArrowLeft, Mail, MapPin, Heart, Briefcase, Globe, Upload, X, Trash2, Maximize2 } from 'lucide-react'
 import api from '../hooks/useAxios'
 import { compressImage } from '../utils/compressImage'
 import { COUNTRIES, NIGERIA_STATES, NIGERIA_LGAS, OCCUPATIONS, RELATIONSHIPS } from '../data/formData'
@@ -46,6 +46,14 @@ export default function PatientRegistration() {
   const [success, setSuccess] = useState(false)
   const [documents, setDocuments] = useState<DocItem[]>([])
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [customTypes, setCustomTypes] = useState<any[]>([])
+  const [fullscreenPreview, setFullscreenPreview] = useState<string | null>(null)
+
+  useEffect(() => {
+    try { const u = localStorage.getItem('sretan_user'); if (u) { const parsed = JSON.parse(u); setCurrentUser(parsed); if (parsed.id) api.get('/insurance-types').then((r) => setCustomTypes(r.data || [])).catch(() => {}) } } catch {}
+  }, [])
+
+  const isAdmin = currentUser?.role === 'Admin'
 
   const update = (field: keyof FormData, value: string) => { setForm((p) => ({ ...p, [field]: value })); setErrors((p) => ({ ...p, [field]: undefined })) }
 
@@ -57,9 +65,7 @@ export default function PatientRegistration() {
     if (!file) return
     const compressed = await compressImage(file)
     const reader = new FileReader()
-    reader.onload = (ev) => {
-      setDocuments((prev) => [...prev, { type: '', file: compressed, preview: ev.target?.result as string }])
-    }
+    reader.onload = (ev) => { setDocuments((prev) => [...prev, { type: '', file: compressed, preview: ev.target?.result as string }]) }
     reader.readAsDataURL(compressed)
     e.target.value = ''
   }
@@ -67,11 +73,29 @@ export default function PatientRegistration() {
   function removeDoc(i: number) { setDocuments((prev) => prev.filter((_, idx) => idx !== i)) }
   function updateDocType(i: number, type: string) { setDocuments((prev) => prev.map((d, idx) => idx === i ? { ...d, type } : d)) }
 
+  const getTypeOptions = () => {
+    const base = form.insurance === 'Retainership' ? ['CBN', 'Zenith Bank'] : []
+    const custom = customTypes.filter((c) => c.provider === form.insurance).map((c) => c.type_name)
+    return [...base, ...custom, 'Other']
+  }
+
+  async function saveCustomType(name: string) {
+    if (!name || name === 'Other') return
+    try {
+      const res = await api.post('/insurance-types', { provider: form.insurance, type_name: name, created_by: currentUser?.id })
+      setCustomTypes((prev) => [...prev, res.data])
+    } catch {}
+  }
+
+  async function deleteCustomType(id: string) {
+    if (!confirm('Delete this custom type?')) return
+    try { await api.delete(`/insurance-types/${id}`); setCustomTypes((prev) => prev.filter((c) => c.id !== id)); if (form.insurance_type === customTypes.find((c) => c.id === id)?.type_name) update('insurance_type', '') } catch {}
+  }
+
   const validateStep = (s: number) => {
     const e: Partial<Record<keyof FormData, string>> = {}
     if (s === 0) { if (!form.full_name.trim()) e.full_name = 'Required'; if (!form.dob) e.dob = 'Required'; if (!form.sex) e.sex = 'Required'; if (!form.nationality) e.nationality = 'Required'; if (form.nationality === 'Nigeria' && !form.state_of_origin) e.state_of_origin = 'Required' }
     else if (s === 1) { if (!form.phone.trim()) e.phone = 'Required' }
-    else if (s === 2) { if (form.insurance === 'HMO' || form.insurance === 'Retainership') { if (!form.insurance_type) e.insurance_type = 'Required' } if (!form.insurance_sub_type && form.insurance === 'HMO') e.insurance_sub_type = 'Required' }
     setErrors(e); return Object.keys(e).length === 0
   }
 
@@ -93,6 +117,11 @@ export default function PatientRegistration() {
         insurance: form.insurance, insurance_type: form.insurance_type, insurance_sub_type: form.insurance_sub_type,
         blood_type: form.blood_type,
       }
+      // Save custom type if user typed Other (before patient creation)
+      if (form.insurance_type === 'Other' && form.insurance_sub_type) {
+        await saveCustomType(form.insurance_sub_type)
+      }
+
       const patient = await api.post('/patients', payload)
 
       // Upload documents
@@ -112,11 +141,7 @@ export default function PatientRegistration() {
     } finally { setSubmitting(false) }
   }
 
-  const validateInsurance = (ins: string) => {
-    const showType = ['HMO', 'Retainership'].includes(ins)
-    return { showType }
-  }
-  const { showType } = validateInsurance(form.insurance)
+  const { showType } = { showType: ['HMO', 'Retainership'].includes(form.insurance) }
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -276,23 +301,30 @@ export default function PatientRegistration() {
                         <option value="Retainership">Retainership</option>
                       </select></div>
                     {showType && (
-                      <div><label className="block text-xs font-medium text-slate-500 mb-1">Type {errors.insurance_type ? '*' : ''}</label>
-                        <select value={form.insurance_type} onChange={(e) => update('insurance_type', e.target.value)}
-                          className={`w-full rounded-xl border px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none ${errors.insurance_type ? 'border-rose-300 bg-rose-50' : 'border-slate-200'}`}>
-                          <option value="">Select...</option>
-                          {form.insurance === 'Retainership' && <><option value="CBN">Central Bank of Nigeria (CBN)</option><option value="Zenith Bank">Zenith Bank</option></>}
-                          <option value="Other">Other</option>
-                        </select>
-                        {errors.insurance_type && <p className="text-xs text-rose-500 mt-1">{errors.insurance_type}</p>}
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">Type</label>
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <select value={form.insurance_type} onChange={(e) => update('insurance_type', e.target.value)}
+                            className={`flex-1 min-w-0 rounded-xl border px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white ${errors.insurance_type ? 'border-rose-300' : 'border-slate-200'}`}>
+                            <option value="">Select...</option>
+                            {getTypeOptions().filter((o) => o !== 'Other').map((o) => <option key={o} value={o}>{o}</option>)}
+                            <option value="Other">Other</option>
+                          </select>
+                          {isAdmin && form.insurance_type && form.insurance_type !== 'CBN' && form.insurance_type !== 'Zenith Bank' && (
+                            <button onClick={() => {
+                              const ct = customTypes.find((c) => c.type_name === form.insurance_type && c.provider === form.insurance)
+                              if (ct) deleteCustomType(ct.id)
+                            }} className="p-2 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-500"><Trash2 size={14} /></button>
+                          )}
+                        </div>
                         {form.insurance_type === 'Other' && (
-                          <input type="text" placeholder="Enter type..." value={form.insurance_sub_type}
+                          <input type="text" placeholder="Enter custom type..." value={form.insurance_sub_type}
                             onChange={(e) => update('insurance_sub_type', e.target.value)}
                             className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
                         )}
                       </div>
                     )}
                   </div>
-
                 </div>
               </div>
             )}
@@ -302,12 +334,10 @@ export default function PatientRegistration() {
               <div className="space-y-5">
                 <h2 className="text-base font-semibold text-slate-700">Upload Documents</h2>
                 <p className="text-xs text-slate-400">Upload patient documents such as ID card, insurance, referrals (optional)</p>
-
                 <label className="flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 cursor-pointer hover:border-primary hover:bg-primary/5 transition-all text-sm text-slate-500">
                   <Upload size={16} /> Add Document
                   <input type="file" className="hidden" onChange={addDoc} accept="image/*,.pdf,.doc,.docx" />
                 </label>
-
                 {documents.map((doc, i) => (
                   <div key={i} className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                     <div className="flex items-start justify-between gap-3">
@@ -328,7 +358,7 @@ export default function PatientRegistration() {
                       <button onClick={() => removeDoc(i)} className="p-1 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-500"><X size={14} /></button>
                     </div>
                     {doc.preview.startsWith('data:image') && (
-                      <img src={doc.preview} alt="Preview" className="mt-2 h-24 w-auto rounded-lg border border-slate-200 object-cover" />
+                      <img src={doc.preview} alt="Preview" className="mt-2 h-24 w-auto rounded-lg border border-slate-200 object-cover cursor-pointer" onClick={() => setFullscreenPreview(doc.preview)} />
                     )}
                   </div>
                 ))}
@@ -359,13 +389,34 @@ export default function PatientRegistration() {
                     { label: 'Blood Type', value: form.blood_type || '—' },
                     { label: 'Insurance', value: form.insurance || '—' },
                     { label: 'Insurance Type', value: form.insurance_type || '—' },
-                    { label: 'Documents', value: `${documents.length} file(s)` },
                   ].map((f) => (
                     <div key={f.label} className="flex justify-between">
                       <span className="text-slate-500">{f.label}</span>
                       <span className="font-medium text-slate-800 text-right max-w-[60%] truncate">{f.value}</span>
                     </div>
                   ))}
+                  {documents.length > 0 && (
+                    <div className="border-t border-slate-200 pt-3">
+                      <span className="text-xs text-slate-500 mb-2 block">Documents ({documents.length})</span>
+                      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                        {documents.map((doc, i) => (
+                          <div key={i} className="relative group cursor-pointer" onClick={() => { if (doc.preview.startsWith('data:image')) setFullscreenPreview(doc.preview) }}>
+                            {doc.preview.startsWith('data:image') ? (
+                              <>
+                                <img src={doc.preview} alt={doc.file.name} className="w-full h-16 object-cover rounded-lg border border-slate-200" />
+                                <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors rounded-lg flex items-center justify-center">
+                                  <Maximize2 size={12} className="text-white opacity-0 group-hover:opacity-100" />
+                                </div>
+                              </>
+                            ) : (
+                              <div className="w-full h-16 flex items-center justify-center bg-slate-100 rounded-lg border border-slate-200 text-[10px] text-slate-400 truncate px-1">{doc.file.name}</div>
+                            )}
+                            <span className="text-[9px] text-slate-400 block text-center truncate mt-0.5">{doc.type || 'doc'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -387,6 +438,14 @@ export default function PatientRegistration() {
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Fullscreen Preview */}
+      {fullscreenPreview && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setFullscreenPreview(null)}>
+          <img src={fullscreenPreview} alt="Preview" className="max-w-[95vw] max-h-[95vh] object-contain rounded-2xl shadow-2xl" />
+          <button onClick={() => setFullscreenPreview(null)} className="absolute top-4 right-4 p-2 rounded-full bg-black/40 text-white hover:bg-black/60"><X size={20} /></button>
         </div>
       )}
     </div>

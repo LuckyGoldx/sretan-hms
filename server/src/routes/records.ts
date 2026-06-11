@@ -175,4 +175,41 @@ router.get('/api/documents/:filename', async (req: Request, res: Response) => {
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
+
+
+// --- Custom Insurance Types ---
+
+router.get('/api/insurance-types', async (req: Request, res: Response) => {
+  try {
+    const { provider } = req.query;
+    let query = 'SELECT * FROM custom_insurance_types';
+    var params: any[] = [];
+    if (provider) { query += ' WHERE provider = $1'; params.push(provider); }
+    query += ' ORDER BY type_name';
+    var result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+router.post('/api/insurance-types', async (req: Request, res: Response) => {
+  try {
+    const { provider, type_name, created_by } = req.body;
+    if (!provider || !type_name) { res.status(400).json({ error: true, message: 'provider and type_name are required' }); return; }
+    var id = uuidv4();
+    var result = await pool.query('INSERT INTO custom_insurance_types (id, provider, type_name, created_by) VALUES ($1, $2, $3, $4) RETURNING *', [id, provider, type_name, created_by || null]);
+    res.status(201).json(result.rows[0]);
+  } catch (err: any) {
+    if (err.code === '23505') { res.status(409).json({ error: true, message: 'Type already exists for this provider' }); return; }
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+router.delete('/api/insurance-types/:id', async (req: Request, res: Response) => {
+  try {
+    var result = await pool.query('DELETE FROM custom_insurance_types WHERE id = $1 RETURNING *', [req.params.id]);
+    if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Type not found' }); return; }
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
 export default router;
