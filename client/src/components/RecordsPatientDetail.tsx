@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
-  ArrowLeft, User, FileText, Clock, Edit2, Upload, Trash2, X, Loader2, Save, Home, Calendar, Shield, Phone, Mail, MapPin, Heart, Briefcase, Globe, Users, Activity,
+  ArrowLeft, User, FileText, Clock, Edit2, Upload, Trash2, X, Loader2, Save, Home, Calendar, Shield, Phone, Mail, MapPin, Heart, Briefcase, Globe, Users, Activity, Maximize2,
 } from 'lucide-react'
 
 type Tab = 'demographics' | 'documents' | 'history'
@@ -21,6 +21,9 @@ export default function RecordsPatientDetail() {
   const [showUpload, setShowUpload] = useState(false)
   const [uploadForm, setUploadForm] = useState({ document_type: '', file_name: '', notes: '' })
   const [uploading, setUploading] = useState(false)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [fullscreenImg, setFullscreenImg] = useState<string | null>(null)
   const [currentUser, setCurrentUser] = useState<any>(null)
 
   useEffect(() => {
@@ -53,14 +56,35 @@ export default function RecordsPatientDetail() {
     } catch {} finally { setSaving(false) }
   }
 
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    var file = e.target.files?.[0]!
+    if (!file) return
+    setSelectedFile(file)
+    setUploadForm((p: any) => ({ ...p, file_name: file.name }))
+    if (file.type.startsWith('image/')) {
+      var reader = new FileReader()
+      reader.onload = function(ev) { setPreviewUrl((ev.target as any)?.result as string) }
+      reader.readAsDataURL(file)
+    } else {
+      setPreviewUrl(null)
+    }
+  }
+
   async function handleUpload() {
-    if (!uploadForm.document_type || !uploadForm.file_name) return
+    if (!uploadForm.document_type || !selectedFile) return
     setUploading(true)
     try {
-      await api.post(`/patients/${patientId}/documents`, { ...uploadForm, uploaded_by: currentUser?.id })
+      var formData = new FormData()
+      formData.append('file', selectedFile)
+      formData.append('document_type', uploadForm.document_type)
+      formData.append('notes', uploadForm.notes || '')
+      formData.append('uploaded_by', currentUser?.id || '')
+      await api.post(`/patients/${patientId}/documents`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
       setShowUpload(false)
+      setSelectedFile(null)
+      setPreviewUrl(null)
       setUploadForm({ document_type: '', file_name: '', notes: '' })
-      const docRes = await api.get(`/patients/${patientId}/documents`)
+      var docRes = await api.get(`/patients/${patientId}/documents`)
       setDocuments(docRes.data || [])
     } catch {} finally { setUploading(false) }
   }
@@ -359,11 +383,17 @@ export default function RecordsPatientDetail() {
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
               <button onClick={() => setShowUpload(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-              <button onClick={handleUpload} disabled={uploading || !uploadForm.document_type || !uploadForm.file_name}
+              <button onClick={handleUpload} disabled={uploading || !uploadForm.document_type || !selectedFile}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
                 {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Upload</button>
             </div>
           </div>
+        </div>
+      )}
+      {fullscreenImg && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setFullscreenImg(null)}>
+          <img src={fullscreenImg} alt="Full preview" className="max-w-[95vw] max-h-[95vh] object-contain rounded-2xl shadow-2xl" onClick={() => setFullscreenImg(null)} />
+          <button onClick={() => setFullscreenImg(null)} className="absolute top-4 right-4 p-2 rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors"><X size={20} /></button>
         </div>
       )}
     </div>
