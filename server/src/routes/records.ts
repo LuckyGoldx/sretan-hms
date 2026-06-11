@@ -57,6 +57,19 @@ router.post('/api/patients/:patientId/documents', upload.single('file'), async (
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
+router.put('/api/patients/:patientId/documents/:docId/meta', async (req: Request, res: Response) => {
+  try {
+    const { docId } = req.params;
+    const { file_name, notes } = req.body;
+    const result = await pool.query(
+      'UPDATE patient_documents SET file_name = COALESCE($1, file_name), notes = COALESCE($2, notes) WHERE id = $3 RETURNING *',
+      [file_name || null, notes || null, docId]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Document not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
 router.delete('/api/patients/:patientId/documents/:docId', async (req: Request, res: Response) => {
   try {
     const { docId } = req.params;

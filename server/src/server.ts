@@ -70,13 +70,13 @@ async function start(): Promise<void> {
 
     try {
       await ensureSchema();
-      startSyncDaemon(pool);
+      // startSyncDaemon(pool); // disabled - cloud sync off
     } catch (dbErr) {
       console.warn('Database initialization failed (server will run without DB):', (dbErr as Error).message);
     }
 
     app.listen(PORT, () => {
-      console.log(`Sretan EMR Server running on port ${PORT}`);
+      console.log(`Machoko HMS Server running on port ${PORT}`);
     });
   } catch (err) {
     console.error('Failed to start server:', err);

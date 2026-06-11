@@ -179,9 +179,9 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
       } lg:translate-x-0`}>
         <div className="flex items-center gap-3 px-6 h-16 border-b border-slate-100 flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm">
-            S
+            M
           </div>
-          <span className="font-semibold text-slate-800 text-sm">Sretan EMR</span>
+          <span className="font-semibold text-slate-800 text-sm">Machoko HMS</span>
           <button onClick={onClose} className="ml-auto lg:hidden p-1 rounded-lg hover:bg-slate-100">
             <XIcon className="w-5 h-5 text-slate-500" />
           </button>

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import { compressImage } from '../utils/compressImage'
 import {
-  ArrowLeft, Upload, FileText, Trash2, Loader2, X, Image as ImageIcon, File, Maximize2,
+  ArrowLeft, Upload, FileText, Trash2, Loader2, X, Maximize2, Edit2, Save, AlertTriangle,
 } from 'lucide-react'
 
 export default function DocumentManager() {
@@ -18,6 +19,12 @@ export default function DocumentManager() {
   const [uploading, setUploading] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [fullscreenImg, setFullscreenImg] = useState<string | null>(null)
+  const [detailDoc, setDetailDoc] = useState<any | null>(null)
+  const [detailEditName, setDetailEditName] = useState('')
+  const [detailEditNotes, setDetailEditNotes] = useState('')
+  const [savingDetail, setSavingDetail] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<any | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
@@ -36,15 +43,16 @@ export default function DocumentManager() {
     } catch {} finally { setLoading(false) }
   }
 
-  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
-    setSelectedFile(file)
-    setUploadForm((p) => ({ ...p, file_name: file.name }))
-    if (file.type.startsWith('image/')) {
+    const compressed = await compressImage(file)
+    setSelectedFile(compressed)
+    setUploadForm((p) => ({ ...p, file_name: compressed.name }))
+    if (compressed.type.startsWith('image/')) {
       const reader = new FileReader()
       reader.onload = (ev) => setPreviewUrl(ev.target?.result as string)
-      reader.readAsDataURL(file)
+      reader.readAsDataURL(compressed)
     } else {
       setPreviewUrl(null)
     }
@@ -59,7 +67,6 @@ export default function DocumentManager() {
       formData.append('document_type', uploadForm.document_type)
       formData.append('notes', uploadForm.notes || '')
       formData.append('uploaded_by', currentUser?.id || '')
-
       const res = await api.post(`/patients/${patientId}/documents`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
@@ -71,12 +78,35 @@ export default function DocumentManager() {
     } catch {} finally { setUploading(false) }
   }
 
-  async function handleDelete(docId: string) {
-    if (!confirm('Delete this document?')) return
+  async function handleDelete() {
+    if (!confirmDelete) return
+    setDeleting(true)
     try {
-      await api.delete(`/patients/${patientId}/documents/${docId}`)
-      setDocuments((prev) => prev.filter((d) => d.id !== docId))
-    } catch {}
+      await api.delete(`/patients/${patientId}/documents/${confirmDelete.id}`)
+      setDocuments((prev) => prev.filter((d) => d.id !== confirmDelete.id))
+      setConfirmDelete(null)
+      if (detailDoc?.id === confirmDelete.id) setDetailDoc(null)
+    } catch {} finally { setDeleting(false) }
+  }
+
+  async function handleDetailSave() {
+    if (!detailDoc) return
+    setSavingDetail(true)
+    try {
+      const parts = []
+      if (detailEditName !== detailDoc.file_name) parts.push(`name='${detailEditName}'`)
+      if (detailEditNotes !== (detailDoc.notes || '')) parts.push(`notes='${detailEditNotes}'`)
+      if (parts.length === 0) { setSavingDetail(false); return }
+      await api.put(`/patients/${patientId}/documents/${detailDoc.id}/meta`, { file_name: detailEditName, notes: detailEditNotes })
+      setDocuments((prev) => prev.map((d) => d.id === detailDoc.id ? { ...d, file_name: detailEditName, notes: detailEditNotes } : d))
+      setDetailDoc((prev: any) => ({ ...prev, file_name: detailEditName, notes: detailEditNotes }))
+    } catch {} finally { setSavingDetail(false) }
+  }
+
+  function openDetail(doc: any) {
+    setDetailDoc(doc)
+    setDetailEditName(doc.file_name)
+    setDetailEditNotes(doc.notes || '')
   }
 
   const docTypeColor = (t: string) => {
@@ -120,17 +150,15 @@ export default function DocumentManager() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           {documents.map((d: any) => (
-            <div key={d.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md transition-shadow">
+            <div key={d.id} onClick={() => openDetail(d)} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md transition-shadow cursor-pointer">
               <div className="flex items-start justify-between mb-3">
                 <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${docTypeColor(d.document_type)}`}>{d.document_type.replace('_', ' ')}</span>
-                <button onClick={() => handleDelete(d.id)} className="p-1 rounded-lg hover:bg-rose-50 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={13} /></button>
+                <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(d) }} className="p-1 rounded-lg hover:bg-rose-50 text-slate-300 hover:text-rose-500 transition-colors"><Trash2 size={13} /></button>
               </div>
               {d.file_path && isImageExt(d.file_name) ? (
                 <div className="relative group mb-2">
-                  <img src={`/api/documents/${d.file_path}`} alt={d.file_name}
-                    className="w-full h-36 object-cover rounded-xl border border-slate-100 cursor-pointer"
-                    onClick={() => setFullscreenImg(`/api/documents/${d.file_path}`)} />
-                  <button onClick={() => setFullscreenImg(`/api/documents/${d.file_path}`)}
+                  <img src={`/api/documents/${d.file_path}`} alt={d.file_name} className="w-full h-36 object-cover rounded-xl border border-slate-100" />
+                  <button onClick={(e) => { e.stopPropagation(); setFullscreenImg(`/api/documents/${d.file_path}`) }}
                     className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 size={12} /></button>
                 </div>
               ) : (
@@ -151,11 +179,11 @@ export default function DocumentManager() {
 
       {/* Upload Modal */}
       {showUpload && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!uploading) setShowUpload(false) }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!uploading) { setShowUpload(false); setSelectedFile(null); setPreviewUrl(null) } }}>
           <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Upload size={18} className="text-primary" /> Upload Document</h2>
-              <button onClick={() => setShowUpload(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+              <button onClick={() => { setShowUpload(false); setSelectedFile(null); setPreviewUrl(null) }} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
             <div className="p-6 space-y-4">
               <div>
@@ -173,7 +201,7 @@ export default function DocumentManager() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">File *</label>
+                <label className="block text-xs font-medium text-slate-500 mb-1">File</label>
                 <div className="flex items-center gap-3">
                   <label className="flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 cursor-pointer hover:border-primary hover:bg-primary/5 transition-all text-sm text-slate-500">
                     <Upload size={16} />
@@ -187,8 +215,7 @@ export default function DocumentManager() {
                   <label className="block text-xs font-medium text-slate-500 mb-1">Preview</label>
                   <div className="relative group inline-block">
                     <img src={previewUrl} alt="Preview" className="h-32 w-auto rounded-xl border border-slate-200 object-cover cursor-pointer" onClick={() => setFullscreenImg(previewUrl)} />
-                    <button onClick={() => setFullscreenImg(previewUrl)}
-                      className="absolute top-2 right-2 p-1 rounded-lg bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 size={12} /></button>
+                    <button onClick={() => setFullscreenImg(previewUrl)} className="absolute top-2 right-2 p-1 rounded-lg bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 size={12} /></button>
                   </div>
                 </div>
               )}
@@ -205,6 +232,93 @@ export default function DocumentManager() {
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
                 {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Upload
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!deleting) setConfirmDelete(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-5 text-center">
+              <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center mx-auto mb-3"><Trash2 size={22} className="text-rose-500" /></div>
+              <h2 className="text-base font-semibold text-slate-800 mb-1">Delete Document?</h2>
+              <p className="text-sm text-slate-500">Are you sure you want to delete <strong>{confirmDelete.file_name}</strong>? This action cannot be undone.</p>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-center gap-3">
+              <button onClick={() => setConfirmDelete(null)} disabled={deleting} className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={handleDelete} disabled={deleting}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-colors disabled:opacity-50">
+                {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Detail Modal */}
+      {detailDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!savingDetail) setDetailDoc(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><FileText size={18} className="text-primary" /> Document Details</h2>
+              <button onClick={() => setDetailDoc(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              {detailDoc.file_path && isImageExt(detailDoc.file_name) && (
+                <div className="relative group cursor-pointer" onClick={() => setFullscreenImg(`/api/documents/${detailDoc.file_path}`)}>
+                  <img src={`/api/documents/${detailDoc.file_path}`} alt={detailDoc.file_name} className="w-full h-48 object-cover rounded-xl border border-slate-200" />
+                  <button className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 size={14} /></button>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Document Type</label>
+                <span className={`inline-block px-2.5 py-1 rounded-lg text-sm font-medium ${docTypeColor(detailDoc.document_type)}`}>{detailDoc.document_type.replace('_', ' ')}</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">File Name</label>
+                <div className="flex items-center gap-2">
+                  <input type="text" value={detailEditName}
+                    onChange={(e) => setDetailEditName(e.target.value)}
+                    className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  {detailEditName !== detailDoc.file_name && (
+                    <button onClick={() => { setSavingDetail(true); handleDetailSave().finally(() => setSavingDetail(false)) }}
+                      className="p-2 rounded-lg bg-primary text-white hover:scale-105 transition-transform flex-shrink-0"><Save size={14} /></button>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Notes</label>
+                <textarea rows={3} value={detailEditNotes}
+                  onChange={(e) => setDetailEditNotes(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="bg-slate-50 rounded-xl p-3"><span className="text-xs text-slate-400">File Size</span><p className="font-medium text-slate-700">{detailDoc.file_size ? `${(detailDoc.file_size / 1024).toFixed(1)} KB` : '—'}</p></div>
+                <div className="bg-slate-50 rounded-xl p-3"><span className="text-xs text-slate-400">Uploaded</span><p className="font-medium text-slate-700">{new Date(detailDoc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour:'2-digit', minute:'2-digit' })}</p></div>
+              </div>
+              {detailDoc.uploaded_by_name && (
+                <div className="bg-slate-50 rounded-xl p-3"><span className="text-xs text-slate-400">Uploaded By</span><p className="font-medium text-slate-700">{detailDoc.uploaded_by_name}</p></div>
+              )}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-between">
+              <button onClick={() => { setConfirmDelete(detailDoc); }} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-50 text-rose-600 text-sm font-medium hover:bg-rose-100 transition-colors">
+                <Trash2 size={14} /> Delete
+              </button>
+              <div className="flex gap-3">
+                <button onClick={() => setDetailDoc(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Close</button>
+                {(detailEditName !== detailDoc.file_name || detailEditNotes !== (detailDoc.notes || '')) && (
+                  <button onClick={handleDetailSave} disabled={savingDetail}
+                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
+                    {savingDetail ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save Changes
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

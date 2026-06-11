@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import { compressImage } from '../utils/compressImage'
 import {
-  ArrowLeft, User, FileText, Clock, Edit2, Upload, Trash2, X, Loader2, Save, Home, Calendar, Shield, Phone, Mail, MapPin, Heart, Briefcase, Globe, Users, Activity, Maximize2,
+  ArrowLeft, User, FileText, Clock, Edit2, Upload, Trash2, X, Loader2, Save, Home, Calendar, Shield, Phone, Mail, MapPin, Heart, Briefcase, Globe, Users, Activity, Maximize2, AlertTriangle,
 } from 'lucide-react'
 
 type Tab = 'demographics' | 'documents' | 'history'
@@ -24,6 +25,12 @@ export default function RecordsPatientDetail() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [fullscreenImg, setFullscreenImg] = useState<string | null>(null)
+  const [detailDoc, setDetailDoc] = useState<any | null>(null)
+  const [detailEditName, setDetailEditName] = useState('')
+  const [detailEditNotes, setDetailEditNotes] = useState('')
+  const [savingDetail, setSavingDetail] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<any | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
 
   useEffect(() => {
@@ -56,15 +63,16 @@ export default function RecordsPatientDetail() {
     } catch {} finally { setSaving(false) }
   }
 
-  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     var file = e.target.files?.[0]!
     if (!file) return
-    setSelectedFile(file)
-    setUploadForm((p: any) => ({ ...p, file_name: file.name }))
-    if (file.type.startsWith('image/')) {
+    var compressed = await compressImage(file)
+    setSelectedFile(compressed)
+    setUploadForm((p: any) => ({ ...p, file_name: compressed.name }))
+    if (compressed.type.startsWith('image/')) {
       var reader = new FileReader()
       reader.onload = function(ev) { setPreviewUrl((ev.target as any)?.result as string) }
-      reader.readAsDataURL(file)
+      reader.readAsDataURL(compressed)
     } else {
       setPreviewUrl(null)
     }
@@ -89,13 +97,34 @@ export default function RecordsPatientDetail() {
     } catch {} finally { setUploading(false) }
   }
 
-  async function handleDeleteDoc(docId: string) {
-    if (!confirm('Delete this document?')) return
-    try {
-      await api.delete(`/patients/${patientId}/documents/${docId}`)
-      setDocuments((prev) => prev.filter((d) => d.id !== docId))
-    } catch {}
+  function openDetail(doc: any) {
+    setDetailDoc(doc)
+    setDetailEditName(doc.file_name)
+    setDetailEditNotes(doc.notes || '')
   }
+
+  async function handleDelete() {
+    if (!confirmDelete) return
+    setDeleting(true)
+    try {
+      await api.delete(`/patients/${patientId}/documents/${confirmDelete.id}`)
+      setDocuments((prev) => prev.filter((d) => d.id !== confirmDelete.id))
+      setConfirmDelete(null)
+      if (detailDoc && detailDoc.id === confirmDelete.id) setDetailDoc(null)
+    } catch {} finally { setDeleting(false) }
+  }
+
+  async function handleDetailSave() {
+    if (!detailDoc) return
+    setSavingDetail(true)
+    try {
+      await api.put(`/patients/${patientId}/documents/${detailDoc.id}/meta`, { file_name: detailEditName, notes: detailEditNotes })
+      setDocuments((prev) => prev.map((d) => d.id === detailDoc.id ? { ...d, file_name: detailEditName, notes: detailEditNotes } : d))
+      setDetailDoc(function(prev: any) { return prev ? { ...prev, file_name: detailEditName, notes: detailEditNotes } : null })
+    } catch {} finally { setSavingDetail(false) }
+  }
+
+  const isImageExt = (name: string) => { return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(name) }
 
   const docTypeColor = (t: string) => {
     const map: Record<string, string> = {
@@ -243,15 +272,21 @@ export default function RecordsPatientDetail() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {documents.map((d: any) => (
-                <div key={d.id} className="bg-slate-50 rounded-xl p-4 border border-slate-100 hover:shadow-sm transition-shadow">
+                <div key={d.id} onClick={function() { openDetail(d) }} className="bg-slate-50 rounded-xl p-4 border border-slate-100 hover:shadow-sm transition-shadow cursor-pointer">
                   <div className="flex items-start justify-between mb-2">
                     <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${docTypeColor(d.document_type)}`}>{d.document_type.replace('_', ' ')}</span>
-                    <button onClick={() => handleDeleteDoc(d.id)} className="p-1 rounded-lg hover:bg-rose-50 text-slate-300 hover:text-rose-500"><Trash2 size={12} /></button>
+                    <button onClick={function(e) { e.stopPropagation(); setConfirmDelete(d) }} className="p-1 rounded-lg hover:bg-rose-50 text-slate-300 hover:text-rose-500"><Trash2 size={12} /></button>
                   </div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <FileText size={14} className="text-slate-400 flex-shrink-0" />
-                    <span className="text-sm font-medium text-slate-700 truncate">{d.file_name}</span>
-                  </div>
+                  {d.file_path && isImageExt(d.file_name) ? (
+                    <div className="relative mb-2" onClick={function(e) { e.stopPropagation(); setFullscreenImg("/api/documents/" + d.file_path) }}>
+                      <img src={"/api/documents/" + d.file_path} alt={d.file_name} className="w-full h-32 object-cover rounded-lg border border-slate-200" />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 mb-1">
+                      <FileText size={14} className="text-slate-400 flex-shrink-0" />
+                      <span className="text-sm font-medium text-slate-700 truncate">{d.file_name}</span>
+                    </div>
+                  )}
                   {d.notes && <p className="text-xs text-slate-500 mb-2 line-clamp-2">{d.notes}</p>}
                   <div className="text-[10px] text-slate-400 flex items-center justify-between pt-2 border-t border-slate-100">
                     <span>{new Date(d.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
