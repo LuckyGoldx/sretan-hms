@@ -372,10 +372,25 @@ export default function RecordsPatientDetail() {
                   <option value="">Select type...</option><option value="id_card">ID Card / Passport</option><option value="insurance">Insurance Card</option>
                   <option value="lab_report">Lab Report</option><option value="referral">Referral Letter</option><option value="consent">Consent Form</option>
                   <option value="prescription">Prescription</option><option value="other">Other</option></select></div>
-              <div><label className="block text-xs font-medium text-slate-500 mb-1">File Name *</label>
-                <input type="text" placeholder="e.g. ID_Scan.pdf" value={uploadForm.file_name}
-                  onChange={(e) => setUploadForm((p) => ({ ...p, file_name: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">File</label>
+                <div className="flex items-center gap-3">
+                  <label className="flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 cursor-pointer hover:border-primary hover:bg-primary/5 transition-all text-sm text-slate-500">
+                    <Upload size={16} />
+                    {selectedFile ? selectedFile.name : "Browse files..."}
+                    <input type="file" className="hidden" onChange={handleFileSelect} accept="image/*,.pdf,.doc,.docx" />
+                  </label>
+                </div>
+                {previewUrl && (
+                  <div className="mt-2">
+                    <div className="relative group inline-block">
+                      <img src={previewUrl} alt="Preview" className="h-32 w-auto rounded-xl border border-slate-200 object-cover cursor-pointer" onClick={() => setFullscreenImg(previewUrl)} />
+                      <button onClick={() => setFullscreenImg(previewUrl)}
+                        className="absolute top-2 right-2 p-1 rounded-lg bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 size={12} /></button>
+                    </div>
+                  </div>
+                )}
+              </div>
               <div><label className="block text-xs font-medium text-slate-500 mb-1">Notes</label>
                 <textarea rows={3} placeholder="Optional notes..." value={uploadForm.notes}
                   onChange={(e) => setUploadForm((p) => ({ ...p, notes: e.target.value }))}
