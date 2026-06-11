@@ -139,14 +139,8 @@ router.put('/api/patients/:id', async (req: Request, res: Response) => {
         emergency_contact_phone = COALESCE($12, emergency_contact_phone),
         occupation = COALESCE($13, occupation),
         marital_status = COALESCE($14, marital_status),
-        nationality = COALESCE($15, nationality),
-        state_of_origin = COALESCE($16, state_of_origin),
-        lga = COALESCE($17, lga),
-        next_of_kin_address = COALESCE($18, next_of_kin_address),
-        relationship = COALESCE($19, relationship),
-        insurance_type = COALESCE($20, insurance_type),
-        insurance_sub_type = COALESCE($21, insurance_sub_type)
-       WHERE id = $22 AND tenant_id = $23
+        nationality = COALESCE($15, nationality)
+       WHERE id = $16 AND tenant_id = $17
        RETURNING *`,
       [full_name, dob, sex, phone, next_of_kin, insurance, blood_type, status, id, tenantId]
     );

@@ -22,24 +22,24 @@ export interface Patient {
   dob: string
   sex: string
   phone: string
-  next_of_kin: string
-  insurance: string
-  blood_type: string
-  status: string
-  created_at: string
-  insurance_type?: string
-  insurance_sub_type?: string
-  state_of_origin?: string
-  lga?: string
+  email?: string
+  address?: string
+  next_of_kin?: string
   next_of_kin_address?: string
   relationship?: string
   emergency_contact_name?: string
   emergency_contact_phone?: string
+  insurance?: string
+  insurance_type?: string
+  insurance_sub_type?: string
+  blood_type?: string
+  status: string
   occupation?: string
   marital_status?: string
   nationality?: string
-  email?: string
-  address?: string
+  state_of_origin?: string
+  lga?: string
+  created_at: string
 }
 
 export interface Encounter {

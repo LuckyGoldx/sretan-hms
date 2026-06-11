@@ -21,7 +21,7 @@ const statusConfig: Record<string, { label: string; bg: string; text: string }> 
   discharged: { label: 'Discharged', bg: 'bg-slate-100', text: 'text-slate-600' },
 }
 
-function BloodTypeBadge({ type }: { type: string }) {
+function BloodTypeBadge({ type }: { type?: string }) {
   if (!type) return null
   return (
     <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-semibold bg-red-50 text-red-600 border border-red-100">

@@ -487,8 +487,7 @@ export default function PatientChart() {
                 { label: 'DOB', value: patient.dob?.slice(0, 10) || '—' },
                 { label: 'Blood Type', value: patient.blood_type || '—' },
                 { label: 'Phone', value: patient.phone || '—' },
-                { label: 'Insurance', value: patient.insurance || '—' },
-                { label: 'Insurance Type', value: patient.insurance_type ? patient.insurance_type + (patient.insurance_sub_type ? ': ' + patient.insurance_sub_type : '') : '—' },
+                { label: 'Insurance', value: patient.insurance ? patient.insurance + (patient.insurance_type ? ' - ' + patient.insurance_type.replace('_', ' ') : '') + (patient.insurance_sub_type ? ' (' + patient.insurance_sub_type + ')' : '') : '—' },
                 { label: 'Next of Kin', value: patient.next_of_kin || '—' },
                 { label: 'Hospital No.', value: patient.hospital_number || '—' },
               ].map((f) => (
