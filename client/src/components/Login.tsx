@@ -134,7 +134,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-xs text-slate-400 mt-6">
-          Powered by <span className="font-semibold text-slate-500">Machoko HMS</span>
+          Powered by <span className="font-semibold text-slate-500">Sretan Tech</span>
         </p>
       </div>
     </div>
