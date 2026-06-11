@@ -292,21 +292,7 @@ export default function PatientRegistration() {
                       </div>
                     )}
                   </div>
-                  {form.insurance === 'HMO' && (
-                    <div className="mt-4">
-                      <label className="block text-xs font-medium text-slate-500 mb-1">HMO Type</label>
-                      <select value={form.insurance_sub_type} onChange={(e) => update('insurance_sub_type', e.target.value)}
-                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                        <option value="">Select...</option>
-                        <option value="Other">Other</option>
-                      </select>
-                      {form.insurance_sub_type === 'Other' && (
-                        <input type="text" placeholder="Enter HMO name..." value={form.insurance_type === 'Other' ? form.insurance_sub_type : ''}
-                          onChange={(e) => update('insurance_sub_type', e.target.value)}
-                          className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                      )}
-                    </div>
-                  )}
+
                 </div>
               </div>
             )}
