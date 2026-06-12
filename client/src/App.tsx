@@ -259,6 +259,12 @@ function DashboardRouter() {
   return <PatientDashboard />
 }
 
+function HomeRedirect() {
+  var role = getRole()
+  if (!role) return <Navigate to="/login" replace />
+  return <Navigate to="/dashboard" replace />
+}
+
 function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const role = getRole()
   if (!role) {
@@ -316,7 +322,7 @@ export default function App() {
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<HomeRedirect />} />
           <Route
             path="/dashboard"
             element={
