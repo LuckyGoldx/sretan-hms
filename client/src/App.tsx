@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { useTheme } from './hooks/useTheme'
 import {
   LayoutDashboard,
@@ -266,7 +266,7 @@ function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?
       <div className="flex items-center justify-center h-screen bg-slate-50">
         <div className="text-center">
           <p className="text-sm text-slate-500">Please log in first.</p>
-          <a href="/" className="text-sm text-blue-600 underline mt-2 inline-block">Go to Login</a>
+          <a href="/login" className="text-sm text-blue-600 underline mt-2 inline-block">Go to Login</a>
         </div>
       </div>
     )
@@ -315,7 +315,8 @@ export default function App() {
     <BrowserRouter>
       <Suspense fallback={<LoadingFallback />}>
         <Routes>
-          <Route path="/" element={<Login />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/" element={<Navigate to="/login" replace />} />
           <Route
             path="/dashboard"
             element={
