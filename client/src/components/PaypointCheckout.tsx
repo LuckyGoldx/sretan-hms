@@ -232,11 +232,15 @@ export default function PaypointCheckout() {
                   <input type="text" placeholder="Search patient by name or hospital number..." value={search}
                     onChange={(e) => { setSearch(e.target.value); setSelectedPatient(null); setPendingItems([]); setCart([]) }}
                     className="w-full rounded-xl border border-slate-200 pl-11 pr-12 py-3 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                  {search.length >= 2 && searchResults.length === 0 && (
-                    <button onClick={() => { setMode('walkin'); setSearch('') }}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-primary font-medium hover:underline">+ Walk-in</button>
-                  )}
                 </div>
+              </div>
+              <div className="flex items-center gap-2 mb-3">
+                <button onClick={() => { setMode('patient'); setSearch(''); setSelectedPatient(null); setPendingItems([]); setCart([]) }}
+                  className={`px-4 py-2 rounded-xl text-xs font-medium transition-all ${mode === 'patient' ? 'bg-primary text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
+                  <User size={14} className="inline mr-1" />Patient</button>
+                <button onClick={() => { setMode('walkin'); setSearch(''); setSelectedPatient(null); setPendingItems([]); setCart([]) }}
+                  className={`px-4 py-2 rounded-xl text-xs font-medium transition-all ${mode === 'walkin' ? 'bg-primary text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
+                  <User size={14} className="inline mr-1" />Walk-in</button>
               </div>
               {searchResults.length > 0 && (
                 <div className="space-y-1 max-h-48 overflow-y-auto">
