@@ -31,7 +31,7 @@ export default function RecordsDashboard() {
           checkedIn: patients.filter((p: any) => p.status === 'checked_in').length,
           pendingRequests: (reqRes.data || []).length,
         })
-        setRecentPatients(patients.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 10))
+        setRecentPatients(patients.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, 15))
         setRecentRequests((reqRes.data || []).slice(0, 5))
       } catch {} finally { setLoading(false) }
     }
@@ -112,56 +112,6 @@ export default function RecordsDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Recent Registrations */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><UserPlus size={16} className="text-emerald-500" /> Recent Registrations</h3>
-            <button onClick={() => navigate('/records/patients')} className="text-xs text-primary font-medium hover:underline flex items-center gap-1">View All <ArrowRight size={12} /></button>
-          </div>
-          {recentPatients.length === 0 ? (
-            <p className="text-sm text-slate-400 text-center py-6">No patients registered yet</p>
-          ) : (
-            <div className="space-y-1">
-              {recentPatients.map((p: any) => (
-                <button key={p.id} onClick={() => navigate(`/patient/${p.id}`)}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-colors text-left">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-800 truncate">{p.full_name}</p>
-                    <p className="text-xs text-slate-400">{p.hospital_number} &middot; {p.sex}</p>
-                  </div>
-                  <span className="text-[10px] text-slate-400 flex-shrink-0 ml-3">{new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Pending Record Requests */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><FileText size={16} className="text-purple-500" /> Pending Requests</h3>
-            <button onClick={() => navigate('/records/requests')} className="text-xs text-primary font-medium hover:underline flex items-center gap-1">Manage <ArrowRight size={12} /></button>
-          </div>
-          {recentRequests.length === 0 ? (
-            <p className="text-sm text-slate-400 text-center py-6">No pending record requests</p>
-          ) : (
-            <div className="space-y-1">
-              {recentRequests.map((r: any) => (
-                <button key={r.id} onClick={() => navigate('/records/requests')}
-                  className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-colors text-left">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-800 truncate">{r.patient_name}</p>
-                    <p className="text-xs text-slate-400">{r.requester_name} &middot; {r.purpose || 'No purpose specified'}</p>
-                  </div>
-                  <span className="text-[10px] text-slate-400 flex-shrink-0 ml-3">{new Date(r.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* Quick Links */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <button onClick={() => navigate('/patients/register')}
@@ -188,6 +138,54 @@ export default function RecordsDashboard() {
           <h3 className="text-sm font-semibold text-slate-700">Appointments</h3>
           <p className="text-xs text-slate-400 mt-1">Schedule and manage appointments</p>
         </button>
+      </div>
+
+      {/* Pending Record Requests */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><FileText size={16} className="text-purple-500" /> Pending Requests</h3>
+          <button onClick={() => navigate('/records/requests')} className="text-xs text-primary font-medium hover:underline flex items-center gap-1">Manage <ArrowRight size={12} /></button>
+        </div>
+        {recentRequests.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-6">No pending record requests</p>
+        ) : (
+          <div className="space-y-1">
+            {recentRequests.map((r: any) => (
+              <button key={r.id} onClick={() => navigate('/records/requests')}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-colors text-left">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-800 truncate">{r.patient_name}</p>
+                  <p className="text-xs text-slate-400">{r.requester_name} &middot; {r.purpose || 'No purpose specified'}</p>
+                </div>
+                <span className="text-[10px] text-slate-400 flex-shrink-0 ml-3">{new Date(r.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Recent Registrations */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><UserPlus size={16} className="text-emerald-500" /> Recent Registrations</h3>
+          <button onClick={() => navigate('/records/patients')} className="text-xs text-primary font-medium hover:underline flex items-center gap-1">View All <ArrowRight size={12} /></button>
+        </div>
+        {recentPatients.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-6">No patients registered yet</p>
+        ) : (
+          <div className="space-y-1">
+            {recentPatients.map((p: any) => (
+              <button key={p.id} onClick={() => navigate(`/records/patients/${p.id}`)}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-colors text-left">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-800 truncate">{p.full_name}</p>
+                  <p className="text-xs text-slate-400">{p.hospital_number} &middot; {p.sex}</p>
+                </div>
+                <span className="text-[10px] text-slate-400 flex-shrink-0 ml-3">{new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

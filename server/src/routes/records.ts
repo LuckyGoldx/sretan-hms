@@ -128,24 +128,6 @@ router.put('/api/record-requests/:id', async (req: Request, res: Response) => {
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
-// --- Patient Search ---
-
-router.get('/api/patients/search', async (req: Request, res: Response) => {
-  try {
-    const { q } = req.query;
-    if (!q) { res.json([]); return; }
-    const searchTerm = `%${q}%`;
-    const result = await pool.query(
-      `SELECT id, full_name, hospital_number, sex, dob, phone, status, blood_type
-       FROM patients
-       WHERE full_name ILIKE $1 OR hospital_number ILIKE $1 OR phone ILIKE $1
-       ORDER BY full_name LIMIT 20`,
-      [searchTerm]
-    );
-    res.json(result.rows);
-  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
-});
-
 
 
 router.get('/api/patients/:patientId/audit', async (req: Request, res: Response) => {
@@ -166,7 +148,7 @@ router.get('/api/patients/:patientId/audit', async (req: Request, res: Response)
 
 router.get('/api/documents/:filename', async (req: Request, res: Response) => {
   try {
-    var filePath = path.join(DOCUMENTS_DIR, req.params.filename);
+    var filePath = path.join(DOCUMENTS_DIR, req.params.filename as string);
     if (!fs.existsSync(filePath)) {
       res.status(404).json({ error: true, message: 'File not found' });
       return;
@@ -207,6 +189,36 @@ router.post('/api/insurance-types', async (req: Request, res: Response) => {
 router.delete('/api/insurance-types/:id', async (req: Request, res: Response) => {
   try {
     var result = await pool.query('DELETE FROM custom_insurance_types WHERE id = $1 RETURNING *', [req.params.id]);
+    if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Type not found' }); return; }
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+
+
+router.get('/api/document-types', async (_req: Request, res: Response) => {
+  try {
+    var result = await pool.query('SELECT * FROM custom_document_types ORDER BY type_name');
+    res.json(result.rows);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+router.post('/api/document-types', async (req: Request, res: Response) => {
+  try {
+    const { type_name, created_by } = req.body;
+    if (!type_name) { res.status(400).json({ error: true, message: 'type_name is required' }); return; }
+    var id = uuidv4();
+    var result = await pool.query('INSERT INTO custom_document_types (id, type_name, created_by) VALUES ($1, $2, $3) RETURNING *', [id, type_name, created_by || null]);
+    res.status(201).json(result.rows[0]);
+  } catch (err: any) {
+    if (err.code === '23505') { res.status(409).json({ error: true, message: 'Type already exists' }); return; }
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+router.delete('/api/document-types/:id', async (req: Request, res: Response) => {
+  try {
+    var result = await pool.query('DELETE FROM custom_document_types WHERE id = $1 RETURNING *', [req.params.id]);
     if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Type not found' }); return; }
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }

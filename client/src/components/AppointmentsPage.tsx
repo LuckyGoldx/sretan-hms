@@ -219,14 +219,18 @@ export default function AppointmentsPage() {
                   </div>
                   {effectiveStatus === 'scheduled' && (
                     <div className="flex items-center gap-2">
-                      <button onClick={() => setConfirmAction({ id: a.id, action: 'completed', patientName: a.patient_name })}
-                        className="px-3 py-1 rounded-lg bg-emerald-50 text-emerald-600 text-xs font-medium hover:bg-emerald-100 transition-colors flex items-center gap-1">
-                        <CheckCircle size={12} /> Complete
-                      </button>
-                      <button onClick={() => setConfirmAction({ id: a.id, action: 'cancelled', patientName: a.patient_name })}
-                        className="px-3 py-1 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors flex items-center gap-1">
-                        <XCircle size={12} /> Cancel
-                      </button>
+                      {(a.doctor_id === currentUser?.id || currentUser?.role === 'Admin') && (
+                        <button onClick={() => setConfirmAction({ id: a.id, action: 'completed', patientName: a.patient_name })}
+                          className="px-3 py-1 rounded-lg bg-emerald-50 text-emerald-600 text-xs font-medium hover:bg-emerald-100 transition-colors flex items-center gap-1">
+                          <CheckCircle size={12} /> Complete
+                        </button>
+                      )}
+                      {(a.doctor_id === currentUser?.id || currentUser?.role === 'Records' || currentUser?.role === 'Admin') && (
+                        <button onClick={() => setConfirmAction({ id: a.id, action: 'cancelled', patientName: a.patient_name })}
+                          className="px-3 py-1 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors flex items-center gap-1">
+                          <XCircle size={12} /> Cancel
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -248,13 +252,17 @@ export default function AppointmentsPage() {
                     </div>
                   </div>
                   {a.notes && <p className="mt-2 text-xs text-slate-400 bg-slate-50 rounded-lg p-2">{a.notes}</p>}
-                  {a.created_by_name && <p className="mt-1 text-[11px] text-slate-400">Booked by {a.created_by_name}</p>}
+                  {a.created_by_name && <p className="mt-1 text-[11px] text-slate-400">Booked by {a.created_by_name} on {new Date(a.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>}
                   {effectiveStatus === 'scheduled' && (
                     <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2">
-                      <button onClick={() => navigate(`/patient/${a.patient_id}`)}
-                        className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
-                      <button onClick={() => navigate(`/consultation/${a.patient_id}`)}
-                        className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-xs font-medium hover:bg-blue-100 transition-colors">Consult</button>
+                      {currentUser?.role !== 'Records' && (
+                        <button onClick={() => navigate(`/patient/${a.patient_id}`)}
+                          className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
+                      )}
+                      {currentUser?.role === 'Doctor' && (
+                        <button onClick={() => navigate(`/consultation/${a.patient_id}`)}
+                          className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-xs font-medium hover:bg-blue-100 transition-colors">Consult</button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -388,7 +396,7 @@ export default function AppointmentsPage() {
             <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl">
               <button onClick={() => { setShowBook(false); setBookForm({ patient_id: '', doctor_id: '', appointment_date: '', reason: '', notes: '' }); setPatientSearch(''); setDoctorSearch('') }}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-              <button onClick={handleBook} disabled={booking || !bookForm.patient_id || !bookForm.appointment_date}
+              <button onClick={handleBook} disabled={booking || !bookForm.patient_id || !bookDate}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
                 {booking ? <Loader2 size={14} className="animate-spin" /> : <Calendar size={14} />}
                 Book Appointment

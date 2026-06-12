@@ -1,10 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
-import { compressImage } from '../utils/compressImage'
 import {
-  ArrowLeft, User, FileText, Clock, Edit2, Upload, Trash2, X, Loader2, Save, Home, Calendar, Shield, Phone, Mail, MapPin, Heart, Briefcase, Globe, Users, Activity, Maximize2, AlertTriangle,
+  ArrowLeft, User, FileText, Clock, Edit2, Upload, Trash2, X, Loader2, Save,
+  Calendar, Shield, Phone, Mail, MapPin, Heart, Briefcase, Globe, Users, Activity, Maximize2,
 } from 'lucide-react'
+import { COUNTRIES, NIGERIA_STATES, NIGERIA_LGAS, OCCUPATIONS, RELATIONSHIPS } from '../data/formData'
+import SearchableSelect from './SearchableSelect'
+import { compressImage } from '../utils/compressImage'
+import { validatePhone } from '../utils/validatePhone'
 
 type Tab = 'demographics' | 'documents' | 'history'
 
@@ -19,11 +23,13 @@ export default function RecordsPatientDetail() {
   const [showEdit, setShowEdit] = useState(false)
   const [editForm, setEditForm] = useState<any>({})
   const [saving, setSaving] = useState(false)
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({})
+  const [phoneErrors, setPhoneErrors] = useState<Record<string, string>>({})
   const [showUpload, setShowUpload] = useState(false)
   const [uploadForm, setUploadForm] = useState({ document_type: '', file_name: '', notes: '' })
-  const [uploading, setUploading] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
   const [fullscreenImg, setFullscreenImg] = useState<string | null>(null)
   const [detailDoc, setDetailDoc] = useState<any | null>(null)
   const [detailEditName, setDetailEditName] = useState('')
@@ -32,35 +38,99 @@ export default function RecordsPatientDetail() {
   const [confirmDelete, setConfirmDelete] = useState<any | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [customTypes, setCustomTypes] = useState<any[]>([])
+  const [historyDetail, setHistoryDetail] = useState<any | null>(null)
+  const editBodyRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
     loadData()
   }, [])
 
+  useEffect(() => {
+    if (Object.keys(editErrors).length > 0 && editBodyRef.current) {
+      var parent = editBodyRef.current.parentElement || editBodyRef.current
+      if (parent) { parent.scrollTo({ top: 0 }); parent.scrollTop = 0 }
+    }
+  }, [editErrors])
+
+  const isAdmin = currentUser?.role === 'Admin'
+
   async function loadData() {
     setLoading(true)
     try {
-      const [patRes, docRes, auditRes] = await Promise.all([
+      const [patRes, docRes, auditRes, insRes] = await Promise.all([
         api.get(`/patients/${patientId}`).catch(() => ({ data: null })),
         api.get(`/patients/${patientId}/documents`).catch(() => ({ data: [] })),
         api.get(`/patients/${patientId}/audit`).catch(() => ({ data: [] })),
+        api.get('/insurance-types').catch(() => ({ data: [] })),
       ])
       setPatient(patRes.data || null)
       setDocuments(docRes.data || [])
       setAuditLogs(auditRes.data || [])
+      setCustomTypes(insRes.data || [])
     } catch {} finally { setLoading(false) }
   }
 
-  async function handleSave() {
+  function openEdit() {
     if (!patient) return
+    setEditErrors({})
+    setPhoneErrors({})
+    setEditForm({
+      full_name: patient.full_name,
+      dob: patient.dob ? (() => { var d = new Date(patient.dob); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') })() : '', sex: patient.sex,
+      phone: patient.phone || '', email: patient.email || '', address: patient.address || '',
+      nationality: patient.nationality || '', state_of_origin: patient.state_of_origin || '',
+      lga: patient.lga || '', occupation: patient.occupation || '',
+      marital_status: patient.marital_status || '',
+      next_of_kin: patient.next_of_kin || '', next_of_kin_phone: patient.next_of_kin_phone || '',
+      relationship: patient.relationship || '', next_of_kin_address: patient.next_of_kin_address || '',
+      emergency_contact_name: patient.emergency_contact_name || '',
+      emergency_contact_phone: patient.emergency_contact_phone || '',
+      insurance: patient.insurance || '', insurance_type: patient.insurance_type || '',
+      insurance_sub_type: patient.insurance_sub_type || '', blood_type: patient.blood_type || '',
+    })
+    setShowEdit(true)
+  }
+
+  function validateEdit() {
+    var e: Record<string, string> = {}
+    if (!editForm.full_name?.trim()) e.full_name = 'Full name is required'
+    if (!editForm.dob) e.dob = 'Date of birth is required'
+    if (!editForm.sex) e.sex = 'Sex is required'
+    if (!editForm.nationality) e.nationality = 'Nationality is required'
+    if (editForm.nationality === 'Nigeria' && !editForm.state_of_origin) e.state_of_origin = 'State of origin is required for Nigeria'
+    if (!editForm.phone?.trim()) { e.phone = 'Phone is required' } else { var pv = validatePhone(editForm.phone); if (!pv.valid) e.phone = pv.error || 'Invalid phone' }
+    if (!editForm.blood_type) e.blood_type = 'Blood type is required'
+    if (!editForm.emergency_contact_name?.trim()) e.emergency_contact_name = 'Emergency contact is required'
+    if (!editForm.emergency_contact_phone?.trim()) { e.emergency_contact_phone = 'Emergency phone is required' } else { var epv = validatePhone(editForm.emergency_contact_phone); if (!epv.valid) e.emergency_contact_phone = epv.error || 'Invalid phone' }
+    setEditErrors(e)
+    if (Object.keys(e).length > 0 && editBodyRef.current) {
+      var scrollEl = editBodyRef.current.parentElement || editBodyRef.current
+      setTimeout(function() {
+        if (scrollEl) {
+          scrollEl.scrollTo({ top: 0 })
+          scrollEl.scrollTop = 0
+        }
+      }, 50)
+    }
+    return Object.keys(e).length === 0
+  }
+
+  async function handleSave() {
+    if (!patient || !validateEdit()) return
     setSaving(true)
     try {
-      const res = await api.put(`/patients/${patient.id}`, editForm)
+      const res = await api.put(`/patients/${patient.id}`, { ...editForm, edited_by: currentUser?.id })
       setPatient((prev: any) => ({ ...prev, ...res.data }))
       setShowEdit(false)
+      setEditErrors({})
       loadData()
-    } catch {} finally { setSaving(false) }
+    } catch (err: any) {
+      const msg = err.response?.data?.message || err.message || 'Failed to save. Please try again.'
+      alert(msg)
+      console.error('Save error:', err)
+    } finally { setSaving(false) }
   }
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -71,11 +141,9 @@ export default function RecordsPatientDetail() {
     setUploadForm((p: any) => ({ ...p, file_name: compressed.name }))
     if (compressed.type.startsWith('image/')) {
       var reader = new FileReader()
-      reader.onload = function(ev) { setPreviewUrl((ev.target as any)?.result as string) }
+      reader.onload = function(ev: any) { setPreviewUrl(ev.target?.result as string) }
       reader.readAsDataURL(compressed)
-    } else {
-      setPreviewUrl(null)
-    }
+    } else { setPreviewUrl(null) }
   }
 
   async function handleUpload() {
@@ -88,20 +156,13 @@ export default function RecordsPatientDetail() {
       formData.append('notes', uploadForm.notes || '')
       formData.append('uploaded_by', currentUser?.id || '')
       await api.post(`/patients/${patientId}/documents`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
-      setShowUpload(false)
-      setSelectedFile(null)
-      setPreviewUrl(null)
+      setShowUpload(false); setSelectedFile(null); setPreviewUrl(null)
       setUploadForm({ document_type: '', file_name: '', notes: '' })
-      var docRes = await api.get(`/patients/${patientId}/documents`)
-      setDocuments(docRes.data || [])
+      loadData()
     } catch {} finally { setUploading(false) }
   }
 
-  function openDetail(doc: any) {
-    setDetailDoc(doc)
-    setDetailEditName(doc.file_name)
-    setDetailEditNotes(doc.notes || '')
-  }
+  function openDetail(doc: any) { setDetailDoc(doc); setDetailEditName(doc.file_name); setDetailEditNotes(doc.notes || '') }
 
   async function handleDelete() {
     if (!confirmDelete) return
@@ -120,14 +181,12 @@ export default function RecordsPatientDetail() {
     try {
       await api.put(`/patients/${patientId}/documents/${detailDoc.id}/meta`, { file_name: detailEditName, notes: detailEditNotes })
       setDocuments((prev) => prev.map((d) => d.id === detailDoc.id ? { ...d, file_name: detailEditName, notes: detailEditNotes } : d))
-      setDetailDoc(function(prev: any) { return prev ? { ...prev, file_name: detailEditName, notes: detailEditNotes } : null })
+      setDetailDoc((prev: any) => prev ? { ...prev, file_name: detailEditName, notes: detailEditNotes } : null)
     } catch {} finally { setSavingDetail(false) }
   }
 
-  const isImageExt = (name: string) => { return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(name) }
-
   const docTypeColor = (t: string) => {
-    const map: Record<string, string> = {
+    var map: Record<string, string> = {
       id_card: 'bg-blue-100 text-blue-700', insurance: 'bg-emerald-100 text-emerald-700',
       lab_report: 'bg-purple-100 text-purple-700', referral: 'bg-amber-100 text-amber-700',
       consent: 'bg-rose-100 text-rose-700', prescription: 'bg-indigo-100 text-indigo-700',
@@ -136,27 +195,48 @@ export default function RecordsPatientDetail() {
     return map[t] || 'bg-slate-100 text-slate-600'
   }
 
-  const statusBadge = (s: string) => {
-    const map: Record<string, string> = {
-      checked_in: 'bg-blue-100 text-blue-700', in_triage: 'bg-amber-100 text-amber-700',
-      waiting: 'bg-purple-100 text-purple-700', with_doctor: 'bg-indigo-100 text-indigo-700',
-      discharged: 'bg-slate-100 text-slate-600',
+  const isImageExt = (name: string) => /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(name)
+  const Req = () => <span className="text-rose-500 ml-0.5">*</span>
+
+  function calcAge(dob: any): string {
+    if (!dob) return ''
+    try {
+      var bd = new Date(dob), today = new Date()
+      var age = today.getFullYear() - bd.getFullYear()
+      var m = today.getMonth() - bd.getMonth()
+      if (m < 0 || (m === 0 && today.getDate() < bd.getDate())) age--
+      return age + ' years'
+    } catch { return '' }
+  }
+
+  const getEditState = () => {
+    var nat = editForm.nationality
+    var states = nat === 'Nigeria' ? NIGERIA_STATES : []
+    var lgas = editForm.state_of_origin && NIGERIA_LGAS[editForm.state_of_origin] ? NIGERIA_LGAS[editForm.state_of_origin] : []
+    return { states, lgas, nat }
+  }
+
+  function fmtVal(v: any, k: string): string {
+    if (!v || v === null || v === 'null') return '—';
+    if (['dob','created_at','updated_at','last_synced_at','administered_at','discharged_at','admitted_at','end_date'].includes(k)) {
+      try { return new Date(v).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch(e) {}
     }
-    return <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${map[s] || 'bg-slate-100 text-slate-600'}`}>{s?.replace('_', ' ') || 'Unknown'}</span>
+    return String(v);
   }
 
   const tabs: { id: Tab; label: string; icon: any }[] = [
     { id: 'demographics', label: 'Demographics', icon: User },
     { id: 'documents', label: `Documents (${documents.length})`, icon: FileText },
-    { id: 'history', label: `History (${auditLogs.length})`, icon: Clock },
+    { id: 'history', label: `Edit History (${auditLogs.length})`, icon: Clock },
   ]
 
   if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><Loader2 size={32} className="animate-spin text-primary" /></div>
   if (!patient) return <div className="flex items-center justify-center min-h-[60vh] text-slate-400"><p>Patient not found</p></div>
 
+  var es = getEditState()
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate('/records/patients')} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
@@ -164,33 +244,30 @@ export default function RecordsPatientDetail() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-semibold text-slate-800">{patient.full_name}</h1>
-              {statusBadge(patient.status)}
+              <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${patient.status === 'checked_in' ? 'bg-blue-100 text-blue-700' : patient.status === 'in_triage' ? 'bg-amber-100 text-amber-700' : patient.status === 'waiting' ? 'bg-purple-100 text-purple-700' : patient.status === 'with_doctor' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'}`}>
+                {patient.status?.replace('_', ' ') || 'Unknown'}</span>
             </div>
-            <p className="text-sm text-slate-400">{patient.hospital_number} &middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; Reg: {new Date(patient.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+            <p className="text-sm text-slate-400">{patient.hospital_number} &middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; Age: {calcAge(patient.dob)}</p>
+            <p className="text-xs text-slate-400 mt-0.5">Registered {new Date(patient.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => { setShowEdit(true); setEditForm({ full_name: patient.full_name, dob: patient.dob?.slice(0, 10), sex: patient.sex, phone: patient.phone || '', email: patient.email || '', address: patient.address || '', next_of_kin: patient.next_of_kin || '', emergency_contact_name: patient.emergency_contact_name || '', emergency_contact_phone: patient.emergency_contact_phone || '', insurance: patient.insurance || '', blood_type: patient.blood_type || '', occupation: patient.occupation || '', marital_status: patient.marital_status || '', nationality: patient.nationality || '' }) }}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform"><Edit2 size={15} /> Edit
-          </button>
-          <button onClick={() => setShowUpload(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-medium hover:bg-slate-50 transition-colors"><Upload size={15} /> Upload</button>
+          <button onClick={openEdit} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform"><Edit2 size={15} /> Edit</button>
+          <button onClick={() => setShowUpload(true)} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-medium hover:bg-slate-50"><Upload size={15} /> Upload</button>
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="flex gap-1.5 flex-wrap">
         {tabs.map((t) => {
-          const Icon = t.icon
+          var Icon = t.icon
           return (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${tab === t.id ? 'bg-primary text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
-              <Icon size={14} /> {t.label}
-            </button>
+              <Icon size={14} /> {t.label}</button>
           )
         })}
       </div>
 
-      {/* Tab: Demographics */}
       {tab === 'demographics' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -199,22 +276,17 @@ export default function RecordsPatientDetail() {
               <div className="space-y-3">
                 {[
                   { icon: User, label: 'Full Name', value: patient.full_name },
-                  { icon: Calendar, label: 'Date of Birth', value: patient.dob?.slice(0, 10) || '—' },
+                  { icon: Calendar, label: 'Date of Birth', value: (patient.dob?.slice(0, 10) || '—') + (patient.dob ? ' (' + calcAge(patient.dob) + ')' : '') },
                   { icon: Users, label: 'Sex', value: patient.sex || '—' },
                   { icon: Heart, label: 'Marital Status', value: patient.marital_status || '—' },
                   { icon: Globe, label: 'Nationality', value: patient.nationality || '—' },
+                  { icon: Globe, label: 'State of Origin', value: patient.state_of_origin || '—' },
+                  { icon: Globe, label: 'LGA', value: patient.lga || '—' },
                   { icon: Briefcase, label: 'Occupation', value: patient.occupation || '—' },
                   { icon: Activity, label: 'Blood Type', value: patient.blood_type || '—' },
-                  { icon: Shield, label: 'Insurance', value: patient.insurance || '—' },
                 ].map((f) => {
-                  const Icon = f.icon
-                  return (
-                    <div key={f.label} className="flex items-center gap-3">
-                      <Icon size={14} className="text-slate-400 flex-shrink-0" />
-                      <span className="text-xs text-slate-500 w-24 flex-shrink-0">{f.label}</span>
-                      <span className="text-sm font-medium text-slate-800 truncate">{f.value}</span>
-                    </div>
-                  )
+                  var Icon = f.icon
+                  return (<div key={f.label} className="flex items-center gap-3"><Icon size={14} className="text-slate-400 flex-shrink-0" /><span className="text-xs text-slate-500 w-24 flex-shrink-0">{f.label}</span><span className="text-sm font-medium text-slate-800 truncate">{f.value}</span></div>)
                 })}
               </div>
             </div>
@@ -226,14 +298,8 @@ export default function RecordsPatientDetail() {
                   { icon: Mail, label: 'Email', value: patient.email || '—' },
                   { icon: MapPin, label: 'Address', value: patient.address || '—' },
                 ].map((f) => {
-                  const Icon = f.icon
-                  return (
-                    <div key={f.label} className="flex items-center gap-3">
-                      <Icon size={14} className="text-slate-400 flex-shrink-0" />
-                      <span className="text-xs text-slate-500 w-24 flex-shrink-0">{f.label}</span>
-                      <span className="text-sm font-medium text-slate-800 truncate">{f.value}</span>
-                    </div>
-                  )
+                  var Icon = f.icon
+                  return (<div key={f.label} className="flex items-center gap-3"><Icon size={14} className="text-slate-400 flex-shrink-0" /><span className="text-xs text-slate-500 w-24 flex-shrink-0">{f.label}</span><span className="text-sm font-medium text-slate-800 truncate">{f.value}</span></div>)
                 })}
               </div>
               <div className="mt-6">
@@ -241,17 +307,15 @@ export default function RecordsPatientDetail() {
                 <div className="space-y-3">
                   {[
                     { icon: Users, label: 'Next of Kin', value: patient.next_of_kin || '—' },
+                    { icon: Phone, label: 'Next of Kin Phone', value: patient.next_of_kin_phone || '—' },
+                    { icon: Users, label: 'Relationship', value: patient.relationship || '—' },
+                    { icon: MapPin, label: 'Next of Kin Address', value: patient.next_of_kin_address || '—' },
                     { icon: User, label: 'Emergency Contact', value: patient.emergency_contact_name || '—' },
                     { icon: Phone, label: 'Emergency Phone', value: patient.emergency_contact_phone || '—' },
+                    { icon: Shield, label: 'Insurance', value: patient.insurance ? patient.insurance + (patient.insurance_type ? ' - ' + patient.insurance_type : '') + (patient.insurance_sub_type ? ' (' + patient.insurance_sub_type + ')' : '') : '—' },
                   ].map((f) => {
-                    const Icon = f.icon
-                    return (
-                      <div key={f.label} className="flex items-center gap-3">
-                        <Icon size={14} className="text-slate-400 flex-shrink-0" />
-                        <span className="text-xs text-slate-500 w-24 flex-shrink-0">{f.label}</span>
-                        <span className="text-sm font-medium text-slate-800 truncate">{f.value}</span>
-                      </div>
-                    )
+                    var Icon = f.icon
+                    return (<div key={f.label} className="flex items-center gap-3"><Icon size={14} className="text-slate-400 flex-shrink-0" /><span className="text-xs text-slate-500 w-24 flex-shrink-0">{f.label}</span><span className="text-sm font-medium text-slate-800 truncate">{f.value}</span></div>)
                   })}
                 </div>
               </div>
@@ -260,12 +324,11 @@ export default function RecordsPatientDetail() {
         </div>
       )}
 
-      {/* Tab: Documents */}
       {tab === 'documents' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-slate-700">Uploaded Documents</h3>
-            <button onClick={() => setShowUpload(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform"><Upload size={13} /> Upload</button>
+            <button onClick={() => setShowUpload(true)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium hover:scale-[1.01]"><Upload size={13} /> Upload</button>
           </div>
           {documents.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-8">No documents uploaded</p>
@@ -275,10 +338,10 @@ export default function RecordsPatientDetail() {
                 <div key={d.id} onClick={function() { openDetail(d) }} className="bg-slate-50 rounded-xl p-4 border border-slate-100 hover:shadow-sm transition-shadow cursor-pointer">
                   <div className="flex items-start justify-between mb-2">
                     <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${docTypeColor(d.document_type)}`}>{d.document_type.replace('_', ' ')}</span>
-                    <button onClick={function(e) { e.stopPropagation(); setConfirmDelete(d) }} className="p-1 rounded-lg hover:bg-rose-50 text-slate-300 hover:text-rose-500"><Trash2 size={12} /></button>
+                    <button onClick={function(e: any) { e.stopPropagation(); setConfirmDelete(d) }} className="p-1 rounded-lg hover:bg-rose-50 text-slate-300 hover:text-rose-500"><Trash2 size={12} /></button>
                   </div>
                   {d.file_path && isImageExt(d.file_name) ? (
-                    <div className="relative mb-2" onClick={function(e) { e.stopPropagation(); setFullscreenImg("/api/documents/" + d.file_path) }}>
+                    <div className="relative mb-2 cursor-pointer" onClick={function(e: any) { e.stopPropagation(); setFullscreenImg("/api/documents/" + d.file_path) }}>
                       <img src={"/api/documents/" + d.file_path} alt={d.file_name} className="w-full h-32 object-cover rounded-lg border border-slate-200" />
                     </div>
                   ) : (
@@ -299,7 +362,6 @@ export default function RecordsPatientDetail() {
         </div>
       )}
 
-      {/* Tab: History */}
       {tab === 'history' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
           <h3 className="text-sm font-semibold text-slate-700 mb-4">Modification History</h3>
@@ -308,7 +370,7 @@ export default function RecordsPatientDetail() {
           ) : (
             <div className="space-y-3">
               {auditLogs.map((log: any) => (
-                <div key={log.id} className="flex items-start gap-3 p-4 rounded-xl bg-slate-50 border border-slate-100">
+                <div key={log.id} onClick={function() { setHistoryDetail(log) }} className="flex items-start gap-3 p-4 rounded-xl bg-slate-50 border border-slate-100 cursor-pointer hover:shadow-sm transition-shadow">
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                     {log.action === 'UPDATE' ? <Edit2 size={13} className="text-primary" /> : log.action === 'CREATE' ? <User size={13} className="text-emerald-500" /> : <Trash2 size={13} className="text-rose-500" />}
                   </div>
@@ -320,9 +382,10 @@ export default function RecordsPatientDetail() {
                     </div>
                     {log.new_data && (
                       <p className="text-xs text-slate-500 mt-1 line-clamp-2">
-                        {log.action === 'UPDATE' && log.old_data ? Object.keys(log.new_data).filter((k) => log.old_data[k] !== log.new_data[k]).map((k) => `${k}: ${log.old_data[k] || '—'} → ${log.new_data[k] || '—'}`).join(', ') : JSON.stringify(log.new_data).slice(0, 200)}
+                        {log.action === 'UPDATE' ? Object.keys(log.new_data).filter(function(k) { return !["id","tenant_id","is_synced","last_synced_at","hospital_number","updated_at"].includes(k); }).filter(function(k) { return String((log.old_data || {})[k] || "") !== String(log.new_data[k] || ""); }).slice(0, 5).map(function(k) { return k.replace(/_/g, " "); }).join(', ') : ''}
                       </p>
                     )}
+                    {log.performed_by_name && <p className="text-[10px] text-slate-400 mt-1">by {log.performed_by_name}</p>}
                   </div>
                 </div>
               ))}
@@ -331,60 +394,201 @@ export default function RecordsPatientDetail() {
         </div>
       )}
 
+
+      {/* History Detail Modal */}
+      {historyDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={function() { setHistoryDetail(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4" onClick={function(e: any) { e.stopPropagation() }}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800"><Clock size={18} className="inline text-primary mr-2" />Change Details</h2>
+              <button onClick={function() { setHistoryDetail(null) }} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="bg-slate-50 rounded-xl p-3"><span className="text-xs text-slate-400">Action</span><p className="font-medium text-slate-800 capitalize">{historyDetail.action?.toLowerCase()}</p></div>
+                <div className="bg-slate-50 rounded-xl p-3"><span className="text-xs text-slate-400">Section</span><p className="font-medium text-slate-800">{historyDetail.table_name}</p></div>
+                <div className="bg-slate-50 rounded-xl p-3"><span className="text-xs text-slate-400">Date & Time</span><p className="font-medium text-slate-800">{new Date(historyDetail.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p></div>
+                {historyDetail.performed_by_name && <div className="bg-slate-50 rounded-xl p-3"><span className="text-xs text-slate-400">By</span><p className="font-medium text-slate-800">{historyDetail.performed_by_name}</p></div>}
+              </div>
+              {historyDetail.new_data && (
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Changes Made</h3>
+                  <div className="space-y-2">
+                    {Object.entries(historyDetail.new_data).map(function(entry) {
+                      var key = entry[0]; var newVal = entry[1]; var oldVal = (historyDetail.old_data || {})[key];
+                      if (String(oldVal || "") === String(newVal || "")) return null;
+                      if (["id","tenant_id","is_synced","last_synced_at","hospital_number","updated_at"].includes(key)) return null;
+                      return (
+                        <div key={key} className="bg-slate-50 rounded-xl p-3">
+                          <p className="text-xs font-medium text-slate-500 capitalize mb-1">{key.replace(/_/g, " ")}</p>
+                          <div className="flex items-center gap-2 text-sm flex-wrap">
+                            <span className="text-rose-600 line-through">{fmtVal(oldVal, key)}</span>
+                            <span className="text-slate-400">→</span>
+                            <span className="text-emerald-600 font-medium">{fmtVal(newVal, key)}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end">
+              <button onClick={function() { setHistoryDetail(null) }} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit Modal */}
       {showEdit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!saving) setShowEdit(false) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={function() { if (!saving) setShowEdit(false) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" onClick={function(e: any) { e.stopPropagation() }}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl">
               <h2 className="text-base font-semibold text-slate-800"><Edit2 size={18} className="inline text-primary mr-2" />Edit Patient</h2>
-              <button onClick={() => setShowEdit(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+              <button onClick={function() { setShowEdit(false) }} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
-            <div className="p-6 space-y-5">
+            <div className="p-6 space-y-5" ref={editBodyRef}>
               <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
                 <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center"><Users className="w-5 h-5 text-primary" /></div>
                 <div><p className="text-sm font-semibold text-slate-800">{patient.full_name}</p><p className="text-xs text-slate-400">{patient.hospital_number}</p></div>
               </div>
+
+              {Object.keys(editErrors).length > 0 && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-xl px-4 py-3">
+                  <p className="font-medium mb-1">Please fix the following errors:</p>
+                  <ul className="list-disc list-inside text-xs space-y-0.5">
+                    {Object.entries(editErrors).map(function(e) { return <li key={e[0]}>{e[1]}</li> })}
+                  </ul>
+                </div>
+              )}
+
+              <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Personal Information</h3>
               <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-2"><label className="block text-xs font-medium text-slate-500 mb-1">Full Name *</label>
-                  <input type="text" value={editForm.full_name} onChange={(e) => setEditForm((p: any) => ({ ...p, full_name: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
-                <div><label className="block text-xs font-medium text-slate-500 mb-1">Date of Birth</label>
-                  <input type="date" value={editForm.dob} onChange={(e) => setEditForm((p: any) => ({ ...p, dob: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
-                <div><label className="block text-xs font-medium text-slate-500 mb-1">Sex</label>
-                  <select value={editForm.sex} onChange={(e) => setEditForm((p: any) => ({ ...p, sex: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                    <option value="">Select...</option><option value="Male">Male</option><option value="Female">Female</option></select></div>
+                <div className="col-span-2"><label className="block text-xs font-medium text-slate-500 mb-1">Full Name<Req /></label>
+                  <input type="text" value={editForm.full_name || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, full_name: e.target.value })); setEditErrors(function(prev: any) { var n = { ...prev }; delete n.full_name; return n }) }}
+                    className={"w-full rounded-xl border px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none " + (editErrors.full_name ? 'border-rose-300 bg-rose-50' : 'border-slate-200')} />
+                  {editErrors.full_name && <p className="text-xs text-rose-500 mt-1">{editErrors.full_name}</p>}</div>
+                <div><label className="block text-xs font-medium text-slate-500 mb-1">Date of Birth<Req /></label>
+                  <input type="date" value={editForm.dob || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, dob: e.target.value })); setEditErrors(function(prev: any) { var n = { ...prev }; delete n.dob; return n }) }}
+                    className={"w-full rounded-xl border px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none " + (editErrors.dob ? 'border-rose-300 bg-rose-50' : 'border-slate-200')} />
+                  {editErrors.dob && <p className="text-xs text-rose-500 mt-1">{editErrors.dob}</p>}</div>
+                <div><label className="block text-xs font-medium text-slate-500 mb-1">Sex<Req /></label>
+                  <select value={editForm.sex || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, sex: e.target.value })); setEditErrors(function(prev: any) { var n = { ...prev }; delete n.sex; return n }) }}
+                    className={"w-full rounded-xl border px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none " + (editErrors.sex ? 'border-rose-300 bg-rose-50' : 'border-slate-200')}>
+                    <option value="">Select...</option><option>Male</option><option>Female</option></select></div>
                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Marital Status</label>
-                  <select value={editForm.marital_status} onChange={(e) => setEditForm((p: any) => ({ ...p, marital_status: e.target.value }))}
+                  <select value={editForm.marital_status || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, marital_status: e.target.value })) }}
                     className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                    <option value="">Select...</option><option value="Single">Single</option><option value="Married">Married</option><option value="Divorced">Divorced</option><option value="Widowed">Widowed</option></select></div>
-                <div><label className="block text-xs font-medium text-slate-500 mb-1">Nationality</label>
-                  <input type="text" value={editForm.nationality} onChange={(e) => setEditForm((p: any) => ({ ...p, nationality: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+                    <option value="">Select...</option><option>Single</option><option>Married</option><option>Divorced</option><option>Widowed</option></select></div>
                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Occupation</label>
-                  <input type="text" value={editForm.occupation} onChange={(e) => setEditForm((p: any) => ({ ...p, occupation: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
-                <div><label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
-                  <input type="text" value={editForm.phone} onChange={(e) => setEditForm((p: any) => ({ ...p, phone: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
-                <div><label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
-                  <input type="email" value={editForm.email} onChange={(e) => setEditForm((p: any) => ({ ...p, email: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
-                <div className="col-span-2"><label className="block text-xs font-medium text-slate-500 mb-1">Address</label>
-                  <textarea rows={2} value={editForm.address} onChange={(e) => setEditForm((p: any) => ({ ...p, address: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" /></div>
-                <div className="col-span-2"><label className="block text-xs font-medium text-slate-500 mb-1">Next of Kin</label>
-                  <input type="text" value={editForm.next_of_kin} onChange={(e) => setEditForm((p: any) => ({ ...p, next_of_kin: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
-                <div><label className="block text-xs font-medium text-slate-500 mb-1">Emergency Contact</label>
-                  <input type="text" value={editForm.emergency_contact_name} onChange={(e) => setEditForm((p: any) => ({ ...p, emergency_contact_name: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
-                <div><label className="block text-xs font-medium text-slate-500 mb-1">Emergency Phone</label>
-                  <input type="text" value={editForm.emergency_contact_phone} onChange={(e) => setEditForm((p: any) => ({ ...p, emergency_contact_phone: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
-                <div><label className="block text-xs font-medium text-slate-500 mb-1">Blood Type</label>
-                  <select value={editForm.blood_type} onChange={(e) => setEditForm((p: any) => ({ ...p, blood_type: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                    <option value="">Select...</option><option value="A+">A+</option><option value="A-">A-</option><option value="B+">B+</option><option value="B-">B-</option>
-                    <option value="AB+">AB+</option><option value="AB-">AB-</option><option value="O+">O+</option><option value="O-">O-</option></select></div>
-                <div><label className="block text-xs font-medium text-slate-500 mb-1">Insurance</label>
-                  <input type="text" value={editForm.insurance} onChange={(e) => setEditForm((p: any) => ({ ...p, insurance: e.target.value }))} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+                  <SearchableSelect value={editForm.occupation || ''} onChange={function(v: string) { setEditForm((p: any) => ({ ...p, occupation: v })) }} options={OCCUPATIONS} placeholder="Search occupation..." /></div>
+                <div><label className="block text-xs font-medium text-slate-500 mb-1">Nationality<Req /></label>
+                  <SearchableSelect value={editForm.nationality || ''} onChange={function(v: string) { setEditForm((p: any) => ({ ...p, nationality: v, state_of_origin: '', lga: '' })); setEditErrors(function(prev: any) { var n = { ...prev }; delete n.nationality; return n }) }} options={COUNTRIES} placeholder="Search country..." />
+                  {editErrors.nationality && <p className="text-xs text-rose-500 mt-1">{editErrors.nationality}</p>}</div>
+                <div><label className="block text-xs font-medium text-slate-500 mb-1">State of Origin{editForm.nationality === 'Nigeria' ? <Req /> : ''}</label>
+                  {editForm.nationality === 'Nigeria' ? (
+                    <SearchableSelect value={editForm.state_of_origin || ''} onChange={function(v: string) { setEditForm((p: any) => ({ ...p, state_of_origin: v, lga: '' })); setEditErrors(function(prev: any) { var n = { ...prev }; delete n.state_of_origin; return n }) }} options={es.states} placeholder="Search state..." />
+                  ) : (
+                    <input type="text" placeholder="Enter state/province" value={editForm.state_of_origin || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, state_of_origin: e.target.value })) }}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />)}
+                  {editErrors.state_of_origin && <p className="text-xs text-rose-500 mt-1">{editErrors.state_of_origin}</p>}
+                </div>
+              </div>
+              {editForm.state_of_origin && editForm.nationality === 'Nigeria' && (
+                <div><label className="block text-xs font-medium text-slate-500 mb-1">LGA</label>
+                  <SearchableSelect value={editForm.lga || ''} onChange={function(v: string) { setEditForm((p: any) => ({ ...p, lga: v })) }} options={es.lgas} placeholder="Search LGA..." /></div>
+              )}
+              {editForm.state_of_origin && editForm.nationality !== 'Nigeria' && (
+                <div><label className="block text-xs font-medium text-slate-500 mb-1">LGA / District</label>
+                  <input type="text" placeholder="Enter LGA" value={editForm.lga || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, lga: e.target.value })) }}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                </div>
+              )}
+
+              <div className="border-t border-slate-100 pt-5">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Contact</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Phone<Req /></label>
+                    <input type="text" value={editForm.phone || ''} onChange={function(e: any) { var v = e.target.value.replace(/[^0-9+]/g, ''); setEditForm((p: any) => ({ ...p, phone: v })); if (v && !validatePhone(v).valid) setPhoneErrors(function(p2: any) { return { ...p2, phone: validatePhone(v).error } }); else setPhoneErrors(function(p2: any) { var n = { ...p2 }; delete n.phone; return n }); setEditErrors(function(prev: any) { var n = { ...prev }; delete n.phone; return n }) }}
+                      className={"w-full rounded-xl border px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none " + (editErrors.phone || phoneErrors.phone ? "border-rose-300 bg-rose-50" : "border-slate-200")} />
+                  {(editErrors.phone || phoneErrors.phone) && <p className="text-xs text-rose-500 mt-1">{phoneErrors.phone || editErrors.phone}</p>}</div>
+                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
+                    <input type="email" value={editForm.email || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, email: e.target.value })) }}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+                  <div className="col-span-2"><label className="block text-xs font-medium text-slate-500 mb-1">Address</label>
+                    <textarea rows={2} value={editForm.address || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, address: e.target.value })) }}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" /></div>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-5">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Next of Kin / Emergency</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Full Name</label>
+                    <input type="text" value={editForm.next_of_kin || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, next_of_kin: e.target.value })) }}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Relationship</label>
+                    <SearchableSelect value={editForm.relationship || ''} onChange={function(v: string) { setEditForm((p: any) => ({ ...p, relationship: v })) }} options={RELATIONSHIPS} placeholder="Select relationship..." /></div>
+                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Next of Kin Phone</label>
+                    <input type="text" value={editForm.next_of_kin_phone || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, next_of_kin_phone: e.target.value })) }}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Next of Kin Address</label>
+                    <textarea rows={2} value={editForm.next_of_kin_address || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, next_of_kin_address: e.target.value })) }}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" /></div>
+                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Emergency Contact<Req /></label>
+                    <input type="text" value={editForm.emergency_contact_name || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, emergency_contact_name: e.target.value })); setEditErrors(function(prev: any) { var n = { ...prev }; delete n.emergency_contact_name; return n }) }}
+                      className={"w-full rounded-xl border px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none " + (editErrors.emergency_contact_name ? "border-rose-300 bg-rose-50" : "border-slate-200")} />
+                  {editErrors.emergency_contact_name && <p className="text-xs text-rose-500 mt-1">{editErrors.emergency_contact_name}</p>}</div>
+                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Emergency Phone<Req /></label>
+                    <input type="text" value={editForm.emergency_contact_phone || ''} onChange={function(e: any) { var v = e.target.value.replace(/[^0-9+]/g, ''); setEditForm((p: any) => ({ ...p, emergency_contact_phone: v })); if (v && !validatePhone(v).valid) setPhoneErrors(function(p2: any) { return { ...p2, emergency_contact_phone: validatePhone(v).error } }); else setPhoneErrors(function(p2: any) { var n = { ...p2 }; delete n.emergency_contact_phone; return n }) }}
+                      className={"w-full rounded-xl border px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none " + (editErrors.emergency_contact_phone || phoneErrors.emergency_contact_phone ? "border-rose-300 bg-rose-50" : "border-slate-200")} />
+                  {(editErrors.emergency_contact_phone || phoneErrors.emergency_contact_phone) && <p className="text-xs text-rose-500 mt-1">{phoneErrors.emergency_contact_phone || editErrors.emergency_contact_phone}</p>}</div>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 pt-5">
+                <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Medical</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Blood Type<Req /></label>
+                    <select value={editForm.blood_type || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, blood_type: e.target.value })); setEditErrors(function(prev: any) { var n = { ...prev }; delete n.blood_type; return n }) }}
+                      className={"w-full rounded-xl border px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none " + (editErrors.blood_type ? "border-rose-300 bg-rose-50" : "border-slate-200")}>
+                      <option value="">Select...</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select></div>
+                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Insurance</label>
+                    <select value={editForm.insurance || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, insurance: e.target.value, insurance_type: '', insurance_sub_type: '' })) }}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                      <option value="">Select...</option><option>Private</option><option>HMO</option><option>NHIA</option><option>Retainership</option><option value="__other__">Other</option></select></div>
+                </div>
+                {['HMO', 'Retainership'].includes(editForm.insurance) && (
+                  <div className="mt-2">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Type</label>
+                    <div className="flex items-center gap-1">
+                      <select value={editForm.insurance_type || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, insurance_type: e.target.value })) }}
+                        className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white">
+                        <option value="">Select...</option>
+                        {editForm.insurance === 'Retainership' && <><option value="CBN">Central Bank of Nigeria (CBN)</option><option value="Zenith Bank">Zenith Bank</option></>}
+                        {customTypes.filter(function(c) { return c.provider === editForm.insurance }).map(function(c) { return <option key={c.id} value={c.type_name}>{c.type_name}</option> })}
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    {editForm.insurance_type === 'Other' && (
+                      <input type="text" placeholder="Enter type..." value={editForm.insurance_sub_type || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, insurance_sub_type: e.target.value })) }}
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                    )}
+                  </div>
+                )}
+                {editForm.insurance === '__other__' && (
+                  <div className="mt-2">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Provider Name</label>
+                    <input type="text" placeholder="e.g. AXA Mansard, Leadway" value={editForm.insurance_sub_type || ''} onChange={function(e: any) { setEditForm((p: any) => ({ ...p, insurance_sub_type: e.target.value }) )}}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  </div>
+                )}
               </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
-              <button onClick={() => setShowEdit(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-              <button onClick={handleSave} disabled={saving || !editForm.full_name?.trim()}
+              <button onClick={function() { setShowEdit(false) }} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={handleSave} disabled={saving}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
                 {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save Changes</button>
             </div>
@@ -394,45 +598,31 @@ export default function RecordsPatientDetail() {
 
       {/* Upload Modal */}
       {showUpload && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!uploading) setShowUpload(false) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={function() { if (!uploading) { setShowUpload(false); setSelectedFile(null); setPreviewUrl(null) } }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={function(e: any) { e.stopPropagation() }}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-base font-semibold text-slate-800"><Upload size={18} className="inline text-primary mr-2" />Upload Document</h2>
-              <button onClick={() => setShowUpload(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+              <button onClick={function() { setShowUpload(false); setSelectedFile(null); setPreviewUrl(null) }} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
             <div className="p-6 space-y-4">
               <div><label className="block text-xs font-medium text-slate-500 mb-1">Document Type *</label>
-                <select value={uploadForm.document_type} onChange={(e) => setUploadForm((p) => ({ ...p, document_type: e.target.value }))}
+                <select value={uploadForm.document_type} onChange={function(e: any) { setUploadForm((p: any) => ({ ...p, document_type: e.target.value })) }}
                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                  <option value="">Select type...</option><option value="id_card">ID Card / Passport</option><option value="insurance">Insurance Card</option>
-                  <option value="lab_report">Lab Report</option><option value="referral">Referral Letter</option><option value="consent">Consent Form</option>
+                  <option value="">Select...</option><option value="id_card">ID Card / Passport</option><option value="insurance">Insurance Card</option>
+                  <option value="lab_report">Lab Report</option><option value="referral">Referral</option><option value="consent">Consent Form</option>
                   <option value="prescription">Prescription</option><option value="other">Other</option></select></div>
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">File</label>
-                <div className="flex items-center gap-3">
-                  <label className="flex-1 flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 cursor-pointer hover:border-primary hover:bg-primary/5 transition-all text-sm text-slate-500">
-                    <Upload size={16} />
-                    {selectedFile ? selectedFile.name : "Browse files..."}
-                    <input type="file" className="hidden" onChange={handleFileSelect} accept="image/*,.pdf,.doc,.docx" />
-                  </label>
-                </div>
-                {previewUrl && (
-                  <div className="mt-2">
-                    <div className="relative group inline-block">
-                      <img src={previewUrl} alt="Preview" className="h-32 w-auto rounded-xl border border-slate-200 object-cover cursor-pointer" onClick={() => setFullscreenImg(previewUrl)} />
-                      <button onClick={() => setFullscreenImg(previewUrl)}
-                        className="absolute top-2 right-2 p-1 rounded-lg bg-black/40 text-white opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 size={12} /></button>
-                    </div>
-                  </div>
-                )}
+              <div><label className="block text-xs font-medium text-slate-500 mb-1">File</label>
+                <label className="flex items-center gap-2 px-4 py-3 rounded-xl border-2 border-dashed border-slate-300 bg-slate-50 cursor-pointer hover:border-primary hover:bg-primary/5 transition-all text-sm text-slate-500">
+                  <Upload size={16} /> {selectedFile ? selectedFile.name : 'Browse files...'}
+                  <input type="file" className="hidden" onChange={handleFileSelect} accept="image/*,.pdf,.doc,.docx" /></label>
               </div>
+              {previewUrl && (<div className="relative group inline-block"><img src={previewUrl} alt="Preview" className="h-32 w-auto rounded-xl border border-slate-200 object-cover cursor-pointer" onClick={function() { setFullscreenImg(previewUrl) }} /></div>)}
               <div><label className="block text-xs font-medium text-slate-500 mb-1">Notes</label>
-                <textarea rows={3} placeholder="Optional notes..." value={uploadForm.notes}
-                  onChange={(e) => setUploadForm((p) => ({ ...p, notes: e.target.value }))}
+                <textarea rows={3} placeholder="Optional..." value={uploadForm.notes} onChange={function(e: any) { setUploadForm((p: any) => ({ ...p, notes: e.target.value })) }}
                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" /></div>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
-              <button onClick={() => setShowUpload(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={function() { setShowUpload(false); setSelectedFile(null); setPreviewUrl(null) }} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
               <button onClick={handleUpload} disabled={uploading || !uploadForm.document_type || !selectedFile}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
                 {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Upload</button>
@@ -440,10 +630,74 @@ export default function RecordsPatientDetail() {
           </div>
         </div>
       )}
+
+      {/* Delete Confirm Modal */}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={function() { if (!deleting) setConfirmDelete(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4" onClick={function(e: any) { e.stopPropagation() }}>
+            <div className="px-6 py-5 text-center">
+              <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center mx-auto mb-3"><Trash2 size={22} className="text-rose-500" /></div>
+              <h2 className="text-base font-semibold text-slate-800 mb-1">Delete Document?</h2>
+              <p className="text-sm text-slate-500">Are you sure you want to delete <strong>{confirmDelete.file_name}</strong>? This action cannot be undone.</p>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-center gap-3">
+              <button onClick={function() { setConfirmDelete(null) }} disabled={deleting} className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={handleDelete} disabled={deleting}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-colors disabled:opacity-50">
+                {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Document Detail Modal */}
+      {detailDoc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={function() { if (!savingDetail) setDetailDoc(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={function(e: any) { e.stopPropagation() }}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800"><FileText size={18} className="inline text-primary mr-2" />Document Details</h2>
+              <button onClick={function() { setDetailDoc(null) }} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              {detailDoc.file_path && isImageExt(detailDoc.file_name) && (
+                <div className="relative cursor-pointer" onClick={function() { setFullscreenImg("/api/documents/" + detailDoc.file_path) }}>
+                  <img src={"/api/documents/" + detailDoc.file_path} alt={detailDoc.file_name} className="w-full h-48 object-cover rounded-xl border border-slate-200" />
+                </div>
+              )}
+              <div><label className="block text-xs font-medium text-slate-500 mb-1">Document Type</label>
+                <span className={"inline-block px-2.5 py-1 rounded-lg text-sm font-medium " + docTypeColor(detailDoc.document_type)}>{detailDoc.document_type.replace("_", " ")}</span></div>
+              <div><label className="block text-xs font-medium text-slate-500 mb-1">File Name</label>
+                <input type="text" value={detailEditName} onChange={function(e: any) { setDetailEditName(e.target.value) }}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+              <div><label className="block text-xs font-medium text-slate-500 mb-1">Notes</label>
+                <textarea rows={3} value={detailEditNotes} onChange={function(e: any) { setDetailEditNotes(e.target.value) }}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" /></div>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="bg-slate-50 rounded-xl p-3"><span className="text-xs text-slate-400">File Size</span><p className="font-medium text-slate-700">{detailDoc.file_size ? ((detailDoc.file_size / 1024).toFixed(1) + ' KB') : '—'}</p></div>
+                <div className="bg-slate-50 rounded-xl p-3"><span className="text-xs text-slate-400">Uploaded</span><p className="font-medium text-slate-700">{new Date(detailDoc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour:'2-digit', minute:'2-digit' })}</p></div>
+              </div>
+              {detailDoc.uploaded_by_name && (<div className="bg-slate-50 rounded-xl p-3"><span className="text-xs text-slate-400">Uploaded By</span><p className="font-medium text-slate-700">{detailDoc.uploaded_by_name}</p></div>)}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-between">
+              <button onClick={function() { setConfirmDelete(detailDoc) }} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-50 text-rose-600 text-sm font-medium hover:bg-rose-100"><Trash2 size={14} /> Delete</button>
+              <div className="flex gap-3">
+                <button onClick={function() { setDetailDoc(null) }} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Close</button>
+                {(detailEditName !== detailDoc.file_name || detailEditNotes !== (detailDoc.notes || '')) && (
+                  <button onClick={handleDetailSave} disabled={savingDetail}
+                    className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
+                    {savingDetail ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Save Changes</button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Fullscreen Image */}
       {fullscreenImg && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setFullscreenImg(null)}>
-          <img src={fullscreenImg} alt="Full preview" className="max-w-[95vw] max-h-[95vh] object-contain rounded-2xl shadow-2xl" onClick={() => setFullscreenImg(null)} />
-          <button onClick={() => setFullscreenImg(null)} className="absolute top-4 right-4 p-2 rounded-full bg-black/40 text-white hover:bg-black/60 transition-colors"><X size={20} /></button>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={function() { setFullscreenImg(null) }}>
+          <img src={fullscreenImg} alt="Full preview" className="max-w-[95vw] max-h-[95vh] object-contain rounded-2xl shadow-2xl" />
+          <button onClick={function() { setFullscreenImg(null) }} className="absolute top-4 right-4 p-2 rounded-full bg-black/40 text-white hover:bg-black/60"><X size={20} /></button>
         </div>
       )}
     </div>

@@ -1,4 +1,8 @@
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
+
+// Return DATE columns as YYYY-MM-DD strings instead of Date objects
+// to avoid timezone shifting when serialized to JSON
+types.setTypeParser(types.builtins.DATE, (val: string) => val);
 
 const pool = new Pool({
   host: process.env.PG_HOST || 'localhost',
