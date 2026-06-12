@@ -128,6 +128,11 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
     }
 
     const prescription = prescResult.rows[0];
+
+    if (!prescription.is_paid) {
+      res.status(402).json({ error: true, message: 'Payment required: Prescription has not been paid for' });
+      return;
+    }
     const qty = quantity_dispensed || prescription.quantity || 1;
 
     const inventoryResult = await pool.query(

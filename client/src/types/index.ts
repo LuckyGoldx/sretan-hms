@@ -25,6 +25,7 @@ export interface Patient {
   email?: string
   address?: string
   next_of_kin?: string
+  next_of_kin_phone?: string
   next_of_kin_address?: string
   relationship?: string
   emergency_contact_name?: string
@@ -82,6 +83,7 @@ export interface Prescription {
   quantity: number
   instructions: string
   status: string
+  is_paid?: boolean
   created_at: string
 }
 
@@ -96,6 +98,7 @@ export interface LabOrder {
   patient_name: string
   patient_phone: string
   referred_by: string
+  is_paid?: boolean
   created_at: string
 }
 

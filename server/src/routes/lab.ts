@@ -141,6 +141,14 @@ router.put('/api/lab-orders/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
     const { status, specimen_type, priority, collected_at, results_collected_at, doctor_read_at } = req.body;
 
+    if (status === 'processing' || status === 'collected') {
+      var paidCheck = await pool.query('SELECT is_paid FROM lab_orders WHERE id = $1', [id]);
+      if (paidCheck.rows.length > 0 && !paidCheck.rows[0].is_paid) {
+        res.status(402).json({ error: true, message: 'Payment required: Lab order has not been paid for' });
+        return;
+      }
+    }
+
     const result = await pool.query(
       `UPDATE lab_orders SET
         status = COALESCE($1, status),

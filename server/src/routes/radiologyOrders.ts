@@ -79,6 +79,14 @@ router.put('/api/radiology-orders/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
     const { report_text, image_path, status } = req.body;
 
+    if (status === 'processing' || status === 'completed') {
+      var paidCheck = await pool.query('SELECT is_paid FROM radiology_orders WHERE id = $1', [id]);
+      if (paidCheck.rows.length > 0 && !paidCheck.rows[0].is_paid) {
+        res.status(402).json({ error: true, message: 'Payment required: Radiology order has not been paid for' });
+        return;
+      }
+    }
+
     const result = await pool.query(
       `UPDATE radiology_orders SET report_text = COALESCE($1, report_text), image_path = COALESCE($2, image_path), status = COALESCE($3, status), updated_at = NOW()
        WHERE id = $4 AND tenant_id = $5 RETURNING *`,

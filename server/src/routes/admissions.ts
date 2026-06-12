@@ -115,9 +115,13 @@ router.put("/api/admissions/:id/bed", async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { bed_number } = req.body;
-    const adm = await pool.query("SELECT ward_id FROM admissions WHERE id = $1 AND status = $2", [id, "active"]);
+    const adm = await pool.query("SELECT ward_id, is_paid FROM admissions WHERE id = $1 AND status = $2", [id, "active"]);
     if (adm.rows.length === 0) {
       res.status(404).json({ error: true, message: "Active admission not found" });
+      return;
+    }
+    if (!adm.rows[0].is_paid) {
+      res.status(402).json({ error: true, message: "Payment required: Admission fee has not been paid" });
       return;
     }
     const wardId = adm.rows[0].ward_id;
