@@ -8,7 +8,7 @@ import {
   Beaker,
   Pill,
   Scan,
-  Receipt,
+  Receipt, DollarSign,
   Banknote,
   Users,
   Settings,
@@ -56,6 +56,7 @@ const FinanceHMO = lazy(() => import('./components/FinanceHMO'))
 const StaffManagement = lazy(() => import('./components/StaffManagement'))
 const SuperAdminPortal = lazy(() => import('./components/SuperAdminPortal'))
 const SetupConsole = lazy(() => import('./components/SetupConsole'))
+const FinanceDashboard = lazy(() => import('./components/FinanceDashboard'))
 
 interface SidebarLink {
   to: string
@@ -454,7 +455,9 @@ export default function App() {
             }
           />
           <Route
-            path="/pharmacy"
+            path="/paypoint" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><PaypointCheckout /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/finance" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><FinanceDashboard /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/pharmacy"
             element={
               <Layout>
                 <ProtectedRoute roles={['Pharmacist', 'Admin']}>

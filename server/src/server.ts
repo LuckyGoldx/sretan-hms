@@ -25,6 +25,7 @@ import otcSalesRouter from './routes/otcSales';
 import nurseModuleRouter from './routes/nurseModule';
 import recordsRouter from './routes/records';
 import setupConsoleRouter from './setup/setupConsole';
+import paymentsRouter from './routes/payments';
 
 declare global {
   var clockTampered: boolean | undefined;
@@ -57,6 +58,7 @@ app.use(nurseModuleRouter);
 app.use(recordsRouter);
 app.use(setupRouter);
 app.use(setupConsoleRouter);
+app.use(paymentsRouter);
 
 app.use(errorHandler);
 
