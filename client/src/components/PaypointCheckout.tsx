@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
-  Search, X, Loader2, Receipt, Plus, Trash2, Printer, CreditCard, Building2, Landmark, Smartphone, CheckCircle, ArrowLeft, User, DollarSign, FileText, Clock,
+  Search, X, Loader2, Receipt, Plus, Trash2, Printer, CreditCard, Building2, Landmark, Smartphone, CheckCircle, ArrowLeft, User, DollarSign, FileText, Clock, Package,
 } from 'lucide-react'
 
 interface CartItem {
@@ -13,6 +13,77 @@ interface CartItem {
   unit_price: number
   needsPrice?: boolean
 }
+
+const SERVICE_CATALOG = [
+  { category: 'Consultation', items: [
+    { name: 'General Consultation', price: 5000 },
+    { name: 'Specialist Consultation', price: 10000 },
+    { name: 'Follow-up Visit', price: 3000 },
+    { name: 'Emergency Consultation', price: 8000 },
+  ]},
+  { category: 'Pharmacy', items: [
+    { name: 'Over-the-Counter Drugs', price: 0 },
+    { name: 'Medical Consumables', price: 0 },
+  ]},
+  { category: 'Laboratory', items: [
+    { name: 'Malaria Test', price: 3000 },
+    { name: 'Blood Sugar (RBS/FBS)', price: 2000 },
+    { name: 'Urinalysis', price: 2500 },
+    { name: 'Widal Test', price: 3500 },
+    { name: 'Pregnancy Test', price: 2000 },
+    { name: 'HIV Test', price: 2500 },
+    { name: 'Hepatitis B Test', price: 4000 },
+    { name: 'CBC (Full Blood Count)', price: 5000 },
+    { name: 'Lipid Profile', price: 8000 },
+    { name: 'LFT (Liver Function)', price: 7000 },
+    { name: 'RFT (Kidney Function)', price: 7000 },
+    { name: 'Electrolytes', price: 6000 },
+    { name: 'Thyroid Function', price: 10000 },
+    { name: 'PSA (Prostate)', price: 8000 },
+  ]},
+  { category: 'Radiology', items: [
+    { name: 'Chest X-Ray', price: 7000 },
+    { name: 'Limb X-Ray', price: 6000 },
+    { name: 'Abdominal Ultrasound', price: 15000 },
+    { name: 'Obstetric Ultrasound', price: 12000 },
+    { name: 'CT Scan (per region)', price: 50000 },
+    { name: 'MRI (per region)', price: 80000 },
+    { name: 'ECG', price: 5000 },
+    { name: 'Echocardiogram', price: 25000 },
+  ]},
+  { category: 'Procedures', items: [
+    { name: 'Injection / IV Line', price: 3000 },
+    { name: 'Dressing (Small)', price: 3000 },
+    { name: 'Dressing (Large)', price: 5000 },
+    { name: 'Suture / Stitch Removal', price: 5000 },
+    { name: 'Catheter Insertion', price: 7000 },
+    { name: 'NG Tube Insertion', price: 8000 },
+    { name: 'Wound Toilet & Suturing', price: 15000 },
+    { name: 'Incision & Drainage', price: 12000 },
+    { name: 'Circumcision', price: 25000 },
+  ]},
+  { category: 'Maternity', items: [
+    { name: 'Antenatal Visit', price: 5000 },
+    { name: 'Delivery (Normal)', price: 50000 },
+    { name: 'Delivery (Caesarean)', price: 150000 },
+    { name: 'Postnatal Visit', price: 5000 },
+    { name: 'Immunization', price: 3000 },
+    { name: 'Family Planning', price: 5000 },
+  ]},
+  { category: 'Admission', items: [
+    { name: 'Ward Admission (per day)', price: 15000 },
+    { name: 'Private Room (per day)', price: 30000 },
+    { name: 'ICU (per day)', price: 80000 },
+  ]},
+  { category: 'Miscellaneous', items: [
+    { name: 'Medical Certificate', price: 5000 },
+    { name: 'Report / Document', price: 3000 },
+    { name: 'Medical Record Retrieval', price: 2000 },
+    { name: 'Ambulance Service', price: 25000 },
+    { name: 'Health Screening (Basic)', price: 15000 },
+    { name: 'Health Screening (Comprehensive)', price: 35000 },
+  ]},
+]
 
 export default function PaypointCheckout() {
   const navigate = useNavigate()
@@ -35,6 +106,8 @@ export default function PaypointCheckout() {
   const [payments, setPayments] = useState<any[]>([])
   const [paymentsLoading, setPaymentsLoading] = useState(false)
   const [ordersSearch, setOrdersSearch] = useState('')
+  const [customItemName, setCustomItemName] = useState('')
+  const [customItemPrice, setCustomItemPrice] = useState('')
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
@@ -178,13 +251,48 @@ export default function PaypointCheckout() {
                 </div>
               )}
               {mode === 'walkin' && (
-                <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-100">
-                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Customer Name *</label>
-                    <input type="text" placeholder="Walk-in customer" value={walkinName} onChange={(e) => setWalkinName(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
-                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
-                    <input type="text" placeholder="Phone" value={walkinPhone} onChange={(e) => setWalkinPhone(e.target.value)}
-                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+                <div className="mt-4 pt-4 border-t border-slate-100 space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><label className="block text-xs font-medium text-slate-500 mb-1">Customer Name *</label>
+                      <input type="text" placeholder="Walk-in customer" value={walkinName} onChange={(e) => setWalkinName(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+                    <div><label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
+                      <input type="text" placeholder="Phone" value={walkinPhone} onChange={(e) => setWalkinPhone(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+                  </div>
+                  {/* Service Catalog */}
+                  <div>
+                    <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Service Catalog</h4>
+                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                      {SERVICE_CATALOG.map((group) => (
+                        <div key={group.category}>
+                          <p className="text-xs font-semibold text-slate-600 mb-1.5">{group.category}</p>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                            {group.items.map((svc) => (
+                              <button key={svc.name} onClick={() => addToCart({ service_type: 'walkin_service', service_id: null, description: svc.name, quantity: 1, unit_price: svc.price })}
+                                className={`text-left px-3 py-2 rounded-xl border text-xs transition-all ${cart.find((c) => c.description === svc.name) ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:border-primary'}`}>
+                                <p className="truncate">{svc.name}</p>
+                                <p className="font-bold mt-0.5">₦{svc.price.toLocaleString()}</p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-slate-100">
+                      <p className="text-xs text-slate-400 mb-2">Or add a custom item:</p>
+                      <div className="flex items-center gap-2">
+                        <input type="text" placeholder="Item name..." value={customItemName}
+                          onChange={(e) => setCustomItemName(e.target.value)}
+                          className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                        <input type="number" placeholder="Price" value={customItemPrice}
+                          onChange={(e) => setCustomItemPrice(e.target.value)}
+                          className="w-28 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                        <button onClick={() => { if (customItemName && parseFloat(customItemPrice) > 0) { addToCart({ service_type: 'walkin_service', service_id: null, description: customItemName, quantity: 1, unit_price: parseFloat(customItemPrice) }); setCustomItemName(''); setCustomItemPrice('') } }}
+                          className="p-2.5 rounded-xl bg-primary text-white hover:bg-primary/90 transition-colors flex-shrink-0"><Plus size={16} /></button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -225,7 +333,7 @@ export default function PaypointCheckout() {
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sticky top-6">
               <h3 className="text-sm font-semibold text-slate-700 mb-4">Payment Cart</h3>
               {cart.length === 0 ? (
-                <p className="text-sm text-slate-400 text-center py-6">Cart is empty. Add items from unpaid services.</p>
+                <p className="text-sm text-slate-400 text-center py-6">{mode === 'walkin' ? 'Select items from the service catalog below.' : 'Cart is empty. Add items from unpaid services.'}</p>
               ) : (
                 <div className="space-y-3 max-h-64 overflow-y-auto">
                   {cart.map((item, i) => (
