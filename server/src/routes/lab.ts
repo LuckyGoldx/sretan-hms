@@ -227,6 +227,16 @@ router.put('/api/lab-results/:id/approve', async (req: Request, res: Response) =
     );
     if (allCompleted.rows[0]?.done) {
       await pool.query(`UPDATE lab_orders SET status = 'completed' WHERE id = $1`, [labOrderId]);
+      // Reduce inventory for the completed test
+      var orderData = await pool.query('SELECT test_name FROM lab_orders WHERE id = $1', [labOrderId]);
+      if (orderData.rows.length > 0) {
+        var testName = orderData.rows[0].test_name;
+        await pool.query(
+          `UPDATE inventory_items SET stock_count = stock_count - tim.quantity_consumed
+           FROM test_inventory_map tim WHERE tim.test_name = $1 AND tim.inventory_item_id = inventory_items.id`,
+          [testName]
+        );
+      }
     }
 
     res.json(result.rows[0]);

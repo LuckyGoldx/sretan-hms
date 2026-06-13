@@ -16,6 +16,7 @@ interface InvModal {
   reorder_level: string
   expiry_date: string
   supplier: string
+  unit_price?: string
 }
 
 const currentRole: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role } catch {} return null })()
@@ -27,6 +28,7 @@ export default function InventoryManagement() {
   const [sortKey, setSortKey] = useState<SortKey>('drug_name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [modal, setModal] = useState<InvModal>({ open: false, drug_name: '', batch_number: '', stock_count: '', reorder_level: '', expiry_date: '', supplier: '' })
+  const [price, setPrice] = useState('')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -67,7 +69,7 @@ export default function InventoryManagement() {
     try {
       await api.post('/inventory', {
         drug_name: modal.drug_name.trim(), batch_number: modal.batch_number.trim() || undefined,
-        stock_count: parseInt(modal.stock_count, 10), reorder_level: modal.reorder_level ? parseInt(modal.reorder_level, 10) : undefined,
+        stock_count: parseInt(modal.stock_count, 10), reorder_level: modal.reorder_level ? parseInt(modal.reorder_level, 10) : undefined, unit_price: modal.unit_price || undefined,
         expiry_date: modal.expiry_date || undefined, supplier: modal.supplier.trim() || undefined,
       })
       setModal({ open: false, drug_name: '', batch_number: '', stock_count: '', reorder_level: '', expiry_date: '', supplier: '' })

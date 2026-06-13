@@ -46,7 +46,9 @@ const AppointmentsPage = lazy(() => import('./components/AppointmentsPage'))
 const LaboratoryWorkbench = lazy(() => import('./components/LaboratoryWorkbench'))
 const PharmacyDashboard = lazy(() => import('./components/PharmacyDashboard'))
 const Dispensing = lazy(() => import('./components/Dispensing'))
+const InventoryManager = lazy(() => import('./components/InventoryManager'))
 const InventoryManagement = lazy(() => import('./components/InventoryManagement'))
+const RadiologyInventory = lazy(() => import('./components/RadiologyInventory'))
 const ExpiryMonitor = lazy(() => import('./components/ExpiryMonitor'))
 const PurchaseOrders = lazy(() => import('./components/PurchaseOrders'))
 const DispensingHistory = lazy(() => import('./components/DispensingHistory'))
@@ -74,6 +76,8 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/lab', label: 'Laboratory', icon: Beaker, roles: ['Lab Scientist', 'Doctor', 'Admin'] },
   { to: '/lab-inventory', label: 'Lab Inventory', icon: Package, roles: ['Lab Scientist', 'Admin'] },
   { to: '/lab-low-stock', label: 'Lab Low Stock', icon: AlertTriangle, roles: ['Lab Scientist', 'Admin'] },
+  { to: '/radiology-inventory', label: 'Radiology Inventory', icon: Scan, roles: ['Admin'] },
+  { to: '/general-inventory', label: 'General Services', icon: Package, roles: ['Admin'] },
   { to: '/radiology', label: 'Radiology', icon: Scan, roles: ['Doctor', 'Admin'] },
   { to: '/records/patients', label: 'Patient Records', icon: Users, roles: ['Records', 'Admin'] },
   { to: '/records/requests', label: 'Record Requests', icon: FileText, roles: ['Records', 'Admin'] },
@@ -456,6 +460,8 @@ export default function App() {
           />
           <Route
             path="/paypoint" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><PaypointCheckout /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/radiology-inventory" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><RadiologyInventory /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/general-inventory" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InventoryManager category="general" title="General Services Inventory" icon={Package} backPath="/dashboard" /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><FinanceDashboard /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/pharmacy"
             element={

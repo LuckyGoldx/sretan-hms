@@ -102,7 +102,7 @@ export default function MyPatients() {
     try {
       const params = tab === 'mine' && doctorId ? `?doctor_id=${doctorId}` : ''
       const { data } = await api.get<Patient[]>(`/patients${params}`)
-      setPatients(data)
+      setPatients(data.filter(function(p: any) { return p.folder_activated !== false }))
       const admRes = await api.get('/admissions?status=active').catch(() => ({ data: [] }))
       const map: Record<string, { id: string; ward_name: string; admitted_at: string; admitted_by_name?: string; bed_number?: string }> = {}
       ;(admRes.data || []).forEach((a: any) => {

@@ -58,6 +58,7 @@ export default function LabInventory() {
         stock_count: parseInt(form.stock_count) || 0,
         reorder_level: parseInt(form.reorder_level) || 10,
         supplier: form.supplier.trim() || undefined,
+        unit_price: form.unit_price ? parseFloat(form.unit_price) : undefined,
         category: 'lab',
       })
       setShowAdd(false)

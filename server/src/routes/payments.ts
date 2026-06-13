@@ -82,9 +82,21 @@ router.post('/api/payments', async (req: Request, res: Response) => {
     for (const item of items) {
       var itemId = uuidv4();
       var totalPrice = (item.unit_price || 0) * (item.quantity || 1);
+      // Look up cost_price from inventory if available
+      var costPrice = item.cost_price || 0;
+      if (!costPrice && (item.service_type === 'pharmacy' || item.service_type === 'lab' || item.service_type === 'radiology' || item.service_type === 'general')) {
+        try {
+          var invRes = await pool.query('SELECT cost_price, price FROM inventory_items WHERE drug_name ILIKE $1 AND category = $2 LIMIT 1',
+            [item.description?.replace(/^(OTC|Lab|Radiology|Service):\s*/i, '').trim(), item.service_type === 'pharmacy' ? 'pharmacy' : item.service_type === 'lab' ? 'lab' : item.service_type === 'radiology' ? 'radiology' : 'general']);
+          if (invRes.rows.length > 0) {
+            costPrice = invRes.rows[0].cost_price || 0;
+            if (!item.unit_price || item.unit_price === 0) item.unit_price = invRes.rows[0].price || 0;
+          }
+        } catch {}
+      }
       await pool.query(
-        'INSERT INTO payment_items (id, payment_id, service_type, service_id, description, quantity, unit_price, total_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-        [itemId, paymentId, item.service_type, item.service_id || null, item.description, item.quantity || 1, item.unit_price || 0, totalPrice]
+        'INSERT INTO payment_items (id, payment_id, service_type, service_id, description, item_name, quantity, unit_price, total_price, cost_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+        [itemId, paymentId, item.service_type, item.service_id || null, item.description, item.description, item.quantity || 1, item.unit_price || 0, totalPrice, costPrice]
       );
 
       // Mark service as paid
