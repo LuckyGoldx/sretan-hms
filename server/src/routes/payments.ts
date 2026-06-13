@@ -19,10 +19,19 @@ router.get('/api/payments/pending/:patientId', async (req: Request, res: Respons
     const { patientId } = req.params;
     const [folderRes, prescriptionsRes, labRes, radiologyRes, admissionsRes] = await Promise.all([
       pool.query('SELECT folder_activated FROM patients WHERE id = $1', [patientId]),
-      pool.query('SELECT id, drug_name, dosage, quantity, prescription_date FROM prescriptions WHERE patient_id = $1 AND is_paid = false AND status != $2 ORDER BY prescription_date DESC', [patientId, 'cancelled']),
-      pool.query('SELECT id, test_name, status, created_at FROM lab_orders WHERE patient_id = $1 AND is_paid = false AND status NOT IN ($2, $3) ORDER BY created_at DESC', [patientId, 'cancelled', 'completed']),
-      pool.query('SELECT id, imaging_type, status, created_at FROM radiology_orders WHERE patient_id = $1 AND is_paid = false AND status NOT IN ($2, $3) ORDER BY created_at DESC', [patientId, 'cancelled', 'completed']),
-      pool.query('SELECT id, ward_name, admitted_at FROM admissions WHERE patient_id = $1 AND is_paid = false AND status = $2 ORDER BY admitted_at DESC', [patientId, 'active']),
+      pool.query(`SELECT pr.id, pr.drug_name, pr.dosage, pr.quantity, pr.created_at
+        FROM prescriptions pr JOIN encounters enc ON enc.id = pr.encounter_id
+        WHERE enc.patient_id = $1 AND COALESCE(pr.is_paid, false) = false AND pr.status != $2
+        ORDER BY pr.created_at DESC`, [patientId, 'cancelled']),
+      pool.query(`SELECT l.id, l.test_name, l.status, l.created_at
+        FROM lab_orders l JOIN encounters enc ON enc.id = l.encounter_id
+        WHERE enc.patient_id = $1 AND COALESCE(l.is_paid, false) = false AND l.status NOT IN ($2, $3)
+        ORDER BY l.created_at DESC`, [patientId, 'cancelled', 'completed']),
+      pool.query(`SELECT r.id, r.imaging_type, r.status, r.created_at
+        FROM radiology_orders r JOIN encounters enc ON enc.id = r.encounter_id
+        WHERE enc.patient_id = $1 AND COALESCE(r.is_paid, false) = false AND r.status NOT IN ($2, $3)
+        ORDER BY r.created_at DESC`, [patientId, 'cancelled', 'completed']),
+      pool.query('SELECT a.id, a.admitted_at FROM admissions a WHERE a.patient_id = $1 AND COALESCE(a.is_paid, false) = false AND a.status = $2 ORDER BY a.admitted_at DESC', [patientId, 'active']),
     ]);
 
     var items: any[] = [];
@@ -128,7 +137,82 @@ router.get('/api/payments', async (req: Request, res: Response) => {
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
+
+
+// --- Pending summary - all patients with unpaid items ---
+router.get('/api/payments/pending-summary', async (req: Request, res: Response) => {
+  try {
+    var result = await pool.query(`
+      WITH folder AS (
+        SELECT id as patient_id, full_name, hospital_number, 'folder_activation' as service_type,
+               'Folder Activation Fee' as description, 1 as item_count FROM patients
+        WHERE folder_activated = false
+      ),
+      rx AS (
+        SELECT enc.patient_id, p.full_name, p.hospital_number, 'prescription' as service_type,
+               COUNT(*)::int || ' Prescription(s)' as description, COUNT(*) as item_count
+        FROM prescriptions pr
+        JOIN encounters enc ON enc.id = pr.encounter_id
+        JOIN patients p ON p.id = enc.patient_id
+        WHERE COALESCE(pr.is_paid, false) = false AND pr.status != 'cancelled'
+        GROUP BY enc.patient_id, p.full_name, p.hospital_number
+      ),
+      lab AS (
+        SELECT enc.patient_id, p.full_name, p.hospital_number, 'lab' as service_type,
+               COUNT(*)::int || ' Lab Test(s)' as description, COUNT(*) as item_count
+        FROM lab_orders l
+        JOIN encounters enc ON enc.id = l.encounter_id
+        JOIN patients p ON p.id = enc.patient_id
+        WHERE COALESCE(l.is_paid, false) = false AND l.status NOT IN ('cancelled','completed')
+        GROUP BY enc.patient_id, p.full_name, p.hospital_number
+      ),
+      rad AS (
+        SELECT enc.patient_id, p.full_name, p.hospital_number, 'radiology' as service_type,
+               COUNT(*)::int || ' Radiology Order(s)' as description, COUNT(*) as item_count
+        FROM radiology_orders r
+        JOIN encounters enc ON enc.id = r.encounter_id
+        JOIN patients p ON p.id = enc.patient_id
+        WHERE COALESCE(r.is_paid, false) = false AND r.status NOT IN ('cancelled','completed')
+        GROUP BY enc.patient_id, p.full_name, p.hospital_number
+      ),
+      adm AS (
+        SELECT a.patient_id, p.full_name, p.hospital_number, 'admission' as service_type,
+               'Admission Fee' as description, 1 as item_count
+        FROM admissions a JOIN patients p ON p.id = a.patient_id
+        WHERE COALESCE(a.is_paid, false) = false AND a.status = 'active'
+      ),
+      all_pending AS (
+        SELECT * FROM folder UNION ALL SELECT * FROM rx UNION ALL
+        SELECT * FROM lab UNION ALL SELECT * FROM rad UNION ALL SELECT * FROM adm
+      )
+      SELECT patient_id, full_name, hospital_number,
+             json_agg(json_build_object('service_type', service_type, 'description', description, 'item_count', item_count)) as services,
+             SUM(item_count) as total_items
+      FROM all_pending GROUP BY patient_id, full_name, hospital_number
+      ORDER BY full_name
+    `);
+    res.json(result.rows);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
 // --- Get payment detail with items ---
+router.get('/api/payments/pending-orders', async (req: Request, res: Response) => {
+  try {
+    const { service_type } = req.query;
+    var result = await pool.query(`
+      SELECT p.id as payment_id, p.receipt_number, p.walkin_name, p.walkin_phone, p.created_at,
+             pi.id as item_id, pi.service_type, pi.description, pi.unit_price, pi.quantity, pi.is_converted
+      FROM payments p
+      JOIN payment_items pi ON pi.payment_id = p.id
+      WHERE pi.is_converted = false
+        AND ($1::text IS NULL OR pi.service_type = $1)
+        AND p.status = 'completed'
+      ORDER BY p.created_at DESC
+    `, [service_type || null]);
+    res.json(result.rows);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
 router.get('/api/payments/:id', async (req: Request, res: Response) => {
   try {
     var payment = await pool.query(
@@ -174,6 +258,26 @@ router.get('/api/payments/revenue/by-service', async (req: Request, res: Respons
        GROUP BY pi.service_type ORDER BY total DESC`
     );
     res.json(result.rows);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+
+
+// --- Get payments with unconverted lab/radiology items ---
+
+// --- Mark payment items as converted ---
+router.put('/api/payments/items/convert', async (req: Request, res: Response) => {
+  try {
+    const { item_ids } = req.body;
+    if (!item_ids || !Array.isArray(item_ids) || item_ids.length === 0) {
+      res.status(400).json({ error: true, message: 'item_ids array is required' });
+      return;
+    }
+    await pool.query(
+      'UPDATE payment_items SET is_converted = true WHERE id = ANY($1)',
+      [item_ids]
+    );
+    res.json({ success: true, converted: item_ids.length });
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 

@@ -249,7 +249,15 @@ export default function RadiologyModule() {
                       </p>
                     </div>
                   </div>
-                  {statusBadge(order.status)}
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    {statusBadge(order.status)}
+                    {order.is_paid === false && (
+                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-rose-100 text-rose-700">Unpaid</span>
+                    )}
+                    {order.is_paid === true && (
+                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-emerald-100 text-emerald-700">Paid</span>
+                    )}
+                  </div>
                 </button>
               ))}
             </div>
@@ -272,8 +280,16 @@ export default function RadiologyModule() {
 
             {!selectedOrder ? (
               <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-                <FileText size={40} className="mb-2" />
-                <p className="text-sm">Select an imaging order to write a report</p>
+                <Scan size={40} className="text-slate-300 mb-3" />
+                <p className="text-sm font-medium">Select a radiology order</p>
+                <p className="text-xs mt-1">Click on an order to enter the report</p>
+              </div>
+            ) : selectedOrder.is_paid === false ? (
+              <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                <AlertCircle size={36} className="text-rose-300 mb-3" />
+                <p className="text-sm font-medium text-rose-600">Payment Required</p>
+                <p className="text-xs mt-1">This radiology order has not been paid for yet.</p>
+                <p className="text-xs text-slate-400 mt-1">Patient needs to complete payment at Paypoint first.</p>
               </div>
             ) : (
               <div className="p-5 space-y-4">

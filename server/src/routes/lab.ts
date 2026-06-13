@@ -98,7 +98,7 @@ router.get('/api/lab-orders/stats', async (_req: Request, res: Response) => {
 router.post('/api/lab-orders', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { encounter_id, test_name, specimen_type, priority, patient_name, patient_phone, referred_by, request_number, lab_number: providedLabNumber } = req.body;
+    const { encounter_id, test_name, specimen_type, priority, patient_name, patient_phone, referred_by, request_number, lab_number: providedLabNumber, payment_id, walkin_phone } = req.body;
 
     if (!test_name) {
       res.status(400).json({ error: true, message: 'test_name is required' });
@@ -124,10 +124,10 @@ router.post('/api/lab-orders', async (req: Request, res: Response) => {
 
     const id = uuidv4();
     const result = await pool.query(
-      `INSERT INTO lab_orders (id, tenant_id, lab_number, request_number, order_number, encounter_id, test_name, specimen_type, priority, patient_name, patient_phone, referred_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+      `INSERT INTO lab_orders (id, tenant_id, lab_number, request_number, order_number, encounter_id, test_name, specimen_type, priority, patient_name, patient_phone, referred_by, payment_id, is_paid, walkin_phone)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
       [id, tenantId, labNumber, request_number || null, orderNumber, encounter_id || null, test_name, specimen_type || null, priority || 'routine',
-       patient_name || null, patient_phone || null, referred_by || null]
+       patient_name || null, patient_phone || null, referred_by || null, payment_id || null, payment_id ? true : (!encounter_id ? true : false), walkin_phone || null]
     );
 
     res.status(201).json(result.rows[0]);

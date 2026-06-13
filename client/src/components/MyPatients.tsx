@@ -310,7 +310,7 @@ export default function MyPatients() {
                       admissionMap[patient.id] ? 'bg-indigo-100 text-indigo-700' : statCfg.bg
                     } ${admissionMap[patient.id] ? '' : statCfg.text}`}
                   >
-                    {admissionMap[patient.id] ? `Admitted (${admissionMap[patient.id].ward_name})` : statCfg.label}
+                    {admissionMap[patient.id] ? `Admitted (${admissionMap[patient.id].ward_name})` : statCfg.label}{patient.folder_activated === false && !admissionMap[patient.id] ? <span className="ml-1.5 px-1.5 py-0.5 rounded bg-rose-100 text-rose-600 text-[9px] font-medium">Unpaid</span> : null}
                   </span>
                 </div>
 

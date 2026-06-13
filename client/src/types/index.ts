@@ -35,6 +35,7 @@ export interface Patient {
   insurance_sub_type?: string
   blood_type?: string
   status: string
+  folder_activated?: boolean
   occupation?: string
   marital_status?: string
   nationality?: string
@@ -124,6 +125,7 @@ export interface RadiologyOrder {
   status: string
   report_text: string
   image_path: string
+  is_paid?: boolean
   created_at: string
 }
 

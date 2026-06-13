@@ -82,8 +82,15 @@ export default function Dispensing() {
         <div className="space-y-3">
           {prescriptions.map((rx) => (
             <div key={rx.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex items-center justify-between">
-              <div>
-                <p className="text-base font-semibold text-slate-800">{rx.drug_name}</p>
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-base font-semibold text-slate-800">{rx.drug_name}</p>
+                  {rx.is_paid ? (
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-emerald-100 text-emerald-700">Paid</span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-rose-100 text-rose-700">Unpaid</span>
+                  )}
+                </div>
                 <p className="text-sm text-slate-500 mt-0.5">{rx.dosage} &middot; Prescribed qty: {rx.quantity}</p>
                 <p className="text-xs text-slate-400">Patient: {rx.patient_name || 'Unknown'} &middot; {rx.instructions || 'No instructions'}</p>
                 {rx.doctor_name && <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><Stethoscope size={11} /> Prescribed by: <strong>{rx.doctor_name}</strong></p>}

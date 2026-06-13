@@ -60,7 +60,7 @@ const statusStyles: Record<string, string> = {
 
 export default function LaboratoryWorkbench() {
   const navigate = useNavigate()
-  const [tab, setTab] = useState<'worklist' | 'results' | 'history'>('worklist')
+  const [tab, setTab] = useState<'worklist' | 'results' | 'history' | 'orders'>('worklist')
   const [showDirectRequest, setShowDirectRequest] = useState(false)
   const [worklistPage, setWorklistPage] = useState(1)
   const [pendingPage, setPendingPage] = useState(1)
@@ -96,6 +96,9 @@ export default function LaboratoryWorkbench() {
   const [completedSearch, setCompletedSearch] = useState('')
   const [walkinResultsFilter, setWalkinResultsFilter] = useState(false)
   const [showAllResults, setShowAllResults] = useState(false)
+  const [pendingOrders, setPendingOrders] = useState<any[]>([])
+  const [convertModal, setConvertModal] = useState<any | null>(null)
+  const [converting, setConverting] = useState(false)
 
   useEffect(() => {
     api.get('/lab-test-catalog').then((r) => setTestCatalog(r.data || [])).catch(() => {})
@@ -104,6 +107,9 @@ export default function LaboratoryWorkbench() {
   useEffect(() => {
     if (tab === 'history') {
       api.get('/lab-results?status=completed').then((r) => setHistoryResults(r.data || [])).catch(() => {})
+    }
+    if (tab === 'orders') {
+      api.get('/payments/pending-orders?service_type=lab').then((r) => setPendingOrders(r.data || [])).catch(() => {})
     }
   }, [tab])
 
@@ -241,9 +247,10 @@ export default function LaboratoryWorkbench() {
       (o.lab_number || '').toLowerCase().includes(q) ||
       (o.test_name || '').toLowerCase().includes(q)
     const matchStatus = !statusFilter || (statusFilter === 'collected_results' ? !!o.results_collected_at : o.status === statusFilter)
+    const matchPaid = o.is_paid === true || (o.is_paid === null && o.payment_id != null) || (!o.encounter_id && o.patient_name != null)
     const matchWalkin = !walkinResultsFilter || (!!o.patient_phone && o.status === 'completed')
     const matchDoctorView = !isDoctor || showAllResults || !!o.doctor_name
-    return matchSearch && matchStatus && matchWalkin && matchDoctorView
+    return matchSearch && matchStatus && matchWalkin && matchDoctorView && matchPaid
   })
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 size={32} className="animate-spin text-primary" /></div>
@@ -284,7 +291,8 @@ export default function LaboratoryWorkbench() {
       {/* Tabs */}
       <div className="flex gap-2">
         {[
-          { id: 'worklist', label: `Worklist (${orders.length})`, icon: FileText },
+          { id: 'orders', label: `Orders (${pendingOrders.length})`, icon: Clock },
+          { id: 'worklist', label: `Worklist (${filteredOrders.length})`, icon: FileText },
           { id: 'results', label: `Results (${drafts.length})`, icon: CheckCircle },
           { id: 'history', label: `History (${orders.filter(o => o.status === 'completed').length})`, icon: Clock },
         ].map((t) => {
@@ -348,6 +356,12 @@ export default function LaboratoryWorkbench() {
                       <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${statusStyles[o.status] || 'bg-slate-100 text-slate-600'}`}>
                         {o.status.charAt(0).toUpperCase() + o.status.slice(1)}
                       </span>
+                      {o.is_paid === false && (
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-rose-100 text-rose-700">Unpaid</span>
+                      )}
+                      {o.is_paid === true && (
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-emerald-100 text-emerald-700">Paid</span>
+                      )}
                       {o.priority && o.priority !== 'routine' && (
                         <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${o.priority === 'stat' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
                           {o.priority.toUpperCase()}
@@ -369,11 +383,14 @@ export default function LaboratoryWorkbench() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                      {o.status === 'ordered' && (
+                      {o.status === 'ordered' && o.is_paid !== false && (
                         <button onClick={() => handleCollect(o.id)} className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-600 text-xs font-medium hover:bg-amber-100 transition-colors">Collect Sample</button>
                       )}
-                      {(o.status === 'collected' || o.status === 'ordered') && (
+                      {(o.status === 'collected' || o.status === 'ordered') && o.is_paid !== false && (
                         <button onClick={() => setSelectedOrder(o)} className="px-3 py-1.5 rounded-lg bg-purple-50 text-purple-600 text-xs font-medium hover:bg-purple-100 transition-colors">Enter Results</button>
+                      )}
+                      {o.status === 'ordered' && o.is_paid === false && (
+                        <span className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-400 text-xs font-medium cursor-not-allowed">Awaiting Payment</span>
                       )}
                       {o.status === 'completed' && (
                         <>
@@ -537,6 +554,142 @@ export default function LaboratoryWorkbench() {
               </div>
             )
           })()}
+        </div>
+      )}
+
+      {/* Orders Tab */}
+      {tab === 'orders' && (
+        <div className="space-y-5">
+          {/* Pending Paypoint Payments */}
+          {pendingOrders.length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <h3 className="text-sm font-semibold text-slate-700 mb-4">Paid via Paypoint — Awaiting Lab Order Creation</h3>
+              <div className="space-y-3">
+                {(() => {
+                  var grouped: Record<string, any> = {}
+                  pendingOrders.forEach(function(item: any) {
+                    var key = item.payment_id
+                    if (!grouped[key]) grouped[key] = { payment_id: item.payment_id, receipt_number: item.receipt_number, walkin_name: item.walkin_name, walkin_phone: item.walkin_phone, created_at: item.created_at, items: [] }
+                    grouped[key].items.push(item)
+                  })
+                  return Object.values(grouped).map(function(group: any) {
+                    var allConverted = group.items.every(function(i: any) { return i.is_converted })
+                    return (
+                      <div key={group.payment_id} className="border border-slate-200 rounded-xl overflow-hidden">
+                        <div className="px-5 py-3 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">{group.walkin_name || 'Patient'}</p>
+                            <p className="text-xs text-slate-400">Ref: {group.receipt_number} &middot; {group.walkin_phone ? 'Tel: ' + group.walkin_phone : ''}</p>
+                          </div>
+                          {allConverted ? (
+                            <span className="px-3 py-1 rounded-lg bg-emerald-100 text-emerald-700 text-xs font-medium">Converted</span>
+                          ) : (
+                            <button onClick={function() { setConvertModal(group) }} className="px-4 py-2 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary/90 transition-colors">Create Lab Order</button>
+                          )}
+                        </div>
+                        <div className="px-5 py-3 space-y-1">
+                          {group.items.map(function(item: any) {
+                            return <div key={item.item_id} className="flex justify-between text-sm"><span className="text-slate-600">{item.description}</span><span className="text-xs text-slate-400">₦{parseFloat(item.unit_price || 0).toLocaleString()}</span></div>
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* Unpaid Lab Orders */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <h3 className="text-sm font-semibold text-slate-700 mb-4">Unpaid Lab Orders ({orders.filter(function(o: any) { return o.is_paid === false }).length})</h3>
+            {orders.filter(function(o: any) { return o.is_paid === false }).length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-8">All lab orders have been paid for.</p>
+            ) : (
+              <div className="space-y-2">
+                {orders.filter(function(o: any) { return o.is_paid === false }).map(function(o: any) {
+                  return (
+                    <div key={o.id} className="flex items-center justify-between px-4 py-3 rounded-xl bg-rose-50 border border-rose-100">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800">{o.test_name}</p>
+                        <p className="text-xs text-slate-500">{o.patient_name || 'Walk-in'} &middot; {o.lab_number || ''}</p>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-lg bg-rose-100 text-rose-700 text-xs font-medium flex-shrink-0 ml-3">Awaiting Payment</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Convert Payment to Lab Order Modal */}
+      {convertModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!converting) setConvertModal(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><FlaskConical size={18} className="text-purple-500" /> Create Lab Orders</h2>
+              <button onClick={() => setConvertModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">Patient: <strong>{convertModal.walkin_name || 'Walk-in Patient'}</strong></p>
+              {convertModal.walkin_phone && <p className="text-sm text-slate-600">Phone: {convertModal.walkin_phone}</p>}
+              <p className="text-xs text-slate-400">Receipt: {convertModal.receipt_number}</p>
+              <div className="space-y-1 mt-2">
+                {convertModal.items.filter(function(i: any) { return !i.is_converted }).map(function(item: any) {
+                  return <div key={item.item_id} className="text-sm text-slate-700 bg-slate-50 rounded-lg px-3 py-2">{item.description}</div>
+                })}
+              </div>
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Specimen Type</label>
+                  <select id="convertSpecimen" defaultValue="Blood"
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                    <option>Blood</option><option>Urine</option><option>Stool</option><option>Sputum</option><option>CSF</option><option>Swab</option><option>Tissue</option><option>Serum</option><option>Plasma</option><option>Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Priority</label>
+                  <select id="convertPriority" defaultValue="routine"
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                    <option value="routine">Routine</option><option value="urgent">Urgent</option><option value="stat">STAT</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setConvertModal(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={async function() {
+                setConverting(true)
+                try {
+                  var specimen = (document.getElementById('convertSpecimen') as HTMLSelectElement)?.value || 'Blood'
+                  var priority = (document.getElementById('convertPriority') as HTMLSelectElement)?.value || 'routine'
+                  var items = convertModal.items.filter(function(i: any) { return !i.is_converted })
+                  for (var item of items) {
+                    await api.post('/lab-orders', {
+                      patient_name: convertModal.walkin_name || 'Walk-in Patient',
+                      patient_phone: convertModal.walkin_phone || null,
+                      test_name: item.description,
+                      specimen_type: specimen,
+                      priority: priority,
+                      payment_id: convertModal.payment_id,
+                    })
+                  }
+                  var itemIds = items.map(function(i: any) { return i.item_id })
+                  await api.put('/payments/items/convert', { item_ids: itemIds })
+                  var res = await api.get('/payments/pending-orders?service_type=lab')
+                  setPendingOrders(res.data || [])
+                  setConvertModal(null)
+                } catch (err: any) { alert(err.response?.data?.message || 'Failed to create lab orders') }
+                finally { setConverting(false) }
+              }} disabled={converting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
+                {converting ? <Loader2 size={14} className="animate-spin" /> : <FlaskConical size={14} />}
+                {converting ? 'Creating...' : 'Create & Add to Worklist'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
