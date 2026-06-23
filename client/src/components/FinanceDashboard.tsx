@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
-  DollarSign, TrendingUp, Receipt, Calendar, ArrowLeft, Search, X, Loader2, FileText, Printer, CreditCard, Landmark, Smartphone,
+  Banknote, TrendingUp, Receipt, Calendar, ArrowLeft, Search, X, Loader2, FileText, Printer, CreditCard, Landmark, Smartphone,
 } from 'lucide-react'
 
 export default function FinanceDashboard() {
@@ -42,8 +42,8 @@ export default function FinanceDashboard() {
   })
 
   const methodIcon = (m: string) => {
-    const map: Record<string, any> = { cash: DollarSign, card: CreditCard, transfer: Landmark, pos: Smartphone }
-    return map[m] || DollarSign
+    const map: Record<string, any> = { cash: Banknote, card: CreditCard, transfer: Landmark, pos: Smartphone }
+    return map[m] || Banknote
   }
 
   if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><Loader2 size={32} className="animate-spin text-primary" /></div>
@@ -60,7 +60,7 @@ export default function FinanceDashboard() {
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <div className="flex items-center gap-3 mb-3"><DollarSign size={18} className="text-emerald-500" /><h3 className="text-sm font-semibold text-slate-700">Today's Revenue</h3></div>
+            <div className="flex items-center gap-3 mb-3"><Banknote size={18} className="text-emerald-500" /><h3 className="text-sm font-semibold text-slate-700">Today's Revenue</h3></div>
             <p className="text-2xl font-bold text-emerald-600">₦{parseFloat(stats.today_revenue || 0).toLocaleString()}</p>
             <p className="text-xs text-slate-400 mt-1">{stats.today_count || 0} transactions</p>
           </div>

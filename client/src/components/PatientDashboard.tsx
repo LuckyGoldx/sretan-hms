@@ -6,7 +6,7 @@ import DoctorDashboard from './DoctorDashboard'
 import {
   Search, Users, MoreHorizontal, Eye, Activity, LogOut, Loader2,
   UserPlus, Stethoscope, Clock, CheckCircle, Pill, AlertTriangle,
-  Package, DollarSign, FlaskConical, ClipboardList, Truck, Calendar, Home
+  Package, Banknote, FlaskConical, ClipboardList, Truck, Calendar, Home
 } from 'lucide-react'
 
 const STATUS_OPTIONS = [
@@ -140,8 +140,8 @@ export default function PatientDashboard() {
     Pharmacist: [
       { title: 'Pharmacy Overview', desc: 'Stats and quick access', icon: Pill, route: '/pharmacy' },
       { title: 'Dispensing', desc: 'Fill pending prescriptions', icon: ClipboardList, route: '/dispensing' },
-      { title: 'Inventory', desc: 'Manage stock levels', icon: Package, route: '/inventory' },
-      { title: 'Expiry Monitor', desc: 'Track expiring items', icon: Clock, route: '/expiry' },
+      { title: 'Pharmacy Inventory', desc: 'Manage stock levels', icon: Package, route: '/pharmacy-inventory' },
+      { title: 'Expiry Monitor', desc: 'Track expiring items', icon: Clock, route: '/pharmacy-expiry' },
       { title: 'Purchase Orders', desc: 'Order stock from suppliers', icon: Truck, route: '/purchase-orders' },
       { title: 'Dispensing History', desc: 'Audit trail of dispensations', icon: ClipboardList, route: '/dispensing-history' },
     ],
@@ -149,7 +149,7 @@ export default function PatientDashboard() {
       { title: 'Laboratory', desc: 'Manage lab orders and results', icon: FlaskConical, route: '/lab' },
     ],
     Paypoint: [
-      { title: 'Paypoint', desc: 'Process payments', icon: DollarSign, route: '/paypoint' },
+      { title: 'Paypoint', desc: 'Process payments', icon: Banknote, route: '/paypoint' },
     ],
     Nurse: [
       { title: 'Triage', desc: 'Vitals and patient assessment', icon: Stethoscope, route: '/triage' },

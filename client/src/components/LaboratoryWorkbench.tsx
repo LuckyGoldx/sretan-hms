@@ -82,7 +82,7 @@ export default function LaboratoryWorkbench() {
   const [selectedOrder, setSelectedOrder] = useState<any | null>(null)
   const [analytes, setAnalytes] = useState<{ name: string; value: string; refLow: string; refHigh: string }[]>([{ name: '', value: '', refLow: '', refHigh: '' }])
   const [submitting, setSubmitting] = useState(false)
-  const [activeResultTab, setActiveResultTab] = useState<'pending' | 'completed'>('pending')
+  const [activeResultTab, setActiveResultTab] = useState<'pending' | 'completed' | 'collected'>('pending')
   const [walkinForm, setWalkinForm] = useState({ patient_name: '', patient_phone: '', specimen_type: '', priority: 'routine', referred_by: '' })
   const [selectedTests, setSelectedTests] = useState<{ name: string; specimen_type?: string }[]>([])
   const [walkinSubmitting, setWalkinSubmitting] = useState(false)
@@ -92,8 +92,9 @@ export default function LaboratoryWorkbench() {
   const [showTestDropdown, setShowTestDropdown] = useState(false)
   const [collectModal, setCollectModal] = useState<any | null>(null)
   const [historyResults, setHistoryResults] = useState<any[]>([])
-  const [completedResultsData, setCompletedResultsData] = useState<any[]>([])
   const [completedSearch, setCompletedSearch] = useState('')
+  const [completedOrders, setCompletedOrders] = useState<any[]>([])
+  const [collectedSearch, setCollectedSearch] = useState('')
   const [walkinResultsFilter, setWalkinResultsFilter] = useState(false)
   const [showAllResults, setShowAllResults] = useState(false)
   const [pendingOrders, setPendingOrders] = useState<any[]>([])
@@ -110,6 +111,14 @@ export default function LaboratoryWorkbench() {
     }
     if (tab === 'orders') {
       api.get('/payments/pending-orders?service_type=lab').then((r) => setPendingOrders(r.data || [])).catch(() => {})
+    }
+    if (tab === 'results') {
+      Promise.all([
+        api.get('/lab-orders?status=completed').catch(() => ({ data: [] })),
+        api.get('/lab-orders?status=collected').catch(() => ({ data: [] })),
+      ]).then(([completedRes, collectedRes]) => {
+        setCompletedOrders([...(completedRes.data || []), ...(collectedRes.data || [])])
+      })
     }
   }, [tab])
 
@@ -250,7 +259,8 @@ export default function LaboratoryWorkbench() {
     const matchPaid = o.is_paid === true || (o.is_paid === null && o.payment_id != null) || (!o.encounter_id && o.patient_name != null)
     const matchWalkin = !walkinResultsFilter || (!!o.patient_phone && o.status === 'completed')
     const matchDoctorView = !isDoctor || showAllResults || !!o.doctor_name
-    return matchSearch && matchStatus && matchWalkin && matchDoctorView && matchPaid
+    const matchNotTerminal = o.status !== 'completed' && o.status !== 'cancelled'
+    return matchSearch && matchStatus && matchWalkin && matchDoctorView && matchPaid && matchNotTerminal
   })
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 size={32} className="animate-spin text-primary" /></div>
@@ -321,7 +331,6 @@ export default function LaboratoryWorkbench() {
               <option value="ordered">Ordered</option>
               <option value="collected">Collected</option>
               <option value="processing">Processing</option>
-              <option value="completed">Completed</option>
               <option value="collected_results">Results Collected</option>
             </select>
             {isDoctor && (
@@ -425,6 +434,10 @@ export default function LaboratoryWorkbench() {
               className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${activeResultTab === 'completed' ? 'bg-emerald-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
               Completed ({stats.completed})
             </button>
+            <button onClick={() => setActiveResultTab('collected')}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${activeResultTab === 'collected' ? 'bg-sky-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
+              Collected ({orders.filter((o: any) => o.status === 'collected').length})
+            </button>
           </div>
 
           {/* Pending Approval */}
@@ -472,14 +485,16 @@ export default function LaboratoryWorkbench() {
             <>
               <div className="relative max-w-sm">
                 <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input type="text" placeholder="Search by result # or patient name..." value={completedSearch}
+                <input type="text" placeholder="Search patient or test name..." value={completedSearch}
                   onChange={(e) => setCompletedSearch(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white" />
               </div>
               {(() => {
-                const filtered = completedResultsData.filter((r: any) =>
-                  (r.result_number || '').toLowerCase().includes(completedSearch.toLowerCase()) ||
-                  (r.full_patient_name || r.patient_name || '').toLowerCase().includes(completedSearch.toLowerCase())
+                const q = completedSearch.toLowerCase()
+                const filtered = completedOrders.filter((o: any) =>
+                  (o.patient_name || '').toLowerCase().includes(q) ||
+                  (o.test_name || '').toLowerCase().includes(q) ||
+                  (o.lab_number || '').toLowerCase().includes(q)
                 )
                 const { items, totalPages } = usePagination(filtered, completedPage)
                 return items.length === 0 ? (
@@ -489,17 +504,22 @@ export default function LaboratoryWorkbench() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {items.map((r: any) => (
-                      <div key={r.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 hover:shadow-md transition-shadow">
+                    {items.map((o: any) => (
+                      <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 hover:shadow-md transition-shadow">
                         <div className="flex items-center justify-between">
-                          <div>
+                          <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
-                              <span className="text-sm font-semibold text-slate-800">{r.test_name}</span>
-                              {r.result_number && <span className="text-xs text-slate-400 font-mono">#{r.result_number}</span>}
+                              <span className="text-sm font-semibold text-slate-800">{o.test_name}</span>
+                              {!o.encounter_id && o.patient_name && (
+                                <span className="px-2 py-0.5 rounded-lg bg-sky-100 text-sky-700 text-[10px] font-medium">Walk-in</span>
+                              )}
                             </div>
-                            <p className="text-xs text-slate-400">{r.full_patient_name || r.patient_name || 'Walk-in Patient'}</p>
+                            <p className="text-xs text-slate-400">{o.patient_name || 'Unknown'} {o.lab_number ? <span className="font-mono"> &middot; #{o.lab_number}</span> : ''}</p>
                           </div>
-                          <span className="px-2.5 py-0.5 rounded-lg bg-emerald-100 text-emerald-700 text-xs font-medium">{r.analyte_name}: {r.value}</span>
+                          <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                            <span className="px-2 py-0.5 rounded-lg bg-emerald-100 text-emerald-700 text-[10px] font-medium">Completed</span>
+                            <button onClick={() => printResult(o.id)} className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors"><FileText size={12} /> View</button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -509,6 +529,71 @@ export default function LaboratoryWorkbench() {
               })()}
             </>
           )}
+
+          {/* Collected Orders */}
+          {activeResultTab === 'collected' && (
+            (() => {
+              const q = collectedSearch.toLowerCase()
+              const collected = orders.filter((o: any) => o.status === 'collected' && (
+                (o.patient_name || '').toLowerCase().includes(q) ||
+                (o.test_name || '').toLowerCase().includes(q) ||
+                (o.lab_number || '').toLowerCase().includes(q)
+              ))
+              const { items, totalPages } = usePagination(collected, pendingPage)
+              return (
+                <div className="space-y-4">
+                  <div className="relative max-w-sm">
+                    <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input type="text" placeholder="Search patient, test, or lab #..." value={collectedSearch}
+                      onChange={(e) => setCollectedSearch(e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white" />
+                  </div>
+                  {items.length === 0 ? (
+                    <div className="flex flex-col items-center py-16 text-slate-400">
+                      <FlaskConical size={48} className="text-slate-300 mb-3" />
+                      <p className="text-sm font-medium">No collected orders</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {items.map((o: any) => (
+                    <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                      <div className="px-5 py-3 flex items-center justify-between border-b border-slate-50">
+                        <div className="flex items-center gap-3">
+                          <FlaskConical size={15} className="text-purple-500" />
+                          <span className="text-sm font-semibold text-slate-800">{o.test_name}</span>
+                          <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${statusStyles[o.status] || 'bg-slate-100 text-slate-600'}`}>
+                            {o.status.charAt(0).toUpperCase() + o.status.slice(1)}
+                          </span>
+                          {o.priority && o.priority !== 'routine' && (
+                            <span className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${o.priority === 'stat' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                              {o.priority.toUpperCase()}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-xs text-slate-400">{new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                      </div>
+                      <div className="px-5 py-3 flex items-center justify-between">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-slate-800">{o.patient_name || 'Walk-in Patient'}</p>
+                          {o.lab_number && <p className="text-xs text-slate-400 font-mono">
+                            {o.request_number ? `#${o.request_number} / ${o.order_number}` : `#${o.lab_number}`}
+                          </p>}
+                          <p className="text-xs text-slate-400 flex items-center gap-2 mt-0.5">
+                            {o.specimen_type && <span>Specimen: {o.specimen_type}</span>}
+                            {o.doctor_name && <span> &middot; Requested by: {o.doctor_name}</span>}
+                            {o.referred_by && <span> &middot; Referred by: {o.referred_by}</span>}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <Pagination page={pendingPage} totalPages={totalPages} onChange={setPendingPage} />
+                </div>
+              )}
+            </div>
+          )
+        })()
+      )}
         </div>
       )}
 

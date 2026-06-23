@@ -162,7 +162,7 @@ export default function DoctorConsultation() {
   }, [])
 
   useEffect(() => {
-    api.get<any[]>('/inventory').then((res) => {
+    api.get<any[]>('/inventory?category=pharmacy').then((res) => {
       const drugs = [...new Set((res.data || []).map((i: any) => i.drug_name).filter(Boolean))] as string[]
       setInventoryDrugs(drugs)
     }).catch(() => {})

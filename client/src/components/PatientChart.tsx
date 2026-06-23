@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import type { Patient, Encounter } from '../types'
 import {
   User, Clock, Pill, Beaker, Scan, Activity, Loader2, Bed,
   AlertTriangle, ChevronRight, ArrowLeft, Stethoscope, FlaskConical, Droplets, XCircle,
-  FileText, X, Info, Plus, CheckCircle, Edit2
+  FileText, X, Info, Plus, CheckCircle, Edit2, Mic
 } from 'lucide-react'
 
 const PER_PAGE = 15
@@ -15,6 +15,37 @@ function usePagination<T>(items: T[], page: number): { items: T[]; totalPages: n
   const safePage = Math.min(page, totalPages)
   const start = (safePage - 1) * PER_PAGE
   return { items: items.slice(start, start + PER_PAGE), totalPages }
+}
+
+function VoiceInput({ value, onChange }: { value: string; onChange: (val: string) => void }) {
+  const [listening, setListening] = useState(false)
+  const recognitionRef = useRef<any>(null)
+  const preSpeechValue = useRef('')
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+  function toggle() {
+    if (listening) { recognitionRef.current?.stop(); setListening(false); return }
+    if (!SpeechRecognition) { alert('Voice input is not supported in your browser. Try Chrome.'); return }
+    preSpeechValue.current = value
+    const rec = new SpeechRecognition()
+    rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true
+    rec.onresult = (event: any) => {
+      let t = ''
+      for (let i = 0; i < event.results.length; i++) t += event.results[i][0].transcript
+      onChange(preSpeechValue.current + (preSpeechValue.current && t ? ' ' : '') + t)
+    }
+    rec.onerror = () => setListening(false)
+    rec.onend = () => setListening(false)
+    rec.start()
+    recognitionRef.current = rec
+    setListening(true)
+  }
+  return (
+    <button type="button" onClick={toggle}
+      className={`p-1.5 rounded-lg transition-colors ${listening ? 'bg-red-100 text-red-600 animate-pulse' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+      title={listening ? 'Stop recording' : 'Start voice input'}>
+      <Mic size={14} />
+    </button>
+  )
 }
 
 function Pagination({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (n: number) => void }) {
@@ -61,7 +92,7 @@ export default function PatientChart() {
   const [admissions, setAdmissions] = useState<any[]>([])
   const [viewLabModal, setViewLabModal] = useState<any | null>(null)
   const [showVitalsForm, setShowVitalsForm] = useState(false)
-  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '', fluid_intake: '', fluid_output: '' })
+  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
   const [rxPage, setRxPage] = useState(1)
   const [encPage, setEncPage] = useState(1)
@@ -248,11 +279,9 @@ export default function PatientChart() {
         spo2: vitalsForm.spo2 ? parseInt(vitalsForm.spo2) : null,
         triage_priority: vitalsForm.triage_priority,
         nursing_notes: vitalsForm.nursing_notes,
-        fluid_intake: vitalsForm.fluid_intake ? parseFloat(vitalsForm.fluid_intake) : null,
-        fluid_output: vitalsForm.fluid_output ? parseFloat(vitalsForm.fluid_output) : null,
       })
       setShowVitalsForm(false)
-      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '', fluid_intake: '', fluid_output: '' })
+      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
       const encRes2 = await api.get(`/encounters?patient_id=${patientId}`)
       const loadedEncs = encRes2.data || []
       const vits: any[] = []
@@ -1830,6 +1859,10 @@ export default function PatientChart() {
                 <option value="incident">Incident Report</option>
                 <option value="care_plan">Care Plan Update</option>
               </select>
+              <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-2">
+                Note
+                <VoiceInput value={noteContent} onChange={(val) => setNoteContent(val)} />
+              </label>
               <textarea rows={5} placeholder="Type your clinical note..." value={noteContent}
                 onChange={(e) => setNoteContent(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
@@ -1871,6 +1904,10 @@ export default function PatientChart() {
                 <option value="summary">Discharge Summary</option>
                 <option value="referral">Referral Note</option>
               </select>
+              <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-2">
+                Note
+                <VoiceInput value={doctorNoteContent} onChange={(val) => setDoctorNoteContent(val)} />
+              </label>
               <textarea rows={6} placeholder="Write your clinical note..." value={doctorNoteContent}
                 onChange={(e) => setDoctorNoteContent(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
@@ -2012,24 +2049,13 @@ export default function PatientChart() {
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Nursing Notes</label>
+                <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-2">
+                  Nursing Notes
+                  <VoiceInput value={vitalsForm.nursing_notes} onChange={(val) => setVitalsForm((p) => ({ ...p, nursing_notes: val }))} />
+                </label>
                 <textarea rows={3} placeholder="Observations, chief complaint..." value={vitalsForm.nursing_notes}
                   onChange={(e) => setVitalsForm((p) => ({ ...p, nursing_notes: e.target.value }))}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Fluid Intake (mL)</label>
-                  <input type="number" placeholder="0" value={vitalsForm.fluid_intake}
-                    onChange={(e) => setVitalsForm((p) => ({ ...p, fluid_intake: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Fluid Output (mL)</label>
-                  <input type="number" placeholder="0" value={vitalsForm.fluid_output}
-                    onChange={(e) => setVitalsForm((p) => ({ ...p, fluid_output: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                </div>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">

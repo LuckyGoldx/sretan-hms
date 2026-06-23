@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Heart, Activity, Thermometer, Weight, Droplets, FileText, Users, AlertTriangle, CheckCircle, Clock, Search, Loader2, Stethoscope } from 'lucide-react'
+import { ArrowLeft, Heart, Activity, Thermometer, Weight, Droplets, FileText, Users, AlertTriangle, CheckCircle, Clock, Search, Loader2, Stethoscope, Mic } from 'lucide-react'
 import api from '../hooks/useAxios'
 import type { Patient } from '../types/index'
 
@@ -14,19 +14,48 @@ interface VitalsForm {
   spo2: string
   triage_priority: 'red' | 'yellow' | 'green'
   nursing_notes: string
-  fluid_intake: string
-  fluid_output: string
 }
 
 const emptyForm: VitalsForm = {
   systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '',
-  weight: '', spo2: '', triage_priority: 'green', nursing_notes: '', fluid_intake: '', fluid_output: '',
+  weight: '', spo2: '', triage_priority: 'green', nursing_notes: '',
 }
 
 const priorityColors: Record<string, string> = {
   red: 'bg-red-500 text-white',
   yellow: 'bg-yellow-500 text-white',
   green: 'bg-green-500 text-white',
+}
+
+function VoiceInput({ value, onChange }: { value: string; onChange: (val: string) => void }) {
+  const [listening, setListening] = useState(false)
+  const recognitionRef = useRef<any>(null)
+  const preSpeechValue = useRef('')
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+  function toggle() {
+    if (listening) { recognitionRef.current?.stop(); setListening(false); return }
+    if (!SpeechRecognition) { alert('Voice input is not supported in your browser. Try Chrome.'); return }
+    preSpeechValue.current = value
+    const rec = new SpeechRecognition()
+    rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true
+    rec.onresult = (event: any) => {
+      let t = ''
+      for (let i = 0; i < event.results.length; i++) t += event.results[i][0].transcript
+      onChange(preSpeechValue.current + (preSpeechValue.current && t ? ' ' : '') + t)
+    }
+    rec.onerror = () => setListening(false)
+    rec.onend = () => setListening(false)
+    rec.start()
+    recognitionRef.current = rec
+    setListening(true)
+  }
+  return (
+    <button type="button" onClick={toggle}
+      className={`p-1.5 rounded-lg transition-colors ${listening ? 'bg-red-100 text-red-600 animate-pulse' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+      title={listening ? 'Stop recording' : 'Start voice input'}>
+      <Mic size={14} />
+    </button>
+  )
 }
 
 export default function TriageStation() {
@@ -83,8 +112,6 @@ export default function TriageStation() {
         spo2: form.spo2 ? parseInt(form.spo2) : null,
         triage_priority: form.triage_priority,
         nursing_notes: form.nursing_notes,
-        fluid_intake: form.fluid_intake ? parseFloat(form.fluid_intake) : null,
-        fluid_output: form.fluid_output ? parseFloat(form.fluid_output) : null,
       })
       await api.put(`/patients/${selectedPatient}`, { status: 'in_triage' })
       setSuccessMsg('Vitals recorded successfully')
@@ -227,27 +254,13 @@ export default function TriageStation() {
 
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-              <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2"><FileText size={15} /> Nursing Notes</h2>
+              <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+                <FileText size={15} /> Nursing Notes
+                <VoiceInput value={form.nursing_notes} onChange={(val) => setForm((p) => ({ ...p, nursing_notes: val }))} />
+              </h2>
               <textarea rows={4} placeholder="Chief complaint, observations, notes..." value={form.nursing_notes}
                 onChange={(e) => setForm((p) => ({ ...p, nursing_notes: e.target.value }))}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
-            </div>
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-              <h2 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2"><Droplets size={15} /> Fluid Balance</h2>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Intake (mL)</label>
-                  <input type="number" placeholder="0" value={form.fluid_intake}
-                    onChange={(e) => setForm((p) => ({ ...p, fluid_intake: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Output (mL)</label>
-                  <input type="number" placeholder="0" value={form.fluid_output}
-                    onChange={(e) => setForm((p) => ({ ...p, fluid_output: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                </div>
-              </div>
             </div>
             <button onClick={handleSubmit} disabled={submitting}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-primary text-white text-sm font-semibold hover:scale-[1.01] transition-transform disabled:opacity-50">

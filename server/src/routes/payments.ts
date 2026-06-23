@@ -38,20 +38,38 @@ router.get('/api/payments/pending/:patientId', async (req: Request, res: Respons
     var patient = folderRes.rows[0];
 
     if (!patient?.folder_activated) {
-      items.push({ service_type: 'folder_activation', service_id: null, description: 'Folder Activation / Registration Fee', quantity: 1, unit_price: 0, needsPrice: true });
+      items.push({ service_type: 'folder_activation', service_id: null, description: 'Folder Activation / Registration Fee', quantity: 1, unit_price: 5000, needsPrice: true });
     }
 
-    (prescriptionsRes.rows || []).forEach((r: any) => {
-      items.push({ service_type: 'prescription', service_id: r.id, description: `Prescription: ${r.drug_name} ${r.dosage} × ${r.quantity}`, quantity: 1, unit_price: 0, needsPrice: true });
-    });
+    for (const r of (prescriptionsRes.rows || [])) {
+      var rxPrice = 0;
+      var rxCost = 0;
+      try {
+        var rxInv = await pool.query('SELECT price, cost_price FROM inventory_items WHERE drug_name ILIKE $1 AND category = $2 AND is_active = true LIMIT 1', [r.drug_name, 'pharmacy']);
+        if (rxInv.rows.length > 0) { rxPrice = rxInv.rows[0].price || 0; rxCost = rxInv.rows[0].cost_price || 0; }
+      } catch {}
+      items.push({ service_type: 'prescription', service_id: r.id, description: `Prescription: ${r.drug_name} ${r.dosage || ''} × ${r.quantity || ''}`, quantity: r.quantity || 1, unit_price: rxPrice, cost_price: rxCost, needsPrice: !rxPrice });
+    }
 
-    (labRes.rows || []).forEach((r: any) => {
-      items.push({ service_type: 'lab', service_id: r.id, description: `Lab: ${r.test_name}`, quantity: 1, unit_price: 0, needsPrice: true });
-    });
+    for (const r of (labRes.rows || [])) {
+      var labPrice = 0;
+      var labCost = 0;
+      try {
+        var labInv = await pool.query('SELECT price, cost_price FROM inventory_items WHERE drug_name ILIKE $1 AND category = $2 AND is_active = true LIMIT 1', [r.test_name, 'lab']);
+        if (labInv.rows.length > 0) { labPrice = labInv.rows[0].price || 0; labCost = labInv.rows[0].cost_price || 0; }
+      } catch {}
+      items.push({ service_type: 'lab', service_id: r.id, description: `Lab: ${r.test_name}`, quantity: 1, unit_price: labPrice, cost_price: labCost, needsPrice: !labPrice });
+    }
 
-    (radiologyRes.rows || []).forEach((r: any) => {
-      items.push({ service_type: 'radiology', service_id: r.id, description: `Radiology: ${r.imaging_type}`, quantity: 1, unit_price: 0, needsPrice: true });
-    });
+    for (const r of (radiologyRes.rows || [])) {
+      var radPrice = 0;
+      var radCost = 0;
+      try {
+        var radInv = await pool.query('SELECT price, cost_price FROM inventory_items WHERE drug_name ILIKE $1 AND category = $2 AND is_active = true LIMIT 1', [r.imaging_type, 'radiology']);
+        if (radInv.rows.length > 0) { radPrice = radInv.rows[0].price || 0; radCost = radInv.rows[0].cost_price || 0; }
+      } catch {}
+      items.push({ service_type: 'radiology', service_id: r.id, description: `Radiology: ${r.imaging_type}`, quantity: 1, unit_price: radPrice, cost_price: radCost, needsPrice: !radPrice });
+    }
 
     (admissionsRes.rows || []).forEach((r: any) => {
       items.push({ service_type: 'admission', service_id: r.id, description: `Admission: ${r.ward_name}`, quantity: 1, unit_price: 0, needsPrice: true });
@@ -149,65 +167,61 @@ router.get('/api/payments', async (req: Request, res: Response) => {
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
-
-
-// --- Pending summary - all patients with unpaid items ---
-router.get('/api/payments/pending-summary', async (req: Request, res: Response) => {
+// --- All pending items across all patients (comprehensive) ---
+router.get('/api/payments/all-pending-items', async (req: Request, res: Response) => {
   try {
     var result = await pool.query(`
-      WITH folder AS (
-        SELECT id as patient_id, full_name, hospital_number, 'folder_activation' as service_type,
-               'Folder Activation Fee' as description, 1 as item_count FROM patients
-        WHERE folder_activated = false
+      WITH folder_patients AS (
+        SELECT id as patient_id, full_name, hospital_number FROM patients WHERE folder_activated = false
       ),
-      rx AS (
+      rx_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, 'prescription' as service_type,
-               COUNT(*)::int || ' Prescription(s)' as description, COUNT(*) as item_count
-        FROM prescriptions pr
-        JOIN encounters enc ON enc.id = pr.encounter_id
+               pr.id as service_id, pr.drug_name || COALESCE(' ' || pr.dosage, '') || ' × ' || COALESCE(pr.quantity::text, '1') as description,
+               pr.quantity, pr.created_at
+        FROM prescriptions pr JOIN encounters enc ON enc.id = pr.encounter_id
         JOIN patients p ON p.id = enc.patient_id
         WHERE COALESCE(pr.is_paid, false) = false AND pr.status != 'cancelled'
-        GROUP BY enc.patient_id, p.full_name, p.hospital_number
       ),
-      lab AS (
+      lab_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, 'lab' as service_type,
-               COUNT(*)::int || ' Lab Test(s)' as description, COUNT(*) as item_count
-        FROM lab_orders l
-        JOIN encounters enc ON enc.id = l.encounter_id
+               l.id as service_id, l.test_name as description,
+               1 as quantity, l.created_at
+        FROM lab_orders l JOIN encounters enc ON enc.id = l.encounter_id
         JOIN patients p ON p.id = enc.patient_id
-        WHERE COALESCE(l.is_paid, false) = false AND l.status NOT IN ('cancelled','completed')
-        GROUP BY enc.patient_id, p.full_name, p.hospital_number
+        WHERE COALESCE(l.is_paid, false) = false AND l.status NOT IN ('cancelled', 'completed')
       ),
-      rad AS (
+      rad_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, 'radiology' as service_type,
-               COUNT(*)::int || ' Radiology Order(s)' as description, COUNT(*) as item_count
-        FROM radiology_orders r
-        JOIN encounters enc ON enc.id = r.encounter_id
+               r.id as service_id, r.imaging_type as description,
+               1 as quantity, r.created_at
+        FROM radiology_orders r JOIN encounters enc ON enc.id = r.encounter_id
         JOIN patients p ON p.id = enc.patient_id
-        WHERE COALESCE(r.is_paid, false) = false AND r.status NOT IN ('cancelled','completed')
-        GROUP BY enc.patient_id, p.full_name, p.hospital_number
+        WHERE COALESCE(r.is_paid, false) = false AND r.status NOT IN ('cancelled', 'completed')
       ),
-      adm AS (
+      adm_items AS (
         SELECT a.patient_id, p.full_name, p.hospital_number, 'admission' as service_type,
-               'Admission Fee' as description, 1 as item_count
+               a.id as service_id, 'Admission Fee' as description,
+               1 as quantity, a.admitted_at as created_at
         FROM admissions a JOIN patients p ON p.id = a.patient_id
         WHERE COALESCE(a.is_paid, false) = false AND a.status = 'active'
       ),
-      all_pending AS (
-        SELECT * FROM folder UNION ALL SELECT * FROM rx UNION ALL
-        SELECT * FROM lab UNION ALL SELECT * FROM rad UNION ALL SELECT * FROM adm
+      all_items AS (
+        SELECT id as patient_id, full_name, hospital_number,
+               'folder_activation'::text as service_type, NULL::uuid as service_id,
+               'Folder Activation / Registration Fee'::text as description,
+               1::int as quantity, NULL::timestamp as created_at
+        FROM patients WHERE folder_activated = false
+        UNION ALL SELECT * FROM rx_items
+        UNION ALL SELECT * FROM lab_items
+        UNION ALL SELECT * FROM rad_items
+        UNION ALL SELECT * FROM adm_items
       )
-      SELECT patient_id, full_name, hospital_number,
-             json_agg(json_build_object('service_type', service_type, 'description', description, 'item_count', item_count)) as services,
-             SUM(item_count) as total_items
-      FROM all_pending GROUP BY patient_id, full_name, hospital_number
-      ORDER BY full_name
+      SELECT * FROM all_items ORDER BY full_name, service_type, created_at DESC
     `);
     res.json(result.rows);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
-// --- Get payment detail with items ---
 router.get('/api/payments/pending-orders', async (req: Request, res: Response) => {
   try {
     const { service_type } = req.query;

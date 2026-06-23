@@ -13,7 +13,7 @@ function getTenantId(): string {
 router.get('/api/inventory', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { search, below_reorder, category } = req.query;
+    const { search, below_reorder, category, show_inactive } = req.query;
     let query = 'SELECT * FROM inventory_items WHERE tenant_id = $1';
     const params: any[] = [tenantId];
     let paramIndex = 2;
@@ -34,6 +34,10 @@ router.get('/api/inventory', async (req: Request, res: Response) => {
       query += ` AND stock_count <= reorder_level`;
     }
 
+    if (show_inactive !== 'true') {
+      query += ' AND is_active = true';
+    }
+
     query += ' ORDER BY drug_name ASC';
 
     const result = await pool.query(query, params);
@@ -48,7 +52,7 @@ router.post('/api/inventory', async (req: Request, res: Response) => {
     await clockGuard(pool, 'inventory_items');
 
     const tenantId = getTenantId();
-    const { drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, unit_price } = req.body;
+    const { drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, unit_price, amount_type } = req.body;
 
     if (!drug_name) {
       res.status(400).json({ error: true, message: 'drug_name is required' });
@@ -57,9 +61,9 @@ router.post('/api/inventory', async (req: Request, res: Response) => {
 
     const id = uuidv4();
     const result = await pool.query(
-      `INSERT INTO inventory_items (id, tenant_id, drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, price)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [id, tenantId, drug_name, batch_number || null, stock_count || 0, reorder_level || 10, expiry_date || null, supplier || null, category || 'pharmacy', unit_price || 0]
+      `INSERT INTO inventory_items (id, tenant_id, drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, price, amount_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [id, tenantId, drug_name, batch_number || null, stock_count || 0, reorder_level || 10, expiry_date || null, supplier || null, category || 'pharmacy', unit_price || 0, amount_type || 'units']
     );
 
     res.status(201).json(result.rows[0]);
@@ -74,7 +78,7 @@ router.put('/api/inventory/:id', async (req: Request, res: Response) => {
 
     const tenantId = getTenantId();
     const { id } = req.params;
-    const { stock_count, stock_count_delta, drug_name, batch_number, reorder_level, expiry_date, supplier, unit_price, cost_price } = req.body;
+    const { stock_count, stock_count_delta, drug_name, batch_number, reorder_level, expiry_date, supplier, unit_price, cost_price, amount_type, is_active } = req.body;
 
     const existing = await pool.query(
       'SELECT * FROM inventory_items WHERE id = $1 AND tenant_id = $2',
@@ -100,11 +104,13 @@ router.put('/api/inventory/:id', async (req: Request, res: Response) => {
         expiry_date = COALESCE($5, expiry_date),
         supplier = COALESCE($6, supplier),
         price = COALESCE($7, price),
-        cost_price = COALESCE($8, cost_price)
-       WHERE id = $9 AND tenant_id = $10
+        cost_price = COALESCE($8, cost_price),
+        amount_type = COALESCE($9, amount_type),
+        is_active = COALESCE($10, is_active)
+       WHERE id = $11 AND tenant_id = $12
        RETURNING *`,
       [drug_name || null, batch_number || null, finalStock !== undefined ? finalStock : null, reorder_level || null, expiry_date || null, supplier || null,
-       unit_price !== undefined ? unit_price : null, cost_price !== undefined ? cost_price : null, id, tenantId]
+       unit_price !== undefined ? unit_price : null, cost_price !== undefined ? cost_price : null, amount_type || null, is_active !== undefined ? is_active : null, id, tenantId]
     );
 
     res.json(result.rows[0]);
@@ -158,7 +164,7 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
     const qty = quantity_dispensed || prescription.quantity || 1;
 
     const inventoryResult = await pool.query(
-      `SELECT * FROM inventory_items WHERE drug_name = $1 AND tenant_id = $2 AND stock_count > 0
+      `SELECT * FROM inventory_items WHERE drug_name = $1 AND tenant_id = $2 AND category = 'pharmacy' AND stock_count > 0
        ORDER BY expiry_date ASC`,
       [prescription.drug_name, tenantId]
     );
@@ -188,15 +194,19 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
 router.get('/api/inventory/expiring', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const result = await pool.query(
-      `SELECT * FROM inventory_items
+    const { category } = req.query;
+    let query = `SELECT * FROM inventory_items
        WHERE tenant_id = $1
          AND expiry_date IS NOT NULL
          AND expiry_date <= CURRENT_DATE + INTERVAL '30 days'
-         AND expiry_date >= CURRENT_DATE
-       ORDER BY expiry_date ASC`,
-      [tenantId]
-    );
+         AND expiry_date >= CURRENT_DATE`;
+    const params: any[] = [tenantId];
+    if (category) {
+      query += ` AND category = $2`;
+      params.push(category);
+    }
+    query += ` ORDER BY expiry_date ASC`;
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });

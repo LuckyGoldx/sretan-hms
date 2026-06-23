@@ -833,3 +833,91 @@ Access: `http://localhost:5173/login`
 ---
 
 *End of Session Summary — June 13, 2026*
+
+---
+
+## Session 2026-06-22 — Lab Module Restructuring & Voice-to-Text
+
+**Session ID:** `sess-lab-voice-20260622`
+**Date:** June 22, 2026
+
+### 1. Laboratory Module Restructuring
+
+#### Individual Lab Pages Created
+The monolithic `LaboratoryWorkbench.tsx` was replaced with 7 dedicated page components:
+
+| Page | Route | Lines | Features |
+|------|-------|-------|----------|
+| **LabDashboard** | `/lab` | 220 | Stats cards (ordered/collected/processing/completed), quick action grid (6 cards linking to sub-pages), recent activity timeline, integration cards (pending doctor requests, awaiting nurse collection, unpaid orders, paypoint conversions) |
+| **LabWorklist** | `/lab/worklist` | 451 | Stats cards, search + status filter, order cards with Collect Sample/Enter Results, analyte entry modal with abnormal detection, collect confirmation modal, print modal, pagination |
+| **LabResults** | `/lab/results` | 316 | Stats cards, sub-tabs (Pending Approval / Completed & Collected), approve/reject, search with walk-in badge, view/print modal, pagination |
+| **LabHistory** | `/lab/history` | 264 | Stats cards (total/abnormals/unique patients), search + date range filter, result cards with abnormal highlighting, detail modal, pagination |
+| **LabOrders** | `/lab/orders` | 246 | Stats cards, paypoint payments grouped by payment with convert button, unpaid orders section, convert modal with specimen/priority |
+| **LabCatalog** | `/lab/catalog` | 262 | Stats cards, searchable table, add/edit/delete modals with specimen/price/description fields |
+| **LabReports** | `/lab/reports` | 382 | Stats cards (today/week/month/avg), test frequency bar chart, doctor request patterns, revenue/financial data, status distribution bar chart, peak hours trends |
+
+**Total new lab page code: ~2,141 lines**
+
+#### Fixes to Legacy LaboratoryWorkbench
+- Completed tab now shows both completed AND collected lab orders (merged)
+- Collected tab added search box
+- Tab order changed to Pending → Completed → Collected
+- Completed tab fetches actual order data (was showing empty)
+- Worklist filters out `completed` and `cancelled` status orders
+
+### 2. Routing & Sidebar Changes (`App.tsx`)
+
+- **LabRouter** rewritten to handle sub-routes: `/lab`, `/lab/worklist`, `/lab/results`, `/lab/history`, `/lab/orders`, `/lab/catalog`, `/lab/reports`, `/lab/legacy`
+- Sidebar updated from 3 lab links to 9: Dashboard, Worklist, Results, History, Orders, Catalog, Reports, Inventory, Low Stock
+- Badge for pending orders moved to Worklist link; unread badge for doctors moved to Results link
+- Added `CheckCircle`, `FlaskConical`, `BarChart3` to lucide-react imports
+
+### 3. Server API Additions (`server/src/routes/lab.ts`)
+
+- `PUT /api/lab-test-catalog/:id` — update a lab test
+- `DELETE /api/lab-test-catalog/:id` — delete a lab test
+
+### 4. Fluid Intake/Output Removed from Vitals Forms
+
+Removed `fluid_intake` and `fluid_output` fields from:
+
+| File | Changes |
+|------|---------|
+| **PatientChart.tsx** | Removed from state, POST payload, reset, and UI modal |
+| **TriageStation.tsx** | Removed from `VitalsForm` interface, `emptyForm`, POST payload, and entire Fluid Balance UI section |
+
+(`MyPatients.tsx` and `DoctorVitals.tsx` never had these fields.)
+
+### 5. Voice-to-Text (Mic) Added to All Nursing Notes
+
+`VoiceInput` component (Web Speech API) added to nursing notes textareas in all record vitals:
+
+| File | Location |
+|------|----------|
+| **PatientChart.tsx** | Record Vitals modal → Nursing Notes label |
+| **TriageStation.tsx** | Vitals form → Nursing Notes heading |
+| **MyPatients.tsx** | Vitals modal → Nursing Notes label |
+| **DoctorVitals.tsx** | Record Vitals modal → Nursing Notes label |
+
+### 6. Voice-to-Text (Mic) Added to Clinical Note Modals
+
+| File | Modal | Label |
+|------|-------|-------|
+| **PatientChart.tsx** | Nurse "Add Clinical Note" modal | "Note" |
+| **PatientChart.tsx** | Doctor "New Clinical Note" modal | "Note" |
+
+### 7. Imports & Dependencies
+
+- Added `useRef` import to: PatientChart.tsx, TriageStation.tsx, MyPatients.tsx, DoctorVitals.tsx
+- Added `Mic` icon to all 4 files above
+- `VoiceInput` component defined locally in each file (same pattern as DoctorConsultation.tsx)
+
+### 8. Known Issues / TODOs
+1. LabWorklist uses local `VoiceInput` — consider extracting to shared component if duplicated further
+2. LabReports `/lab/reports` may need backend revenue-by-service endpoint verified
+3. Legacy LaboratoryWorkbench retained at `/lab/legacy` for backward compatibility
+4. DoctorLabResults still routes to `/lab/worklist` for doctor role — verify this matches expectations
+
+---
+
+*End of Session Summary — June 22, 2026*

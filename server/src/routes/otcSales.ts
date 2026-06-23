@@ -50,7 +50,7 @@ router.post('/api/otc-sales', async (req: Request, res: Response) => {
     );
 
     await pool.query(
-      `UPDATE inventory_items SET stock_count = GREATEST(stock_count - $1, 0) WHERE drug_name = $2 AND tenant_id = $3`,
+      `UPDATE inventory_items SET stock_count = GREATEST(stock_count - $1, 0) WHERE drug_name = $2 AND tenant_id = $3 AND category = 'pharmacy'`,
       [quantity, drug_name, tenantId]
     );
 

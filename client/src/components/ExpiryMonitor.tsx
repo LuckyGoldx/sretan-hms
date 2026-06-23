@@ -14,7 +14,7 @@ export default function ExpiryMonitor() {
   const fetch = useCallback(async () => {
     setLoading(true)
     try {
-      const { data } = await api.get<InventoryItem[]>('/inventory')
+      const { data } = await api.get<InventoryItem[]>('/inventory?category=pharmacy')
       const expiring = (data || []).filter((i) => {
         if (!i.expiry_date) return false
         const days = Math.ceil((new Date(i.expiry_date).getTime() - Date.now()) / 86400000)
@@ -105,9 +105,9 @@ export default function ExpiryMonitor() {
         </>
       )}
 
-      <button onClick={() => navigate('/inventory')}
+      <button onClick={() => navigate('/pharmacy-inventory')}
         className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
-        <Package size={16} /> Go to Inventory
+        <Package size={16} /> Go to Pharmacy Inventory
       </button>
     </div>
   )

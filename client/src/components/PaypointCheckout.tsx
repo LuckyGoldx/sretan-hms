@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
-  Search, X, Loader2, Receipt, Plus, Trash2, Printer, CreditCard, Building2, Landmark, Smartphone, CheckCircle, ArrowLeft, User, DollarSign, FileText, Clock, Package, FlaskConical, Scan, Pill, Home,
+  Search, X, Loader2, Receipt, Plus, Trash2, Printer, CreditCard, Building2, Landmark, Smartphone, CheckCircle, ArrowLeft, User, Banknote, FileText, Clock, Package, FlaskConical, Scan, Pill, Home, AlertTriangle, ChevronUp, ChevronDown, Filter,
 } from 'lucide-react'
 
 interface CartItem {
@@ -14,46 +14,14 @@ interface CartItem {
   needsPrice?: boolean
 }
 
-const SERVICE_CATALOG = [
-  { category: 'Consultation', items: [
-    { name: 'General Consultation', price: 5000 },
-    { name: 'Specialist Consultation', price: 10000 },
-    { name: 'Follow-up Visit', price: 3000 },
-    { name: 'Emergency Consultation', price: 8000 },
-  ]},
-  { category: 'Pharmacy', module: 'pharmacy', items: [
-    { name: 'Over-the-Counter Drugs', price: 0 },
-    { name: 'Medical Consumables', price: 0 },
-  ]},
-  { category: 'Laboratory', module: 'lab', items: [
-    { name: 'Malaria Test', price: 3000 }, { name: 'Blood Sugar (RBS/FBS)', price: 2000 }, { name: 'Urinalysis', price: 2500 },
-    { name: 'Widal Test', price: 3500 }, { name: 'Pregnancy Test', price: 2000 }, { name: 'HIV Test', price: 2500 },
-    { name: 'Hepatitis B Test', price: 4000 }, { name: 'CBC (Full Blood Count)', price: 5000 }, { name: 'Lipid Profile', price: 8000 },
-    { name: 'LFT (Liver Function)', price: 7000 }, { name: 'RFT (Kidney Function)', price: 7000 }, { name: 'Electrolytes', price: 6000 },
-    { name: 'Thyroid Function', price: 10000 }, { name: 'PSA (Prostate)', price: 8000 },
-  ]},
-  { category: 'Radiology', module: 'radiology', items: [
-    { name: 'Chest X-Ray', price: 7000 }, { name: 'Limb X-Ray', price: 6000 }, { name: 'Abdominal Ultrasound', price: 15000 },
-    { name: 'Obstetric Ultrasound', price: 12000 }, { name: 'CT Scan (per region)', price: 50000 }, { name: 'MRI (per region)', price: 80000 },
-    { name: 'ECG', price: 5000 }, { name: 'Echocardiogram', price: 25000 },
-  ]},
-  { category: 'Procedures', items: [
-    { name: 'Injection / IV Line', price: 3000 }, { name: 'Dressing (Small)', price: 3000 }, { name: 'Dressing (Large)', price: 5000 },
-    { name: 'Suture / Stitch Removal', price: 5000 }, { name: 'Catheter Insertion', price: 7000 }, { name: 'NG Tube Insertion', price: 8000 },
-    { name: 'Wound Toilet & Suturing', price: 15000 }, { name: 'Incision & Drainage', price: 12000 }, { name: 'Circumcision', price: 25000 },
-  ]},
-  { category: 'Maternity', items: [
-    { name: 'Antenatal Visit', price: 5000 }, { name: 'Delivery (Normal)', price: 50000 }, { name: 'Delivery (Caesarean)', price: 150000 },
-    { name: 'Postnatal Visit', price: 5000 }, { name: 'Immunization', price: 3000 }, { name: 'Family Planning', price: 5000 },
-  ]},
-  { category: 'Admission', items: [
-    { name: 'Ward Admission (per day)', price: 15000 }, { name: 'Private Room (per day)', price: 30000 }, { name: 'ICU (per day)', price: 80000 },
-  ]},
-  { category: 'Miscellaneous', items: [
-    { name: 'Medical Certificate', price: 5000 }, { name: 'Report / Document', price: 3000 }, { name: 'Record Retrieval', price: 2000 },
-    { name: 'Ambulance Service', price: 25000 }, { name: 'Health Screening (Basic)', price: 15000 }, { name: 'Health Screening (Comprehensive)', price: 35000 },
-  ]},
-]
+const SERVICE_CATALOG: any[] = []
+
+const CATEGORY_META: Record<string, { label: string; module?: string; icon: any }> = {
+  pharmacy: { label: 'Pharmacy', module: 'pharmacy', icon: Pill },
+  lab: { label: 'Laboratory', module: 'lab', icon: FlaskConical },
+  radiology: { label: 'Radiology', module: 'radiology', icon: Scan },
+  general: { label: 'Services', icon: Building2 },
+}
 
 const serviceIcons: Record<string, any> = {
   folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home,
@@ -62,15 +30,16 @@ const serviceIcons: Record<string, any> = {
 export default function PaypointCheckout() {
   const navigate = useNavigate()
   const [currentUser, setCurrentUser] = useState<any>(null)
-  const [tab, setTab] = useState<'new' | 'orders'>('new')
+  const [tab, setTab] = useState<'pending-all' | 'new' | 'orders'>('pending-all')
   const [innerTab, setInnerTab] = useState<'pending' | 'search' | 'walkin'>('pending')
   const [search, setSearch] = useState('')
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [selectedPatient, setSelectedPatient] = useState<any>(null)
   const [pendingSummary, setPendingSummary] = useState<any[]>([])
   const [pendingItems, setPendingItems] = useState<any[]>([])
+  const [allPendingItems, setAllPendingItems] = useState<any[]>([])
+  const [allPendingLoading, setAllPendingLoading] = useState(false)
   const [cart, setCart] = useState<CartItem[]>([])
-  const [loading, setLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState('cash')
   const [notes, setNotes] = useState('')
@@ -83,12 +52,67 @@ export default function PaypointCheckout() {
   const [ordersSearch, setOrdersSearch] = useState('')
   const [customItemName, setCustomItemName] = useState('')
   const [customItemPrice, setCustomItemPrice] = useState('')
+  const [inventoryCatalog, setInventoryCatalog] = useState<any[]>([])
+  const [catalogLoading, setCatalogLoading] = useState(true)
+  const [allFilter, setAllFilter] = useState('')
+  const [allSortKey, setAllSortKey] = useState<string>('full_name')
+  const [allSortDir, setAllSortDir] = useState<'asc' | 'desc'>('asc')
+  const [selectedAllItems, setSelectedAllItems] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
   }, [])
 
-  useEffect(() => { loadPendingSummary() }, [])
+  useEffect(() => {
+    async function loadCatalog() {
+      setCatalogLoading(true)
+      try {
+        const [pharm, lb, rad, gen] = await Promise.all([
+          api.get('/inventory?category=pharmacy').catch(() => ({ data: [] })),
+          api.get('/inventory?category=lab').catch(() => ({ data: [] })),
+          api.get('/inventory?category=radiology').catch(() => ({ data: [] })),
+          api.get('/inventory?category=general').catch(() => ({ data: [] })),
+        ])
+        var catalog: any[] = []
+        var allItems: { cat: string; items: any[] }[] = [
+          { cat: 'pharmacy', items: pharm.data || [] },
+          { cat: 'lab', items: lb.data || [] },
+          { cat: 'radiology', items: rad.data || [] },
+          { cat: 'general', items: gen.data || [] },
+        ]
+        for (const group of allItems) {
+          var invItems = group.items.filter((i: any) => i.is_active !== false && i.price > 0)
+          if (invItems.length === 0) continue
+          var meta = CATEGORY_META[group.cat]
+          if (group.cat === 'general') {
+            var subGroups: Record<string, any[]> = {}
+            for (const i of invItems) {
+              var st = i.amount_type || 'walkin_service'
+              if (!subGroups[st]) subGroups[st] = []
+              subGroups[st].push(i)
+            }
+            for (const [subCat, subItems] of Object.entries(subGroups)) {
+              catalog.push({
+                category: subCat.charAt(0).toUpperCase() + subCat.slice(1),
+                module: 'walkin_service',
+                items: subItems.map((i: any) => ({ name: i.drug_name, price: i.price, invId: i.id })),
+              })
+            }
+          } else {
+            catalog.push({
+              category: meta.label,
+              module: meta.module || 'walkin_service',
+              items: invItems.map((i: any) => ({ name: i.drug_name, price: i.price, invId: i.id })),
+            })
+          }
+        }
+        setInventoryCatalog(catalog)
+      } catch {} finally { setCatalogLoading(false) }
+    }
+    loadCatalog()
+  }, [])
+
+  useEffect(() => { loadPendingSummary(); loadAllPendingItems() }, [])
 
   useEffect(() => {
     if (search.length < 2) { setSearchResults([]); return }
@@ -103,8 +127,12 @@ export default function PaypointCheckout() {
   }, [tab, selectedPatient])
 
   async function loadPendingSummary() {
-    setLoading(true)
-    try { const r = await api.get('/payments/pending-summary'); setPendingSummary(r.data || []) } catch {} finally { setLoading(false) }
+    try { const r = await api.get('/payments/pending-summary'); setPendingSummary(r.data || []) } catch {}
+  }
+
+  async function loadAllPendingItems() {
+    setAllPendingLoading(true)
+    try { const r = await api.get('/payments/all-pending-items'); setAllPendingItems(r.data || []) } catch {} finally { setAllPendingLoading(false) }
   }
 
   async function loadPayments() {
@@ -124,14 +152,14 @@ export default function PaypointCheckout() {
       const res = await api.get(`/payments/pending/${p.id}`)
       var items = res.data?.items || []
       setPendingItems(items)
-      setCart(items.map(function(item: any) { return { ...item, unit_price: 0 } }))
+      setCart(items.map(function(item: any) { return { ...item } }))
     } catch {}
   }
 
   function addToCart(item: any) {
     setCart((prev) => {
       if (prev.find((c) => c.service_id === item.service_id && c.service_type === item.service_type)) return prev
-      return [...prev, { ...item, unit_price: 0 }]
+      return [...prev, { ...item }]
     })
   }
 
@@ -163,7 +191,7 @@ export default function PaypointCheckout() {
   }
 
   const paymentMethods = [
-    { value: 'cash', label: 'Cash', icon: DollarSign, color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+    { value: 'cash', label: 'Cash', icon: Banknote, color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
     { value: 'card', label: 'Card', icon: CreditCard, color: 'bg-blue-50 text-blue-700 border-blue-200' },
     { value: 'transfer', label: 'Transfer', icon: Landmark, color: 'bg-purple-50 text-purple-700 border-purple-200' },
     { value: 'pos', label: 'POS', icon: Smartphone, color: 'bg-amber-50 text-amber-700 border-amber-200' },
@@ -176,8 +204,8 @@ export default function PaypointCheckout() {
   })
 
   const methodIcon = (m: string) => {
-    const map: Record<string, any> = { cash: DollarSign, card: CreditCard, transfer: Landmark, pos: Smartphone }
-    return map[m] || DollarSign
+    const map: Record<string, any> = { cash: Banknote, card: CreditCard, transfer: Landmark, pos: Smartphone }
+    return map[m] || Banknote
   }
 
   return (
@@ -187,12 +215,175 @@ export default function PaypointCheckout() {
         <button onClick={() => navigate('/finance')} className="flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Finance Dashboard</button>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
+        <button onClick={() => setTab('pending-all')}
+          className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${tab === 'pending-all' ? 'bg-primary text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
+          <Clock size={15} className="inline mr-1" />All Pending</button>
         <button onClick={() => setTab('new')}
           className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${tab === 'new' ? 'bg-primary text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}><Receipt size={15} className="inline mr-1" />New Payment</button>
         <button onClick={() => setTab('orders')}
           className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${tab === 'orders' ? 'bg-primary text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}><FileText size={15} className="inline mr-1" />Payment Orders</button>
       </div>
+
+      {tab === 'pending-all' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-5">
+            {/* Filters */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="relative flex-1 max-w-xs">
+                <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input type="text" placeholder="Search patient or service..." value={allFilter} onChange={(e) => setAllFilter(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+              </div>
+              <span className="text-xs text-slate-400">{allPendingItems.length} pending item(s)</span>
+              <button onClick={() => { if (cart.length > 0) { setSelectedAllItems(new Set()); setCart([]) } }}
+                className="px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-500 hover:bg-slate-50">Clear Cart</button>
+            </div>
+
+            {allPendingLoading ? (
+              <div className="flex justify-center py-16"><Loader2 size={28} className="animate-spin text-primary" /></div>
+            ) : allPendingItems.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-12 text-center text-slate-400">
+                <CheckCircle size={48} className="mx-auto mb-3 text-emerald-300" />
+                <p className="text-sm font-medium">Everything is settled!</p>
+                <p className="text-xs mt-1">No pending payments across any module.</p>
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-white z-10">
+                      <tr className="border-b border-slate-100 bg-slate-50">
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Patient</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Hospital #</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Service</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Description</th>
+                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Date</th>
+                        <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500">
+                          <button onClick={() => {
+                            const keys = allPendingItems.map((_) => `${_.patient_id}-${_.service_type}-${_.service_id}`)
+                            if (selectedAllItems.size === keys.length) setSelectedAllItems(new Set())
+                            else setSelectedAllItems(new Set(keys))
+                          }} className="hover:text-primary">
+                            {selectedAllItems.size === allPendingItems.length ? 'Deselect All' : 'Select All'}
+                          </button>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {allPendingItems.map((item: any, idx: number) => {
+                        const key = `${item.patient_id}-${item.service_type}-${item.service_id}`
+                        const Icon = serviceIcons[item.service_type] || Package
+                        const checked = selectedAllItems.has(key)
+                        return (
+                          <tr key={key + idx} className={`hover:bg-slate-50 transition-colors ${checked ? 'bg-emerald-50' : ''}`}>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0"><User size={12} className="text-primary" /></div>
+                                <span className="font-medium text-slate-800 truncate max-w-[140px]">{item.full_name}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-slate-400 text-xs">{item.hospital_number || '—'}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium ${
+                                item.service_type === 'prescription' ? 'bg-rose-100 text-rose-700' :
+                                item.service_type === 'lab' ? 'bg-purple-100 text-purple-700' :
+                                item.service_type === 'radiology' ? 'bg-indigo-100 text-indigo-700' :
+                                item.service_type === 'admission' ? 'bg-blue-100 text-blue-700' :
+                                item.service_type === 'folder_activation' ? 'bg-sky-100 text-sky-700' :
+                                'bg-slate-100 text-slate-700'
+                              }`}>
+                                <Icon size={10} />{item.service_type.replace('_', ' ')}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-600 max-w-[200px] truncate">{item.description}</td>
+                            <td className="px-4 py-3 text-slate-400 text-xs whitespace-nowrap">{item.created_at ? new Date(item.created_at).toLocaleDateString() : '—'}</td>
+                            <td className="px-4 py-3 text-right">
+                              <input type="checkbox" checked={checked} onChange={() => {
+                                setSelectedAllItems((prev) => {
+                                  const next = new Set(prev)
+                                  if (next.has(key)) next.delete(key); else next.add(key)
+                                  return next
+                                })
+                                if (!checked) {
+                                  addToCart({ service_type: item.service_type, service_id: item.service_id, description: item.description, quantity: item.quantity || 1, unit_price: 0, needsPrice: true })
+                                } else {
+                                  const serviceId = `${item.service_type}-${item.service_id}`
+                                  setCart((prev) => prev.filter((c) => c.service_id !== serviceId || c.service_type !== item.service_type))
+                                }
+                              }} className="w-4 h-4 rounded border-slate-300 text-primary focus:ring-primary cursor-pointer" />
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Cart sidebar */}
+          <div className="space-y-5">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sticky top-6">
+              <h3 className="text-sm font-semibold text-slate-700 mb-4">Payment Cart</h3>
+              {cart.length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-6">Select items from the table.</p>
+              ) : (
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {cart.map((item, i) => (
+                    <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <p className="text-xs font-medium text-slate-700 flex-1 truncate">{item.description}</p>
+                        <button onClick={() => removeFromCart(i)} className="p-0.5 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-500 flex-shrink-0"><Trash2 size={12} /></button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1"><label className="text-[10px] text-slate-400">Price</label>
+                          <input type="number" min={0} step={50} placeholder="0.00" value={item.unit_price || ''}
+                            onChange={(e) => updatePrice(i, parseFloat(e.target.value) || 0)}
+                            className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                        </div>
+                        <div className="w-16"><label className="text-[10px] text-slate-400">Qty</label>
+                          <input type="number" min={1} value={item.quantity}
+                            onChange={(e) => updateQty(i, parseInt(e.target.value) || 1)}
+                            className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+                        <div className="min-w-[60px] text-right"><label className="text-[10px] text-slate-400">Total</label>
+                          <p className="text-sm font-bold text-slate-800">₦{(item.unit_price * item.quantity).toLocaleString()}</p></div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {cart.length > 0 && (
+                <div className="border-t border-slate-100 pt-4 mt-4 space-y-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    {paymentMethods.map((m) => {
+                      const PMIcon = m.icon
+                      return (
+                        <button key={m.value} onClick={() => setPaymentMethod(m.value)}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium transition-all ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                          <PMIcon size={14} />{m.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <input type="text" placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400">{cart.length} item(s)</span>
+                    <span className="text-lg font-bold text-slate-800">₦{total.toLocaleString()}</span>
+                  </div>
+                  <button onClick={handlePayment} disabled={submitting || cart.length === 0}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-all">
+                    {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                    {submitting ? 'Processing...' : `Pay ₦${total.toLocaleString()}`}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {tab === 'new' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -246,13 +437,16 @@ export default function PaypointCheckout() {
                         className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
                   </div>
                   <div>
-                    <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Service Catalog</h4>
+                     <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Service Catalog</h4>
+                    {catalogLoading ? (
+                      <div className="flex justify-center py-8"><Loader2 size={20} className="animate-spin text-primary" /></div>
+                    ) : (
                     <div className="space-y-3 max-h-80 overflow-y-auto">
-                      {SERVICE_CATALOG.map((group) => (
+                      {inventoryCatalog.map((group) => (
                         <div key={group.category}>
                           <p className="text-xs font-semibold text-slate-600 mb-1.5">{group.category}</p>
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-                            {group.items.map((svc) => (
+                            {group.items.map((svc: any) => (
                               <button key={svc.name} onClick={() => addToCart({ service_type: group.module || 'walkin_service', service_id: null, description: svc.name, quantity: 1, unit_price: svc.price })}
                                 className={`text-left px-3 py-2 rounded-xl border text-xs transition-all ${cart.find((c) => c.description === svc.name) ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:border-primary'}`}>
                                 <p className="truncate">{svc.name}</p>
@@ -263,6 +457,7 @@ export default function PaypointCheckout() {
                         </div>
                       ))}
                     </div>
+                    )}
                     <div className="mt-3 pt-3 border-t border-slate-100">
                       <p className="text-xs text-slate-400 mb-2">Custom item:</p>
                       <div className="flex items-center gap-2">
@@ -281,9 +476,7 @@ export default function PaypointCheckout() {
 
             {/* Pending Patients List */}
             {innerTab === 'pending' && !selectedPatient && (
-              loading ? (
-                <div className="flex justify-center py-12"><Loader2 size={24} className="animate-spin text-primary" /></div>
-              ) : pendingSummary.length === 0 ? (
+              pendingSummary.length === 0 ? (
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center text-slate-400">
                   <CheckCircle size={40} className="mx-auto mb-3 text-emerald-300" />
                   <p className="text-sm font-medium">All patients are settled</p>
@@ -378,9 +571,14 @@ export default function PaypointCheckout() {
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex-1"><label className="text-[10px] text-slate-400">Price</label>
-                          <input type="number" min={0} step={50} placeholder="0.00" value={item.unit_price || ''}
-                            onChange={(e) => updatePrice(i, parseFloat(e.target.value) || 0)}
-                            className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+                          {item.needsPrice ? (
+                            <input type="number" min={0} step={50} placeholder="0.00" value={item.unit_price || ''}
+                              onChange={(e) => updatePrice(i, parseFloat(e.target.value) || 0)}
+                              className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                          ) : (
+                            <div className="w-full rounded-lg border border-slate-100 bg-white px-2.5 py-1.5 text-sm font-medium text-emerald-700">₦{(item.unit_price || 0).toLocaleString()}</div>
+                          )}
+                        </div>
                         <div className="w-16"><label className="text-[10px] text-slate-400">Qty</label>
                           <input type="number" min={1} value={item.quantity}
                             onChange={(e) => updateQty(i, parseInt(e.target.value) || 1)}

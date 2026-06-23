@@ -152,6 +152,11 @@ export interface InventoryItem {
   reorder_level: number
   expiry_date: string
   supplier: string
+  category?: string
+  price?: number
+  cost_price?: number
+  amount_type?: string
+  is_active?: boolean
 }
 
 export interface StaffUser {

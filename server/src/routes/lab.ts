@@ -15,7 +15,7 @@ const PRIORITIES = ['routine', 'urgent', 'stat'];
 router.get('/api/lab-orders', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { status, encounter_id, doctor_id, specimen_type, priority } = req.query;
+    const { status, encounter_id, doctor_id, specimen_type, priority, is_paid } = req.query;
 
     let query = `SELECT l.* FROM lab_orders l WHERE l.tenant_id = $1`;
     const params: any[] = [tenantId];
@@ -25,6 +25,7 @@ router.get('/api/lab-orders', async (req: Request, res: Response) => {
     if (encounter_id) { query += ` AND l.encounter_id = $${idx}`; params.push(encounter_id); idx++; }
     if (specimen_type) { query += ` AND l.specimen_type = $${idx}`; params.push(specimen_type); idx++; }
     if (priority) { query += ` AND l.priority = $${idx}`; params.push(priority); idx++; }
+    if (is_paid !== undefined) { query += ` AND l.is_paid = $${idx}`; params.push(is_paid === 'true'); idx++; }
     if (doctor_id) {
       query += ` AND l.encounter_id IN (SELECT id FROM encounters WHERE staff_id = $${idx} AND tenant_id = $1)`;
       params.push(doctor_id);
@@ -233,7 +234,7 @@ router.put('/api/lab-results/:id/approve', async (req: Request, res: Response) =
         var testName = orderData.rows[0].test_name;
         await pool.query(
           `UPDATE inventory_items SET stock_count = stock_count - tim.quantity_consumed
-           FROM test_inventory_map tim WHERE tim.test_name = $1 AND tim.inventory_item_id = inventory_items.id`,
+           FROM test_inventory_map tim WHERE tim.test_name = $1 AND tim.inventory_item_id = inventory_items.id AND inventory_items.category = 'lab'`,
           [testName]
         );
       }
@@ -342,6 +343,32 @@ router.post('/api/lab-test-catalog', async (req: Request, res: Response) => {
       [name, category || null, price || 0, specimen_type || null, description || null]
     );
     res.status(201).json(result.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+router.put('/api/lab-test-catalog/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, category, price, specimen_type, description } = req.body;
+    const result = await pool.query(
+      `UPDATE lab_test_catalog SET name = COALESCE($1, name), category = COALESCE($2, category), price = COALESCE($3, price), specimen_type = COALESCE($4, specimen_type), description = COALESCE($5, description) WHERE id = $6 RETURNING *`,
+      [name, category, price, specimen_type, description, id]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Test not found' }); return; }
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+router.delete('/api/lab-test-catalog/:id', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(`DELETE FROM lab_test_catalog WHERE id = $1 RETURNING id`, [id]);
+    if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Test not found' }); return; }
+    res.json({ message: 'Test deleted', id });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }

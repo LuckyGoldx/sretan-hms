@@ -1,9 +1,40 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
-  ArrowLeft, Activity, Search, Loader2, User, Clock, Heart, Plus, X, Stethoscope, AlertTriangle, CheckCircle
+  ArrowLeft, Activity, Search, Loader2, User, Clock, Heart, Plus, X, Stethoscope, AlertTriangle, CheckCircle, Mic
 } from 'lucide-react'
+
+function VoiceInput({ value, onChange }: { value: string; onChange: (val: string) => void }) {
+  const [listening, setListening] = useState(false)
+  const recognitionRef = useRef<any>(null)
+  const preSpeechValue = useRef('')
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+  function toggle() {
+    if (listening) { recognitionRef.current?.stop(); setListening(false); return }
+    if (!SpeechRecognition) { alert('Voice input is not supported in your browser. Try Chrome.'); return }
+    preSpeechValue.current = value
+    const rec = new SpeechRecognition()
+    rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true
+    rec.onresult = (event: any) => {
+      let t = ''
+      for (let i = 0; i < event.results.length; i++) t += event.results[i][0].transcript
+      onChange(preSpeechValue.current + (preSpeechValue.current && t ? ' ' : '') + t)
+    }
+    rec.onerror = () => setListening(false)
+    rec.onend = () => setListening(false)
+    rec.start()
+    recognitionRef.current = rec
+    setListening(true)
+  }
+  return (
+    <button type="button" onClick={toggle}
+      className={`p-1.5 rounded-lg transition-colors ${listening ? 'bg-red-100 text-red-600 animate-pulse' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+      title={listening ? 'Stop recording' : 'Start voice input'}>
+      <Mic size={14} />
+    </button>
+  )
+}
 
 export default function DoctorVitals() {
   const navigate = useNavigate()
@@ -271,7 +302,10 @@ export default function DoctorVitals() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Nursing Notes</label>
+                    <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-2">
+                      Nursing Notes
+                      <VoiceInput value={recordForm.nursing_notes} onChange={(val) => setRecordForm((p) => ({ ...p, nursing_notes: val }))} />
+                    </label>
                     <textarea rows={3} placeholder="Chief complaint, observations..." value={recordForm.nursing_notes}
                       onChange={(e) => setRecordForm((p) => ({ ...p, nursing_notes: e.target.value }))}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />

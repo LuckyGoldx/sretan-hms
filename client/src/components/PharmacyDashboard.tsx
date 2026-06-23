@@ -18,8 +18,8 @@ export default function PharmacyDashboard() {
       try {
         const [rxRes, invRes, expRes] = await Promise.all([
           api.get('/prescriptions?status=pending').catch(() => ({ data: [] })),
-          api.get('/inventory').catch(() => ({ data: [] })),
-          api.get('/inventory/expiring').catch(() => ({ data: [] })),
+          api.get('/inventory?category=pharmacy').catch(() => ({ data: [] })),
+          api.get('/inventory/expiring?category=pharmacy').catch(() => ({ data: [] })),
         ])
         const inv = invRes.data || []
         setPendingRx(rxRes.data?.length || 0)
@@ -39,9 +39,9 @@ export default function PharmacyDashboard() {
 
   const cards = [
     { label: 'Pending Prescriptions', count: pendingRx, icon: ClipboardList, color: 'text-blue-600', bg: 'bg-blue-100', route: '/dispensing' },
-    { label: 'Low Stock Items', count: lowStock, icon: AlertTriangle, color: 'text-amber-600', bg: 'bg-amber-100', route: '/inventory' },
-    { label: 'Expiring Soon', count: expiring, icon: Clock, color: 'text-rose-600', bg: 'bg-rose-100', route: '/expiry' },
-    { label: 'Total Inventory', count: totalItems, icon: Package, color: 'text-emerald-600', bg: 'bg-emerald-100', route: '/inventory' },
+    { label: 'Low Stock Items', count: lowStock, icon: AlertTriangle, color: 'text-amber-600', bg: 'bg-amber-100', route: '/pharmacy-inventory' },
+    { label: 'Expiring Soon', count: expiring, icon: Clock, color: 'text-rose-600', bg: 'bg-rose-100', route: '/pharmacy-expiry' },
+    { label: 'Total Inventory', count: totalItems, icon: Package, color: 'text-emerald-600', bg: 'bg-emerald-100', route: '/pharmacy-inventory' },
   ]
 
   return (
@@ -60,7 +60,7 @@ export default function PharmacyDashboard() {
         <div className="flex items-center gap-3 px-5 py-3 rounded-2xl bg-rose-500 text-white shadow-sm">
           <AlertTriangle size={20} />
           <p className="text-sm font-medium flex-1">{expiring} item{expiring !== 1 ? 's' : ''} expiring within 30 days.</p>
-          <button onClick={() => navigate('/expiry')} className="text-sm font-semibold underline">Review</button>
+          <button onClick={() => navigate('/pharmacy-expiry')} className="text-sm font-semibold underline">Review</button>
         </div>
       )}
 
@@ -91,8 +91,8 @@ export default function PharmacyDashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
           { title: 'Dispensing', desc: 'Fill pending prescriptions', icon: ClipboardList, route: '/dispensing', color: 'emerald' },
-          { title: 'Inventory', desc: 'Manage stock and add items', icon: Package, route: '/inventory', color: 'blue' },
-          { title: 'Expiry Monitor', desc: 'Track expiring medications', icon: Clock, route: '/expiry', color: 'rose' },
+          { title: 'Pharmacy Inventory', desc: 'Manage stock and add items', icon: Package, route: '/pharmacy-inventory', color: 'blue' },
+          { title: 'Expiry Monitor', desc: 'Track expiring medications', icon: Clock, route: '/pharmacy-expiry', color: 'rose' },
         ].map((m) => {
           const Icon = m.icon
           return (
