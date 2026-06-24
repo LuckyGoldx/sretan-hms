@@ -149,11 +149,12 @@ router.post('/api/payments', async (req: Request, res: Response) => {
 router.get('/api/payments', async (req: Request, res: Response) => {
   try {
     const { patient_id, date_from, date_to } = req.query;
-    var query = `SELECT p.*, s.name as staff_name, pat.full_name as patient_name, pat.hospital_number
-                 FROM payments p
-                 LEFT JOIN staff_users s ON s.id = p.created_by
-                 LEFT JOIN patients pat ON pat.id = p.patient_id
-                 WHERE 1=1`;
+    var query = `SELECT p.*, s.name as staff_name, pat.full_name as patient_name, pat.hospital_number,
+                  (SELECT COUNT(*) FROM payment_items pi WHERE pi.payment_id = p.id)::int as item_count
+                  FROM payments p
+                  LEFT JOIN staff_users s ON s.id = p.created_by
+                  LEFT JOIN patients pat ON pat.id = p.patient_id
+                  WHERE 1=1`;
     var params: any[] = [];
     var idx = 1;
 
@@ -167,17 +168,80 @@ router.get('/api/payments', async (req: Request, res: Response) => {
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
-// --- All pending items across all patients (comprehensive) ---
+// --- Pending summary - all patients with unpaid items ---
+router.get('/api/payments/pending-summary', async (req: Request, res: Response) => {
+  try {
+    var result = await pool.query(`
+      WITH folder AS (
+        SELECT id as patient_id, full_name, hospital_number, 'folder_activation' as service_type,
+               'Folder Activation Fee' as description, 1 as item_count FROM patients
+        WHERE folder_activated = false
+      ),
+      rx AS (
+        SELECT enc.patient_id, p.full_name, p.hospital_number, 'prescription' as service_type,
+               COUNT(*)::int || ' Prescription(s)' as description, COUNT(*) as item_count
+        FROM prescriptions pr
+        JOIN encounters enc ON enc.id = pr.encounter_id
+        JOIN patients p ON p.id = enc.patient_id
+        WHERE COALESCE(pr.is_paid, false) = false AND pr.status != 'cancelled'
+        GROUP BY enc.patient_id, p.full_name, p.hospital_number
+      ),
+      lab AS (
+        SELECT enc.patient_id, p.full_name, p.hospital_number, 'lab' as service_type,
+               COUNT(*)::int || ' Lab Test(s)' as description, COUNT(*) as item_count
+        FROM lab_orders l
+        JOIN encounters enc ON enc.id = l.encounter_id
+        JOIN patients p ON p.id = enc.patient_id
+        WHERE COALESCE(l.is_paid, false) = false AND l.status NOT IN ('cancelled','completed')
+        GROUP BY enc.patient_id, p.full_name, p.hospital_number
+      ),
+      rad AS (
+        SELECT enc.patient_id, p.full_name, p.hospital_number, 'radiology' as service_type,
+               COUNT(*)::int || ' Radiology Order(s)' as description, COUNT(*) as item_count
+        FROM radiology_orders r
+        JOIN encounters enc ON enc.id = r.encounter_id
+        JOIN patients p ON p.id = enc.patient_id
+        WHERE COALESCE(r.is_paid, false) = false AND r.status NOT IN ('cancelled','completed')
+        GROUP BY enc.patient_id, p.full_name, p.hospital_number
+      ),
+      adm AS (
+        SELECT a.patient_id, p.full_name, p.hospital_number, 'admission' as service_type,
+               'Admission Fee' as description, 1 as item_count
+        FROM admissions a JOIN patients p ON p.id = a.patient_id
+        WHERE COALESCE(a.is_paid, false) = false AND a.status = 'active'
+      ),
+      all_pending AS (
+        SELECT * FROM folder UNION ALL SELECT * FROM rx UNION ALL
+        SELECT * FROM lab UNION ALL SELECT * FROM rad UNION ALL SELECT * FROM adm
+      )
+      SELECT patient_id, full_name, hospital_number,
+             json_agg(json_build_object('service_type', service_type, 'description', description, 'item_count', item_count)) as services,
+             SUM(item_count) as total_items
+      FROM all_pending GROUP BY patient_id, full_name, hospital_number
+      ORDER BY full_name
+    `);
+    res.json(result.rows);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+// --- All pending items across all patients (comprehensive, with prices) ---
 router.get('/api/payments/all-pending-items', async (req: Request, res: Response) => {
   try {
     var result = await pool.query(`
-      WITH folder_patients AS (
-        SELECT id as patient_id, full_name, hospital_number FROM patients WHERE folder_activated = false
+      WITH       folder AS (
+        SELECT id as patient_id, full_name, hospital_number,
+               'folder_activation'::text as service_type, NULL::uuid as service_id,
+               'Folder Activation / Registration Fee'::text as description,
+               1::int as quantity, 5000::numeric as unit_price, false as needs_price,
+               created_at
+        FROM patients WHERE folder_activated = false
       ),
       rx_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, 'prescription' as service_type,
-               pr.id as service_id, pr.drug_name || COALESCE(' ' || pr.dosage, '') || ' × ' || COALESCE(pr.quantity::text, '1') as description,
-               pr.quantity, pr.created_at
+               pr.id as service_id, (pr.drug_name || COALESCE(' ' || pr.dosage, '') || ' × ' || COALESCE(pr.quantity::text, '1')) as description,
+               pr.quantity, (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE pr.drug_name AND ii.category = 'pharmacy' AND ii.is_active = true) as unit_price,
+               (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE pr.drug_name AND ii.category = 'pharmacy' AND ii.is_active = true) = 0 as needs_price,
+               pr.created_at
         FROM prescriptions pr JOIN encounters enc ON enc.id = pr.encounter_id
         JOIN patients p ON p.id = enc.patient_id
         WHERE COALESCE(pr.is_paid, false) = false AND pr.status != 'cancelled'
@@ -185,7 +249,9 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       lab_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, 'lab' as service_type,
                l.id as service_id, l.test_name as description,
-               1 as quantity, l.created_at
+               1 as quantity, (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE l.test_name AND ii.category = 'lab' AND ii.is_active = true) as unit_price,
+               (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE l.test_name AND ii.category = 'lab' AND ii.is_active = true) = 0 as needs_price,
+               l.created_at
         FROM lab_orders l JOIN encounters enc ON enc.id = l.encounter_id
         JOIN patients p ON p.id = enc.patient_id
         WHERE COALESCE(l.is_paid, false) = false AND l.status NOT IN ('cancelled', 'completed')
@@ -193,30 +259,25 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       rad_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, 'radiology' as service_type,
                r.id as service_id, r.imaging_type as description,
-               1 as quantity, r.created_at
+               1 as quantity, (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE r.imaging_type AND ii.category = 'radiology' AND ii.is_active = true) as unit_price,
+               (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE r.imaging_type AND ii.category = 'radiology' AND ii.is_active = true) = 0 as needs_price,
+               r.created_at
         FROM radiology_orders r JOIN encounters enc ON enc.id = r.encounter_id
         JOIN patients p ON p.id = enc.patient_id
         WHERE COALESCE(r.is_paid, false) = false AND r.status NOT IN ('cancelled', 'completed')
       ),
       adm_items AS (
         SELECT a.patient_id, p.full_name, p.hospital_number, 'admission' as service_type,
-               a.id as service_id, 'Admission Fee' as description,
-               1 as quantity, a.admitted_at as created_at
+               a.id as service_id, ('Admission Fee') as description,
+               1 as quantity, 0::numeric as unit_price, true as needs_price,
+               a.admitted_at as created_at
         FROM admissions a JOIN patients p ON p.id = a.patient_id
         WHERE COALESCE(a.is_paid, false) = false AND a.status = 'active'
-      ),
-      all_items AS (
-        SELECT id as patient_id, full_name, hospital_number,
-               'folder_activation'::text as service_type, NULL::uuid as service_id,
-               'Folder Activation / Registration Fee'::text as description,
-               1::int as quantity, NULL::timestamp as created_at
-        FROM patients WHERE folder_activated = false
-        UNION ALL SELECT * FROM rx_items
-        UNION ALL SELECT * FROM lab_items
-        UNION ALL SELECT * FROM rad_items
-        UNION ALL SELECT * FROM adm_items
       )
-      SELECT * FROM all_items ORDER BY full_name, service_type, created_at DESC
+      SELECT * FROM (
+        SELECT * FROM folder UNION ALL SELECT * FROM rx_items UNION ALL
+        SELECT * FROM lab_items UNION ALL SELECT * FROM rad_items UNION ALL SELECT * FROM adm_items
+      ) sub ORDER BY created_at DESC NULLS LAST
     `);
     res.json(result.rows);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
@@ -304,6 +365,37 @@ router.put('/api/payments/items/convert', async (req: Request, res: Response) =>
       [item_ids]
     );
     res.json({ success: true, converted: item_ids.length });
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+// --- Patient billing summary (stats + payment history) ---
+router.get('/api/payments/patient-billing/:patientId', async (req: Request, res: Response) => {
+  try {
+    const { patientId } = req.params;
+    var result = await pool.query(
+      `SELECT json_build_object(
+        'total_paid', COALESCE(SUM(p.total_amount), 0),
+        'payment_count', COUNT(p.id),
+        'first_payment', MIN(p.created_at),
+        'last_payment', MAX(p.created_at),
+        'cash_total', COALESCE(SUM(CASE WHEN p.payment_method = 'cash' THEN p.total_amount ELSE 0 END), 0),
+        'card_total', COALESCE(SUM(CASE WHEN p.payment_method = 'card' THEN p.total_amount ELSE 0 END), 0),
+        'transfer_total', COALESCE(SUM(CASE WHEN p.payment_method = 'transfer' THEN p.total_amount ELSE 0 END), 0),
+        'walkin_count', COUNT(CASE WHEN p.walkin_name IS NOT NULL THEN 1 END),
+        'patient_count', COUNT(CASE WHEN p.patient_id IS NOT NULL THEN 1 END)
+      ) as stats,
+      COALESCE(
+        json_agg(json_build_object(
+          'id', p.id, 'receipt_number', p.receipt_number, 'total_amount', p.total_amount,
+          'payment_method', p.payment_method, 'created_at', p.created_at,
+          'notes', p.notes, 'item_count', (SELECT COUNT(*) FROM payment_items pi WHERE pi.payment_id = p.id)
+        ) ORDER BY p.created_at DESC),
+        '[]'::json
+      ) as payments
+      FROM payments p WHERE p.patient_id = $1 AND p.status = 'completed'`,
+      [patientId]
+    );
+    res.json(result.rows[0] || { stats: { total_paid: 0, payment_count: 0 }, payments: [] });
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 

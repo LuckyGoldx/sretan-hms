@@ -88,7 +88,7 @@ router.get('/api/record-requests', async (req: Request, res: Response) => {
                  FROM record_requests r
                  JOIN patients p ON p.id = r.patient_id
                  LEFT JOIN staff_users s ON s.id = r.approved_by
-                 WHERE 1=1`;
+                 WHERE p.folder_activated IS DISTINCT FROM false`;
     const params: any[] = [];
     if (status) { query += ' AND r.status = $1'; params.push(status); }
     query += ' ORDER BY r.created_at DESC';

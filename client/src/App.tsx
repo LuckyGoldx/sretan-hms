@@ -73,6 +73,12 @@ const FinanceDashboard = lazy(() => import('./components/FinanceDashboard'))
 const LabExpiry = lazy(() => import('./components/LabExpiry'))
 const RadiologyExpiry = lazy(() => import('./components/RadiologyExpiry'))
 const ServiceInventory = lazy(() => import('./components/ServiceInventory'))
+const PaypointDashboard = lazy(() => import('./components/PaypointDashboard'))
+const PaypointPending = lazy(() => import('./components/PaypointPending'))
+const PaypointPatients = lazy(() => import('./components/PaypointPatients'))
+const FinancePatientBilling = lazy(() => import('./components/FinancePatientBilling'))
+const FinancePaymentHistory = lazy(() => import('./components/FinancePaymentHistory'))
+const BillingPage = lazy(() => import('./components/BillingPage'))
 
 interface SidebarLink {
   to: string
@@ -88,7 +94,7 @@ const sidebarLinks: SidebarLink[] = [
   // ── Clinical ──
   { to: '/patients/register', label: 'Register Patient', icon: UserPlus, roles: ['Records', 'Admin'], category: 'Clinical' },
   { to: '/triage', label: 'Triage', icon: Stethoscope, roles: ['Nurse', 'Admin'], category: 'Clinical' },
-  { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse', 'Pharmacist', 'Paypoint'], category: 'Clinical' },
+  { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse', 'Pharmacist'], category: 'Clinical' },
   { to: '/my-prescriptions', label: 'Prescriptions', icon: Pill, roles: ['Doctor', 'Admin'], category: 'Clinical' },
   { to: '/vitals', label: 'Vitals', icon: Activity, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Clinical' },
   { to: '/consultation', label: 'Consultation', icon: Stethoscope, roles: ['Doctor', 'Admin'], category: 'Clinical' },
@@ -121,7 +127,13 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/records/patients', label: 'Patient Records', icon: Users, roles: ['Records', 'Admin'], category: 'Records' },
   { to: '/records/requests', label: 'Record Requests', icon: FileText, roles: ['Records', 'Admin'], category: 'Records' },
   // ── Finance ──
-  { to: '/paypoint', label: 'Paypoint', icon: Receipt, roles: ['Paypoint', 'Admin'], category: 'Finance' },
+  { to: '/finance/dashboard', label: 'Finance Dashboard', icon: Banknote, roles: ['Finance', 'Admin'], category: 'Finance' },
+  { to: '/finance/billing', label: 'Patient Records', icon: FileText, roles: ['Finance', 'Admin'], category: 'Finance' },
+  { to: '/finance/payment-history', label: 'Payment History', icon: Receipt, roles: ['Finance', 'Admin'], category: 'Finance' },
+  { to: '/paypoint/pending', label: 'All Pending', icon: Clock, roles: ['Paypoint', 'Admin'], category: 'Finance' },
+  { to: '/paypoint/patients', label: 'Pending Patients', icon: Users, roles: ['Paypoint', 'Admin'], category: 'Finance' },
+  { to: '/paypoint/billing', label: 'Billing', icon: Receipt, roles: ['Paypoint', 'Admin'], category: 'Finance' },
+  { to: '/paypoint/history', label: 'Payment History', icon: FileText, roles: ['Paypoint', 'Admin'], category: 'Finance' },
   { to: '/finance', label: 'Finance / HMO', icon: Banknote, roles: ['Admin'], category: 'Finance' },
   // ── Administration ──
   { to: '/services-inventory', label: 'Services Inventory', icon: Building2, roles: ['Admin'], category: 'Administration' },
@@ -145,6 +157,8 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [completedLabCount, setCompletedLabCount] = useState(0)
   const [unreadLabCount, setUnreadLabCount] = useState(0)
   const [pendingLabOrdersCount, setPendingLabOrdersCount] = useState(0)
+  const [pendingAllCount, setPendingAllCount] = useState(0)
+  const [pendingPatientsCount, setPendingPatientsCount] = useState(0)
   const [collapsedCategories, setCollapsedCategories] = useState<string[]>([])
 
   useEffect(() => {
@@ -165,12 +179,14 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
     async function fetchCounts() {
       try {
         const staffId = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return '' })()
-        const [rxRes, labOrdRes, labResRes, unreadLabRes, pendingOrdRes] = await Promise.all([
+        const [rxRes, labOrdRes, labResRes, unreadLabRes, pendingOrdRes, pendingAllRes, pendingPatsRes] = await Promise.all([
           fetch('/api/prescriptions?status=pending', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
           fetch('/api/lab-orders?status=ordered', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
           fetch('/api/lab-results?status=completed', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
           staffId ? fetch(`/api/lab-orders?status=completed&doctor_id=${staffId}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }) : null,
           fetch('/api/lab-orders?is_paid=false', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+          fetch('/api/payments/all-pending-items', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+          fetch('/api/payments/pending-summary', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
         ])
         const rxData = await rxRes.json()
         const labOrdData = await labOrdRes.json()
@@ -184,6 +200,10 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         }
         const pendingOrdData = await pendingOrdRes.json()
         setPendingLabOrdersCount(Array.isArray(pendingOrdData) ? pendingOrdData.length : 0)
+        const pendingAllData = await pendingAllRes.json()
+        setPendingAllCount(Array.isArray(pendingAllData) ? pendingAllData.length : 0)
+        const pendingPatsData = await pendingPatsRes.json()
+        setPendingPatientsCount(Array.isArray(pendingPatsData) ? pendingPatsData.length : 0)
       } catch {}
     }
     fetchCounts()
@@ -281,6 +301,12 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                         {to === '/lab/orders' && pendingLabOrdersCount > 0 && (
                           <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingLabOrdersCount}</span>
                         )}
+                        {to === '/paypoint/pending' && pendingAllCount > 0 && (
+                          <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingAllCount}</span>
+                        )}
+                        {to === '/paypoint/patients' && pendingPatientsCount > 0 && (
+                          <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingPatientsCount}</span>
+                        )}
                       </NavLink>
                     ))}
                   </div>
@@ -312,6 +338,12 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                 )}
                 {to === '/lab/orders' && pendingLabOrdersCount > 0 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingLabOrdersCount}</span>
+                )}
+                {to === '/paypoint/pending' && pendingAllCount > 0 && (
+                  <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingAllCount}</span>
+                )}
+                {to === '/paypoint/patients' && pendingPatientsCount > 0 && (
+                  <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingPatientsCount}</span>
                 )}
                 {to === '/lab/results' && role === 'Doctor' && unreadLabCount > 0 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold">{unreadLabCount} unread</span>
@@ -371,6 +403,8 @@ function LoadingFallback() {
 function DashboardRouter() {
   var role = getRole()
   if (role === 'Records') return <RecordsDashboard />
+  if (role === 'Finance') return <Navigate to="/finance/dashboard" replace /> 
+  if (role === 'Paypoint') return <Navigate to="/paypoint/dashboard" replace /> 
   return <PatientDashboard />
 }
 
@@ -442,7 +476,7 @@ export default function App() {
             path="/dashboard"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin']}>
+                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin', 'Finance']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <DashboardRouter />
                   </Suspense>
@@ -580,12 +614,18 @@ export default function App() {
               </Layout>
             }
           />
-          <Route
-            path="/paypoint" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><PaypointCheckout /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/paypoint/pending" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><PaypointPending /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/paypoint/patients" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><PaypointPatients /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/paypoint/dashboard" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><PaypointDashboard /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/paypoint/billing" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><BillingPage /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/paypoint/history" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><PaypointCheckout /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/radiology-inventory" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><RadiologyInventory /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/radiology-expiry" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><RadiologyExpiry /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/services-inventory" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><ServiceInventory /></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/finance" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><FinanceDashboard /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/finance/dashboard" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinanceDashboard /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/finance/billing" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinancePatientBilling /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/finance/payment-history" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinancePaymentHistory /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/finance" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><Navigate to="/finance/dashboard" replace /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/pharmacy"
             element={
               <Layout>
@@ -772,30 +812,6 @@ export default function App() {
                 <ProtectedRoute roles={['Doctor', 'Nurse', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <AdmissionsPage />
-                  </Suspense>
-                </ProtectedRoute>
-              </Layout>
-            }
-          />
-          <Route
-            path="/paypoint"
-            element={
-              <Layout>
-                <ProtectedRoute roles={['Paypoint', 'Admin']}>
-                  <Suspense fallback={<LoadingFallback />}>
-                    <PaypointCheckout />
-                  </Suspense>
-                </ProtectedRoute>
-              </Layout>
-            }
-          />
-          <Route
-            path="/finance"
-            element={
-              <Layout>
-                <ProtectedRoute roles={['Admin']}>
-                  <Suspense fallback={<LoadingFallback />}>
-                    <FinanceHMO />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>

@@ -22,7 +22,7 @@ router.get('/api/appointments', async (req: Request, res: Response) => {
       JOIN patients p ON p.id = a.patient_id
       LEFT JOIN staff_users s ON s.id = a.doctor_id
       LEFT JOIN staff_users sb ON sb.id = a.created_by
-      WHERE a.tenant_id = $1`;
+      WHERE a.tenant_id = $1 AND p.folder_activated IS DISTINCT FROM false`;
     const params: any[] = [tenantId];
     let idx = 2;
 

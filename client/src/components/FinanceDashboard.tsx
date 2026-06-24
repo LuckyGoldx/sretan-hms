@@ -2,178 +2,379 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
-  Banknote, TrendingUp, Receipt, Calendar, ArrowLeft, Search, X, Loader2, FileText, Printer, CreditCard, Landmark, Smartphone,
+  Banknote, TrendingUp, Receipt, Calendar, Search, Loader2, CreditCard, Landmark, Smartphone, ArrowRight, Clock, Percent, ArrowUp, ArrowDown, Users,
 } from 'lucide-react'
 
 export default function FinanceDashboard() {
   const navigate = useNavigate()
   const [stats, setStats] = useState<any>(null)
-  const [recentPayments, setRecentPayments] = useState<any[]>([])
+  const [payments, setPayments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [search, setSearch] = useState('')
-  const [selectedPayment, setSelectedPayment] = useState<any>(null)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
+  const [serviceRevenue, setServiceRevenue] = useState<any[]>([])
 
   useEffect(() => { loadData() }, [])
 
   async function loadData() {
     setLoading(true)
     try {
-      const [statsRes, paymentsRes] = await Promise.all([
+      const [statsRes, paymentsRes, svcRes] = await Promise.all([
         api.get('/payments/revenue/stats').catch(() => ({ data: null })),
         api.get('/payments').catch(() => ({ data: [] })),
+        api.get('/payments/revenue/by-service').catch(() => ({ data: [] })),
       ])
       setStats(statsRes.data)
-      setRecentPayments(paymentsRes.data || [])
+      setPayments(paymentsRes.data || [])
+      setServiceRevenue(svcRes.data || [])
     } catch {} finally { setLoading(false) }
   }
 
-  async function loadPaymentDetail(id: string) {
-    try {
-      const res = await api.get(`/payments/${id}`)
-      setSelectedPayment(res.data)
-    } catch {}
+  // Compute daily revenue for last 7 days
+  const last7 = Array.from({ length: 7 }, (_, i) => {
+    var d = new Date(); d.setDate(d.getDate() - (6 - i))
+    var dayStr = d.toDateString()
+    var dayPayments = payments.filter((p: any) => new Date(p.created_at).toDateString() === dayStr)
+    return {
+      label: d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' }),
+      revenue: dayPayments.reduce((s: number, p: any) => s + parseFloat(p.total_amount || 0), 0),
+      count: dayPayments.length,
+    }
+  })
+  const maxRevenue = Math.max(...last7.map((d) => d.revenue), 1)
+
+  // Method totals from local data
+  const methodTotals: Record<string, number> = {}
+  payments.forEach((p: any) => {
+    var m = p.payment_method || 'other'
+    methodTotals[m] = (methodTotals[m] || 0) + parseFloat(p.total_amount || 0)
+  })
+  const grandTotal = Object.values(methodTotals).reduce((a, b) => a + b, 0) || 1
+
+  const methodMeta: Record<string, { label: string; color: string; bar: string }> = {
+    cash: { label: 'Cash', color: 'text-emerald-600', bar: 'bg-emerald-500' },
+    card: { label: 'Card', color: 'text-blue-600', bar: 'bg-blue-500' },
+    transfer: { label: 'Transfer', color: 'text-purple-600', bar: 'bg-purple-500' },
+    pos: { label: 'POS', color: 'text-amber-600', bar: 'bg-amber-500' },
   }
 
-  const filtered = recentPayments.filter((p) => {
-    if (search && !p.patient_name?.toLowerCase().includes(search.toLowerCase()) && !p.receipt_number?.toLowerCase().includes(search.toLowerCase()) && !p.staff_name?.toLowerCase().includes(search.toLowerCase())) return false
-    return true
+  // Weekly/monthly comparison
+  var thisWeekStart = new Date(); thisWeekStart.setDate(thisWeekStart.getDate() - thisWeekStart.getDay())
+  var lastWeekStart = new Date(thisWeekStart); lastWeekStart.setDate(lastWeekStart.getDate() - 7)
+  var thisWeekTotal = payments.filter((p: any) => new Date(p.created_at) >= thisWeekStart).reduce((s: number, p: any) => s + parseFloat(p.total_amount || 0), 0)
+  var lastWeekTotal = payments.filter((p: any) => { var d = new Date(p.created_at); return d >= lastWeekStart && d < thisWeekStart }).reduce((s: number, p: any) => s + parseFloat(p.total_amount || 0), 0)
+  var weekChange = lastWeekTotal > 0 ? ((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 100 : 0
+
+  var serviceTotal = serviceRevenue.reduce((s: number, r: any) => s + parseFloat(r.total || 0), 0) || 1
+  var topServices = [...(serviceRevenue || [])].sort((a: any, b: any) => parseFloat(b.total) - parseFloat(a.total)).slice(0, 5)
+
+  // Monthly revenue (last 6 months)
+  var months: { label: string; revenue: number; count: number }[] = []
+  for (var mi = 5; mi >= 0; mi--) {
+    var d = new Date(); d.setMonth(d.getMonth() - mi)
+    var y = d.getFullYear(), m = d.getMonth()
+    var monthPayments = payments.filter((p: any) => { var pd = new Date(p.created_at); return pd.getFullYear() === y && pd.getMonth() === m })
+    months.push({
+      label: d.toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }),
+      revenue: monthPayments.reduce((s: number, p: any) => s + parseFloat(p.total_amount || 0), 0),
+      count: monthPayments.length,
+    })
+  }
+  var maxMonthRevenue = Math.max(...months.map((m) => m.revenue), 1)
+
+  // This month vs last month
+  var now = new Date()
+  var thisMonthPayments = payments.filter((p: any) => { var pd = new Date(p.created_at); return pd.getFullYear() === now.getFullYear() && pd.getMonth() === now.getMonth() })
+  var lastMonthDate = new Date(); lastMonthDate.setMonth(lastMonthDate.getMonth() - 1)
+  var lastMonthPayments = payments.filter((p: any) => { var pd = new Date(p.created_at); return pd.getFullYear() === lastMonthDate.getFullYear() && pd.getMonth() === lastMonthDate.getMonth() })
+  var thisMonthRevenue = thisMonthPayments.reduce((s: number, p: any) => s + parseFloat(p.total_amount || 0), 0)
+  var lastMonthRevenue = lastMonthPayments.reduce((s: number, p: any) => s + parseFloat(p.total_amount || 0), 0)
+  var monthChange = lastMonthRevenue > 0 ? ((thisMonthRevenue - lastMonthRevenue) / lastMonthRevenue) * 100 : 0
+
+  // YTD revenue
+  var ytdRevenue = payments.filter((p: any) => new Date(p.created_at).getFullYear() === now.getFullYear()).reduce((s: number, p: any) => s + parseFloat(p.total_amount || 0), 0)
+
+  // Top patients by revenue
+  var patientRevenue: Record<string, { name: string; total: number; count: number }> = {}
+  payments.forEach((p: any) => {
+    var name = p.patient_name || p.walkin_name || 'Walk-in'
+    if (!patientRevenue[name]) patientRevenue[name] = { name, total: 0, count: 0 }
+    patientRevenue[name].total += parseFloat(p.total_amount || 0)
+    patientRevenue[name].count++
   })
+  var topPatients = Object.values(patientRevenue).sort((a, b) => b.total - a.total).slice(0, 5)
+
+  if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><Loader2 size={32} className="animate-spin text-primary" /></div>
 
   const methodIcon = (m: string) => {
     const map: Record<string, any> = { cash: Banknote, card: CreditCard, transfer: Landmark, pos: Smartphone }
     return map[m] || Banknote
   }
 
-  if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><Loader2 size={32} className="animate-spin text-primary" /></div>
-
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/paypoint')} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
-          <div><h1 className="text-xl font-bold text-slate-800">Finance Dashboard</h1><p className="text-sm text-slate-400">Revenue tracking and payment history</p></div>
-        </div>
-      </div>
+      {/* Header */}
+      <h1 className="text-2xl font-bold text-slate-800">Finance Dashboard</h1>
 
+      {/* Stats cards */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <div className="flex items-center gap-3 mb-3"><Banknote size={18} className="text-emerald-500" /><h3 className="text-sm font-semibold text-slate-700">Today's Revenue</h3></div>
-            <p className="text-2xl font-bold text-emerald-600">₦{parseFloat(stats.today_revenue || 0).toLocaleString()}</p>
-            <p className="text-xs text-slate-400 mt-1">{stats.today_count || 0} transactions</p>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <div className="flex items-center gap-3 mb-3"><TrendingUp size={18} className="text-blue-500" /><h3 className="text-sm font-semibold text-slate-700">Total Revenue</h3></div>
-            <p className="text-2xl font-bold text-blue-600">₦{parseFloat(stats.total_revenue || 0).toLocaleString()}</p>
-            <p className="text-xs text-slate-400 mt-1">{stats.total_transactions || 0} transactions</p>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <div className="flex items-center gap-3 mb-3"><Receipt size={18} className="text-purple-500" /><h3 className="text-sm font-semibold text-slate-700">Payment Methods</h3></div>
-            <div className="space-y-1 text-xs">
-              <div className="flex justify-between"><span>Cash</span><span className="font-medium">₦{parseFloat(stats.cash_total || 0).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>Card</span><span className="font-medium">₦{parseFloat(stats.card_total || 0).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>Transfer</span><span className="font-medium">₦{parseFloat(stats.transfer_total || 0).toLocaleString()}</span></div>
-              <div className="flex justify-between"><span>POS</span><span className="font-medium">₦{parseFloat(stats.pos_total || 0).toLocaleString()}</span></div>
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex items-center gap-3 mb-3"><Banknote size={20} className="text-emerald-500" /><h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Today</h3></div>
+              <p className="text-2xl font-bold text-emerald-600">₦{parseFloat(stats.today_revenue || 0).toLocaleString()}</p>
+              <p className="text-xs text-slate-400 mt-1">{stats.today_count || 0} transactions</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex items-center gap-3 mb-3"><TrendingUp size={20} className="text-blue-500" /><h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">This Week</h3></div>
+              <p className="text-2xl font-bold text-blue-600">₦{thisWeekTotal.toLocaleString()}</p>
+              <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                {weekChange >= 0 ? <ArrowUp size={12} className="text-emerald-500" /> : <ArrowDown size={12} className="text-rose-500" />}
+                {Math.abs(weekChange).toFixed(1)}% vs last week
+              </p>
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex items-center gap-3 mb-3"><Banknote size={20} className="text-purple-500" /><h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Revenue</h3></div>
+              <p className="text-2xl font-bold text-purple-600">₦{parseFloat(stats.total_revenue || 0).toLocaleString()}</p>
+              <p className="text-xs text-slate-400 mt-1">{stats.total_transactions || 0} total transactions</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex items-center gap-3 mb-3"><Receipt size={20} className="text-amber-500" /><h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Avg per Transaction</h3></div>
+              <p className="text-2xl font-bold text-amber-600">₦{(stats.total_transactions > 0 ? parseFloat(stats.total_revenue || 0) / stats.total_transactions : 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+              <p className="text-xs text-slate-400 mt-1">Across all payments</p>
             </div>
           </div>
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-            <div className="flex items-center gap-3 mb-3"><Calendar size={18} className="text-amber-500" /><h3 className="text-sm font-semibold text-slate-700">Quick Filter</h3></div>
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs focus:ring-2 focus:ring-primary outline-none mb-1" />
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs focus:ring-2 focus:ring-primary outline-none" />
-          </div>
-        </div>
-      )}
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-slate-700">Payment History</h3>
-          <div className="relative w-64">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" placeholder="Search by patient or receipt..." value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-slate-200 pl-9 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
-          </div>
-        </div>
-        {filtered.length === 0 ? (
-          <p className="text-sm text-slate-400 text-center py-8">No payments found</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Receipt</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Patient</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Amount</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Method</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Date</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500">Staff</th>
-                  <th className="px-4 py-3 text-right text-xs font-semibold text-slate-500"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {filtered.map((p: any) => {
-                  const Icon = methodIcon(p.payment_method)
+          {/* Charts Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* 7-day Revenue Trend */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><TrendingUp size={16} className="text-primary" /> Revenue Trend (7 Days)</h3>
+              </div>
+              <div className="flex items-end gap-2 h-32">
+                {last7.map((d, i) => {
+                  var pct = maxRevenue > 0 ? (d.revenue / maxRevenue) * 100 : 0
+                  var isToday = i === 6
                   return (
-                    <tr key={p.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 text-sm font-mono text-primary">{p.receipt_number}</td>
-                      <td className="px-4 py-3 text-sm font-medium text-slate-800">{p.patient_name || p.walkin_name || 'Walk-in'}</td>
-                      <td className="px-4 py-3 text-sm font-bold text-slate-800">₦{parseFloat(p.total_amount).toLocaleString()}</td>
-                      <td className="px-4 py-3"><span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600"><Icon size={10} />{p.payment_method?.toUpperCase()}</span></td>
-                      <td className="px-4 py-3 text-xs text-slate-500">{new Date(p.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
-                      <td className="px-4 py-3 text-xs text-slate-500">{p.staff_name || '—'}</td>
-                      <td className="px-4 py-3 text-right">
-                        <button onClick={() => loadPaymentDetail(p.id)} className="text-xs text-primary font-medium hover:underline">View</button>
-                      </td>
-                    </tr>
+                    <div key={i} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
+                      <span className="text-[9px] text-slate-400 font-medium">₦{d.revenue.toLocaleString()}</span>
+                      <div
+                        className={`w-full rounded-t ${isToday ? 'bg-primary' : 'bg-primary/40'} transition-all duration-300`}
+                        style={{ height: `${Math.max(pct, 3)}%` }}
+                        title={`${d.label}: ₦${d.revenue.toLocaleString()} (${d.count} txns)`}
+                      />
+                      <span className="text-[9px] text-slate-500">{d.label}</span>
+                    </div>
                   )
                 })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+              </div>
+            </div>
 
-      {/* Payment Detail Modal */}
-      {selectedPayment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setSelectedPayment(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white rounded-t-2xl">
-              <h2 className="text-base font-semibold text-slate-800"><FileText size={18} className="inline text-primary mr-2" />Receipt #{selectedPayment.receipt_number}</h2>
-              <button onClick={() => setSelectedPayment(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="text-center pb-3 border-b border-slate-100">
-                <p className="text-lg font-bold text-slate-800">{selectedPayment.patient_name || selectedPayment.walkin_name || 'Walk-in Customer'}</p>
-                {selectedPayment.hospital_number && <p className="text-xs text-slate-400">#{selectedPayment.hospital_number}</p>}
+            {/* Payment Method Breakdown */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><Percent size={16} className="text-primary" /> Payment Methods</h3>
               </div>
-              <div className="space-y-2">
-                {(selectedPayment.items || []).map((item: any, i: number) => (
-                  <div key={i} className="flex justify-between text-sm py-1">
-                    <span className="text-slate-600 flex-1 truncate">{item.description}</span>
-                    <span className="text-slate-800 font-medium ml-4">₦{(item.total_price || 0).toLocaleString()}</span>
-                  </div>
-                ))}
+              <div className="space-y-4">
+                {Object.entries(methodMeta).map(([key, meta]) => {
+                  var amount = methodTotals[key] || 0
+                  var pct = (amount / grandTotal) * 100
+                  var Icon = methodIcon(key)
+                  return (
+                    <div key={key}>
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <div className="flex items-center gap-2">
+                          <Icon size={14} className={meta.color} />
+                          <span className="font-medium text-slate-700">{meta.label}</span>
+                        </div>
+                        <span className="font-bold text-slate-800">₦{amount.toLocaleString()} <span className="text-xs text-slate-400 font-normal">({pct.toFixed(1)}%)</span></span>
+                      </div>
+                      <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all duration-700 ${meta.bar}`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-              <div className="flex justify-between text-base font-bold text-slate-800 pt-3 border-t border-slate-100">
-                <span>Total</span>
-                <span>₦{parseFloat(selectedPayment.total_amount || 0).toLocaleString()}</span>
-              </div>
-              <div className="grid grid-cols-2 gap-4 text-xs text-slate-500 pt-3 border-t border-slate-100">
-                <div><span className="block text-slate-400">Payment Method</span><span className="font-medium text-slate-700">{selectedPayment.payment_method?.toUpperCase()}</span></div>
-                <div><span className="block text-slate-400">Date & Time</span><span className="font-medium text-slate-700">{new Date(selectedPayment.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></div>
-                <div><span className="block text-slate-400">Processed By</span><span className="font-medium text-slate-700">{selectedPayment.staff_name || '—'}</span></div>
-                {selectedPayment.notes && <div className="col-span-2"><span className="block text-slate-400">Notes</span><span className="font-medium text-slate-700">{selectedPayment.notes}</span></div>}
-              </div>
-            </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
-              <button onClick={() => setSelectedPayment(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Close</button>
             </div>
           </div>
-        </div>
+
+          {/* Monthly Revenue Trend */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><Calendar size={16} className="text-primary" /> Monthly Revenue (6 Months)</h3>
+              </div>
+              <div className="flex items-end gap-2 h-32">
+                {months.map((m, i) => {
+                  var pct = maxMonthRevenue > 0 ? (m.revenue / maxMonthRevenue) * 100 : 0
+                  var isCurrent = i === months.length - 1
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
+                      <span className="text-[9px] text-slate-400 font-medium">₦{m.revenue.toLocaleString()}</span>
+                      <div className={`w-full rounded-t ${isCurrent ? 'bg-primary' : 'bg-primary/30'} transition-all duration-300`} style={{ height: `${Math.max(pct, 3)}%` }} title={`${m.label}: ₦${m.revenue.toLocaleString()}`} />
+                      <span className="text-[9px] text-slate-500">{m.label}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Daily Transaction Count Trend */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><Receipt size={16} className="text-primary" /> Daily Transactions (7 Days)</h3>
+              </div>
+              <div className="flex items-end gap-2 h-32">
+                {last7.map((d, i) => {
+                  var maxCount = Math.max(...last7.map((x) => x.count), 1)
+                  var pct = (d.count / maxCount) * 100
+                  var isToday = i === 6
+                  return (
+                    <div key={i} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
+                      <span className="text-[9px] text-slate-400 font-medium">{d.count}</span>
+                      <div className={`w-full rounded-t ${isToday ? 'bg-amber-500' : 'bg-amber-300'} transition-all duration-300`} style={{ height: `${Math.max(pct, 3)}%` }} title={`${d.label}: ${d.count} txns`} />
+                      <span className="text-[9px] text-slate-500">{d.label}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Analytics Row 2: This month vs last month + YTD + Top Patients */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* This Month vs Last Month */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2"><TrendingUp size={16} className="text-primary" /> Monthly Comparison</h3>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">This Month</p>
+                  <p className="text-xl font-bold text-emerald-600">₦{thisMonthRevenue.toLocaleString()}</p>
+                  <p className="text-xs text-slate-400">{thisMonthPayments.length} transactions</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">Last Month</p>
+                  <p className="text-xl font-bold text-slate-700">₦{lastMonthRevenue.toLocaleString()}</p>
+                  <p className="text-xs text-slate-400">{lastMonthPayments.length} transactions</p>
+                </div>
+                <div className={`flex items-center gap-2 px-4 py-3 rounded-xl ${monthChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                  {monthChange >= 0 ? <ArrowUp size={18} /> : <ArrowDown size={18} />}
+                  <span className="text-sm font-bold">{Math.abs(monthChange).toFixed(1)}% vs last month</span>
+                </div>
+              </div>
+            </div>
+
+            {/* YTD + Averages */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2"><Banknote size={16} className="text-primary" /> Year to Date</h3>
+              <div className="space-y-4">
+                <div>
+                  <p className="text-xs text-slate-500 mb-1">YTD Revenue</p>
+                  <p className="text-2xl font-bold text-blue-600">₦{ytdRevenue.toLocaleString()}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                    <p className="text-[10px] text-slate-500">Avg Daily</p>
+                    <p className="text-base font-bold text-slate-800">₦{((payments.length > 0 ? ytdRevenue / payments.length : 0) * 7).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                  </div>
+                  <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
+                    <p className="text-[10px] text-slate-500">Avg Weekly</p>
+                    <p className="text-base font-bold text-slate-800">₦{(ytdRevenue / Math.max(Math.ceil((Date.now() - new Date(now.getFullYear(), 0, 1).getTime()) / 604800000), 1)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Top Patients */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2"><Users size={16} className="text-primary" /> Top Patients</h3>
+              <div className="space-y-3 max-h-48 overflow-y-auto">
+                {topPatients.length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-4">No data</p>
+                ) : topPatients.map((pt: any, i: number) => {
+                  var pct = grandTotal > 0 ? (pt.total / grandTotal) * 100 : 0
+                  return (
+                    <div key={i} className="flex items-center gap-3">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white ${i === 0 ? 'bg-amber-500' : i === 1 ? 'bg-slate-400' : i === 2 ? 'bg-amber-700' : 'bg-slate-300'}`}>{i + 1}</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">{pt.name}</p>
+                        <p className="text-[10px] text-slate-400">{pt.count} visit{pt.count !== 1 ? 's' : ''}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-bold text-slate-800">₦{pt.total.toLocaleString()}</p>
+                        <p className="text-[10px] text-slate-400">{pct.toFixed(1)}%</p>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Service Revenue & Quick Stats */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><Receipt size={16} className="text-primary" /> Revenue by Service</h3>
+              </div>
+              <div className="space-y-3 max-h-60 overflow-y-auto">
+                {(serviceRevenue || []).length === 0 ? (
+                  <p className="text-sm text-slate-400 text-center py-6">No service data</p>
+                ) : serviceRevenue.map((svc: any, i: number) => {
+                  var pct = (parseFloat(svc.total) / serviceTotal) * 100
+                  return (
+                    <div key={i}>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="font-medium text-slate-700 capitalize truncate max-w-[60%]">{svc.service_type?.replace('_', ' ') || 'Unknown'}</span>
+                        <span className="text-slate-500">₦{parseFloat(svc.total).toLocaleString()} ({pct.toFixed(1)}%)</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-primary/60 transition-all duration-500" style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Quick Stats */}
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2"><Clock size={16} className="text-primary" /> Quick Stats</h3>
+              </div>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-sm text-slate-600">Top Service</span>
+                  <span className="text-sm font-semibold text-slate-800 capitalize">{topServices[0]?.service_type?.replace('_', ' ') || '—'}</span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-sm text-slate-600">Most Used Method</span>
+                  <span className="text-sm font-semibold text-slate-800 capitalize">
+                    {Object.entries(methodTotals).sort(([, a], [, b]) => b - a)[0]?.[0] || '—'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-sm text-slate-600">This Week Revenue</span>
+                  <span className="text-sm font-bold text-emerald-600">₦{thisWeekTotal.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-sm text-slate-600">Week over Week</span>
+                  <span className={`text-sm font-bold flex items-center gap-1 ${weekChange >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {weekChange >= 0 ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+                    {Math.abs(weekChange).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
+                  <span className="text-sm text-slate-600">Total Transactions</span>
+                  <span className="text-sm font-bold text-slate-800">{stats.total_transactions || 0}</span>
+                </div>
+                <button onClick={() => navigate('/finance/payment-history')} className="w-full flex items-center justify-center gap-2 mt-2 px-4 py-3 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
+                  <Receipt size={15} /> View Full Payment History
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )

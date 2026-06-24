@@ -33,6 +33,14 @@ router.get('/api/patients', async (req: Request, res: Response) => {
     }
 
     if (search) {
+      query += ` AND (p.full_name ILIKE $${paramIndex} OR p.hospital_number ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    query += ' AND p.folder_activated IS DISTINCT FROM false';
+
+    if (search) {
       query += ` AND (p.full_name ILIKE $${paramIndex} OR p.hospital_number::text ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
       paramIndex++;

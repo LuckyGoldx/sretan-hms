@@ -39,7 +39,8 @@ router.post('/api/vitals', async (req: Request, res: Response) => {
 
     await pool.query(
       `UPDATE patients SET status = 'in_triage'
-       WHERE id = (SELECT patient_id FROM encounters WHERE id = $1)`,
+       WHERE id = (SELECT patient_id FROM encounters WHERE id = $1)
+         AND folder_activated IS DISTINCT FROM false`,
       [encounter_id]
     );
 

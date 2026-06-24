@@ -23,7 +23,7 @@ router.get("/api/admissions", async (req: Request, res: Response) => {
                  JOIN patients p ON p.id = a.patient_id
                  LEFT JOIN staff_users s ON s.id = a.admitted_by
                  LEFT JOIN staff_users sd ON sd.id = a.discharged_by
-                 WHERE 1=1`;
+                 WHERE p.folder_activated IS DISTINCT FROM false`;
     const params: any[] = [];
     let idx = 1;
 
@@ -103,7 +103,7 @@ router.get("/api/admissions/active", async (_req: Request, res: Response) => {
        JOIN patients p ON p.id = a.patient_id
        LEFT JOIN staff_users s ON s.id = a.admitted_by
        LEFT JOIN staff_users sd ON sd.id = a.discharged_by
-       WHERE a.status = 'active' ORDER BY a.admitted_at DESC`
+        WHERE a.status = 'active' AND p.folder_activated IS DISTINCT FROM false ORDER BY a.admitted_at DESC`
     );
     res.json(result.rows);
   } catch (err: any) {
