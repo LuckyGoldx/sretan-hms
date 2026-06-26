@@ -5,19 +5,17 @@ import type { RadiologyOrder } from '../types'
 import {
   ArrowLeft,
   Scan,
-  FileImage,
   FileText,
   Upload,
   Clipboard,
   Loader2,
-  ChevronDown,
-  ChevronUp,
   CheckCircle,
   AlertCircle,
   Bold,
   Italic,
   List,
-  AlignLeft
+  AlignLeft,
+  X
 } from 'lucide-react'
 
 const TEMPLATE_PHRASES = [
@@ -34,11 +32,13 @@ export default function RadiologyModule() {
   const [error, setError] = useState<string | null>(null)
 
   const [selectedOrder, setSelectedOrder] = useState<RadiologyOrder | null>(null)
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [showEditor, setShowEditor] = useState(false)
 
   const [reportText, setReportText] = useState('')
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [existingImages, setExistingImages] = useState<string[]>([])
   const [dragOver, setDragOver] = useState(false)
+  const [previewImage, setPreviewImage] = useState<string | null>(null)
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -51,8 +51,8 @@ export default function RadiologyModule() {
     setLoading(true)
     setError(null)
     try {
-      const { data } = await api.get<RadiologyOrder[]>('/radiology-orders')
-      setOrders(data || [])
+      const { data } = await api.get<RadiologyOrder[]>('/radiology-orders?is_paid=true')
+      setOrders((data || []).filter((o: any) => o.status === 'ordered' || o.status === 'rejected'))
     } catch (err: any) {
       setError(err.response?.data?.message || err.message || 'Failed to load imaging orders')
     } finally {
@@ -64,20 +64,22 @@ export default function RadiologyModule() {
     fetchOrders()
   }, [fetchOrders])
 
-  function handleSelect(order: RadiologyOrder) {
-    if (expandedId === order.id && selectedOrder?.id === order.id) {
-      setExpandedId(null)
-      setSelectedOrder(null)
-      setReportText('')
-      setSelectedFile(null)
-      setSubmitSuccess(false)
-      setSubmitError(null)
-      return
-    }
+  function openEditor(order: RadiologyOrder) {
     setSelectedOrder(order)
-    setExpandedId(order.id)
+    setShowEditor(true)
     setReportText(order.report_text || '')
-    setSelectedFile(null)
+    setSelectedFiles([])
+    setExistingImages(order.image_path ? order.image_path.split(',').filter(Boolean) : [])
+    setSubmitSuccess(false)
+    setSubmitError(null)
+  }
+
+  function closeEditor() {
+    setSelectedOrder(null)
+    setShowEditor(false)
+    setReportText('')
+    setSelectedFiles([])
+    setExistingImages([])
     setSubmitSuccess(false)
     setSubmitError(null)
   }
@@ -104,18 +106,17 @@ export default function RadiologyModule() {
   function handleFileDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault()
     setDragOver(false)
-    const file = e.dataTransfer.files[0]
-    if (
-      file &&
-      ['.png', '.jpg', '.jpeg', '.dcm'].some((ext) => file.name.toLowerCase().endsWith(ext))
-    ) {
-      setSelectedFile(file)
-    }
+    var files = Array.from(e.dataTransfer.files).filter((f) =>
+      ['.png', '.jpg', '.jpeg', '.dcm'].some((ext) => f.name.toLowerCase().endsWith(ext))
+    )
+    if (files.length > 0) setSelectedFiles((prev) => [...prev, ...files])
   }
 
   function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (file) setSelectedFile(file)
+    var files = Array.from(e.target.files || []).filter((f) =>
+      ['.png', '.jpg', '.jpeg', '.dcm'].some((ext) => f.name.toLowerCase().endsWith(ext))
+    )
+    if (files.length > 0) setSelectedFiles((prev) => [...prev, ...files])
   }
 
   function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
@@ -137,19 +138,28 @@ export default function RadiologyModule() {
     setSubmitError(null)
     setSubmitSuccess(false)
     try {
-      const imagePath = selectedFile ? `/uploads/${selectedFile.name}` : null
+      const currentStaffId = (() => { try { return JSON.parse(localStorage.getItem('sretan_user') || '{}').id } catch {} return null })()
+      var uploadedPaths: string[] = []
+      for (const file of selectedFiles) {
+        var formData = new FormData()
+        formData.append('file', file)
+        var uploadRes = await api.post('/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+        uploadedPaths.push(uploadRes.data?.path || `/uploads/${file.name}`)
+      }
+      var allImagePaths = [...existingImages, ...uploadedPaths].join(',')
       await api.put(`/radiology-orders/${selectedOrder.id}`, {
         report_text: reportText.trim(),
-        image_path: imagePath,
-        status: 'completed'
+        image_path: allImagePaths || null,
+        status: 'review',
+        reported_by: currentStaffId
       })
       setSubmitSuccess(true)
       setOrders((prev) =>
         prev.map((o) =>
           o.id === selectedOrder.id
-            ? { ...o, report_text: reportText.trim(), image_path: imagePath || o.image_path, status: 'completed' }
+            ? { ...o, report_text: reportText.trim(), image_path: allImagePaths || o.image_path, status: 'review' }
             : o
-        )
+        ).filter((o: any) => o.status === 'ordered' || o.status === 'rejected')
       )
     } catch (err: any) {
       setSubmitError(err.response?.data?.message || err.message || 'Failed to submit report')
@@ -165,10 +175,22 @@ export default function RadiologyModule() {
           <CheckCircle size={12} /> Completed
         </span>
       )
-    if (status === 'in_progress')
+    if (status === 'review')
+      return (
+        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">
+          In Review
+        </span>
+      )
+    if (status === 'rejected')
+      return (
+        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-700">
+          Rejected - Review
+        </span>
+      )
+    if (status === 'processing')
       return (
         <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
-          In Progress
+          Processing
         </span>
       )
     return (
@@ -183,12 +205,12 @@ export default function RadiologyModule() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
+          <button onClick={() => navigate('/radiology')} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
           <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center">
             <Scan size={22} className="text-indigo-600" />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-800">Radiology Module</h1>
+            <h1 className="text-xl font-bold text-slate-800">Radiology Worklist</h1>
             <p className="text-sm text-slate-500">Manage imaging orders, write reports, and upload files</p>
           </div>
         </div>
@@ -200,12 +222,13 @@ export default function RadiologyModule() {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6">
         {/* Imaging Worklist */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
             <Clipboard size={18} className="text-indigo-500" />
             <h2 className="font-semibold text-slate-800">Imaging Worklist</h2>
+            {orders.length > 0 && <span className="ml-auto text-xs text-slate-400">{orders.length} order(s)</span>}
           </div>
 
           {loading ? (
@@ -222,224 +245,161 @@ export default function RadiologyModule() {
               <p className="text-sm">No imaging orders</p>
             </div>
           ) : (
-            <div className="divide-y divide-slate-100">
+              <div className="divide-y divide-slate-100">
               {orders.map((order) => (
-                <button
-                  key={order.id}
-                  onClick={() => handleSelect(order)}
-                  className={`w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 transition-colors text-left ${
-                    expandedId === order.id ? 'bg-indigo-50/50' : ''
-                  }`}
-                >
-                  <div className="flex items-center gap-4 flex-1 min-w-0">
-                    <div className="flex-shrink-0">
-                      {expandedId === order.id ? (
-                        <ChevronUp size={16} className="text-indigo-500" />
-                      ) : (
-                        <ChevronDown size={16} className="text-slate-300" />
-                      )}
+                  <div key={order.id}
+                   className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0">
+                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                      <Scan size={16} className="text-indigo-500 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">
+                          {order.imaging_type || 'Imaging'}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {order.patient_name || 'Walk-in'} &middot; {order.doctor_name ? `Dr. ${order.doctor_name}` : ''}
+                          {order.imaging_number && <span className="ml-1 font-mono">{order.imaging_number}</span>}
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          {new Date(order.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-slate-800 truncate">
-                        {order.imaging_type || 'Imaging'}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        {new Date(order.created_at).toLocaleDateString()} &middot;{' '}
-                        {order.id.slice(0, 8)}
-                      </p>
+                    <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                      {statusBadge(order.status)}
+                      <button onClick={() => openEditor(order)}
+                        className="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-medium hover:bg-indigo-100 transition-colors">Enter Result</button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {statusBadge(order.status)}
-                    {order.is_paid === false && (
-                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-rose-100 text-rose-700">Unpaid</span>
-                    )}
-                    {order.is_paid === true && (
-                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-emerald-100 text-emerald-700">Paid</span>
-                    )}
-                  </div>
-                </button>
-              ))}
+                ))}
             </div>
           )}
         </div>
+      </div>
 
-        {/* Report Editor & File Drop Zone */}
-        <div className="space-y-4">
-          {/* Report Editor */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
-              <FileText size={18} className="text-indigo-500" />
-              <h2 className="font-semibold text-slate-800">Report Editor</h2>
-              {selectedOrder && (
-                <span className="ml-auto text-xs text-slate-400 truncate max-w-[160px]">
-                  {selectedOrder.imaging_type}
-                </span>
-              )}
+      {/* Report Entry Modal */}
+      {showEditor && selectedOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={closeEditor}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <FileText size={20} className="text-indigo-500" />
+                <div>
+                  <h2 className="text-base font-semibold text-slate-800">Report Editor — {selectedOrder.imaging_type}</h2>
+                  {selectedOrder.patient_name && <p className="text-xs text-slate-400">{selectedOrder.patient_name} {selectedOrder.imaging_number ? `· ${selectedOrder.imaging_number}` : ''}</p>}
+                </div>
+              </div>
+              <button onClick={closeEditor} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
 
-            {!selectedOrder ? (
-              <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-                <Scan size={40} className="text-slate-300 mb-3" />
-                <p className="text-sm font-medium">Select a radiology order</p>
-                <p className="text-xs mt-1">Click on an order to enter the report</p>
+            {/* Body */}
+            <div className="overflow-y-auto flex-1 p-6 space-y-5">
+              {/* Formatting Toolbar (Mock) */}
+              <div className="flex items-center gap-1 pb-2 border-b border-slate-100">
+                <button className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500" title="Bold"><Bold size={16} /></button>
+                <button className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500" title="Italic"><Italic size={16} /></button>
+                <button className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500" title="Bullet List"><List size={16} /></button>
+                <button className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500" title="Align Left"><AlignLeft size={16} /></button>
+                <span className="text-slate-200 mx-2">|</span>
+                <span className="text-xs text-slate-400">Formatting (mock)</span>
               </div>
-            ) : selectedOrder.is_paid === false ? (
-              <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-                <AlertCircle size={36} className="text-rose-300 mb-3" />
-                <p className="text-sm font-medium text-rose-600">Payment Required</p>
-                <p className="text-xs mt-1">This radiology order has not been paid for yet.</p>
-                <p className="text-xs text-slate-400 mt-1">Patient needs to complete payment at Paypoint first.</p>
+
+              {/* Template Phrase Buttons */}
+              <div className="flex flex-wrap gap-2">
+                {TEMPLATE_PHRASES.map((phrase) => (
+                  <button key={phrase} onClick={() => insertTemplate(phrase)}
+                    className="px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-medium border border-indigo-100 hover:bg-indigo-100 hover:scale-[1.01] transition-transform">
+                    {phrase}
+                  </button>
+                ))}
               </div>
-            ) : (
-              <div className="p-5 space-y-4">
-                {/* Formatting Toolbar (Mock) */}
-                <div className="flex items-center gap-1 pb-2 border-b border-slate-100">
-                  <button
-                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
-                    title="Bold"
-                  >
-                    <Bold size={16} />
-                  </button>
-                  <button
-                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
-                    title="Italic"
-                  >
-                    <Italic size={16} />
-                  </button>
-                  <button
-                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
-                    title="Bullet List"
-                  >
-                    <List size={16} />
-                  </button>
-                  <button
-                    className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"
-                    title="Align Left"
-                  >
-                    <AlignLeft size={16} />
-                  </button>
-                  <span className="text-slate-200 mx-2">|</span>
-                  <span className="text-xs text-slate-400">Formatting (mock)</span>
-                </div>
 
-                {/* Template Phrase Buttons */}
-                <div className="flex flex-wrap gap-2">
-                  {TEMPLATE_PHRASES.map((phrase) => (
-                    <button
-                      key={phrase}
-                      onClick={() => insertTemplate(phrase)}
-                      className="px-3 py-1.5 rounded-xl bg-indigo-50 text-indigo-700 text-xs font-medium border border-indigo-100 hover:bg-indigo-100 hover:scale-[1.01] active:scale-[0.99] transition-transform"
-                    >
-                      {phrase}
-                    </button>
-                  ))}
-                </div>
+              {/* Report Textarea */}
+              <textarea ref={textareaRef} value={reportText} onChange={(e) => setReportText(e.target.value)}
+                placeholder="Enter radiology report..."
+                rows={8}
+                className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y" />
 
-                {/* Report Textarea */}
-                <textarea
-                  ref={textareaRef}
-                  value={reportText}
-                  onChange={(e) => setReportText(e.target.value)}
-                  placeholder="Enter radiology report..."
-                  rows={8}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-y"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* File Drop Zone */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
-              <FileImage size={18} className="text-indigo-500" />
-              <h2 className="font-semibold text-slate-800">Image Upload</h2>
-            </div>
-
-            <div className="p-5">
-              {selectedFile ? (
-                <div className="flex items-center justify-between p-3 rounded-xl bg-indigo-50 border border-indigo-100">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <FileImage size={20} className="text-indigo-500 flex-shrink-0" />
-                    <span className="text-sm font-medium text-slate-700 truncate">
-                      {selectedFile.name}
-                    </span>
-                    <span className="text-xs text-slate-400">
-                      ({(selectedFile.size / 1024).toFixed(1)} KB)
-                    </span>
+              {/* Image Upload */}
+              <div>
+                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Images</h4>
+                {/* Existing + newly uploaded image grid */}
+                {(existingImages.length > 0 || selectedFiles.length > 0) && (
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mb-3">
+                    {existingImages.map((path, idx) => (
+                      <div key={`e-${idx}`} className="relative group rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
+                        <img src={path} alt={`Image ${idx + 1}`}
+                          className="w-full h-20 object-cover cursor-pointer"
+                          onClick={() => setPreviewImage(path)}
+                          onError={(e) => { (e.target as HTMLImageElement).src = ''; (e.target as HTMLImageElement).parentElement!.innerHTML = '<div class="flex items-center justify-center h-20 text-slate-300 text-xs">N/A</div>' }} />
+                        <button onClick={() => setExistingImages((prev) => prev.filter((_, i) => i !== idx))}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-500">
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ))}
+                    {selectedFiles.map((file, idx) => (
+                      <div key={`n-${idx}`} className="relative group rounded-xl border border-slate-200 overflow-hidden bg-slate-50">
+                        <img src={URL.createObjectURL(file)} alt={file.name}
+                          className="w-full h-20 object-cover"
+                          onClick={() => setPreviewImage(URL.createObjectURL(file))} />
+                        <button onClick={() => setSelectedFiles((prev) => prev.filter((_, i) => i !== idx))}
+                          className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-rose-500">
+                          <X size={10} />
+                        </button>
+                        <span className="absolute bottom-0.5 left-1 text-[8px] text-white bg-black/50 px-1 rounded truncate max-w-[90%]">{file.name}</span>
+                      </div>
+                    ))}
                   </div>
-                  <button
-                    onClick={() => setSelectedFile(null)}
-                    className="text-slate-400 hover:text-rose-500 p-1"
-                  >
-                    <AlertCircle size={14} />
-                  </button>
-                </div>
-              ) : (
-                <div
-                  onDrop={handleFileDrop}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
+                )}
+                {/* Drop zone */}
+                <div onDrop={handleFileDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
                   onClick={() => fileInputRef.current?.click()}
-                  className={`flex flex-col items-center justify-center py-10 rounded-xl border-2 border-dashed cursor-pointer transition-colors ${
-                    dragOver
-                      ? 'border-indigo-400 bg-indigo-50'
-                      : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50'
-                  }`}
-                >
-                  <Upload
-                    size={36}
-                    className={`mb-3 ${dragOver ? 'text-indigo-500' : 'text-slate-300'}`}
-                  />
-                  <p className="text-sm font-medium text-slate-600">
-                    {dragOver ? 'Drop image here' : 'Drag & drop or click to upload'}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1">PNG, JPG, DCM accepted</p>
+                  className={`flex flex-col items-center justify-center py-6 rounded-xl border-2 border-dashed cursor-pointer transition-colors ${dragOver ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 hover:border-indigo-300 hover:bg-slate-50'}`}>
+                  <Upload size={28} className={`mb-1 ${dragOver ? 'text-indigo-500' : 'text-slate-300'}`} />
+                  <p className="text-sm font-medium text-slate-600">{dragOver ? 'Drop images here' : 'Click or drag images'}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">PNG, JPG, DCM · Multiple allowed</p>
                 </div>
+                <input ref={fileInputRef} type="file" accept=".png,.jpg,.jpeg,.dcm" multiple onChange={handleFileInput} className="hidden" />
+              </div>
+
+              {/* Submit */}
+              {submitError && <p className="text-xs text-rose-600 flex items-center gap-1"><AlertCircle size={12} /> {submitError}</p>}
+              {submitSuccess && (
+                <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm"><CheckCircle size={16} /> Report submitted successfully</div>
               )}
+            </div>
 
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".png,.jpg,.jpeg,.dcm"
-                onChange={handleFileInput}
-                className="hidden"
-              />
-
-              {/* Submit Report */}
-              {selectedOrder && (
-                <div className="mt-4 pt-4 border-t border-slate-100">
-                  {submitSuccess ? (
-                    <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-50 text-emerald-700 text-sm">
-                      <CheckCircle size={16} /> Report submitted successfully
-                    </div>
-                  ) : (
-                    <>
-                      {submitError && (
-                        <p className="text-xs text-rose-600 flex items-center gap-1 mb-3">
-                          <AlertCircle size={12} /> {submitError}
-                        </p>
-                      )}
-                      <button
-                        onClick={handleSubmitReport}
-                        disabled={submitting || !reportText.trim()}
-                        className="w-full flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 hover:scale-[1.01] active:scale-[0.99] transition-transform disabled:opacity-50"
-                      >
-                        {submitting ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                          <Upload size={14} />
-                        )}
-                        Submit Report
-                      </button>
-                    </>
-                  )}
-                </div>
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
+              {submitSuccess ? (
+                <button onClick={closeEditor} className="px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Close</button>
+              ) : (
+                <>
+                  <button onClick={closeEditor} className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors">Cancel</button>
+                  <button onClick={handleSubmitReport} disabled={submitting || !reportText.trim()}
+                    className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 hover:scale-[1.01] transition-transform disabled:opacity-50">
+                    {submitting ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                    Submit Report
+                  </button>
+                </>
               )}
             </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Full-screen Image Preview */}
+      {previewImage && (
+        <div className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center" onClick={() => setPreviewImage(null)}>
+          <div className="absolute top-4 right-4 z-10">
+            <button onClick={() => setPreviewImage(null)} className="w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+              <X size={22} className="text-white" />
+            </button>
+          </div>
+          <img src={previewImage} alt="Preview" className="max-w-[95vw] max-h-[95vh] object-contain" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
     </div>
   )
 }

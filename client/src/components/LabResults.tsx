@@ -45,17 +45,18 @@ const staffId = (() => { try { const u = localStorage.getItem('sretan_user'); if
 
 export default function LabResults() {
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<'pending' | 'completed'>('pending')
+  const [activeTab, setActiveTab] = useState<'pending' | 'not-collected' | 'collected' | 'completed'>('pending')
   const [loading, setLoading] = useState(true)
   const [drafts, setDrafts] = useState<any[]>([])
-  const [completedOrders, setCompletedOrders] = useState<any[]>([])
+  const [uncollectedComplete, setUncollectedComplete] = useState<any[]>([])
   const [collectedOrders, setCollectedOrders] = useState<any[]>([])
-  const [stats, setStats] = useState({ pendingApproval: 0, completedCollected: 0, totalToday: 0 })
+  const [allCompleted, setAllCompleted] = useState<any[]>([])
+  const [stats, setStats] = useState({ pendingApproval: 0, totalCompleted: 0, notCollected: 0, collected: 0, completedToday: 0 })
   const [pendingPage, setPendingPage] = useState(1)
   const [completedPage, setCompletedPage] = useState(1)
   const [search, setSearch] = useState('')
   const [printModal, setPrintModal] = useState<any | null>(null)
-  const [approvingId, setApprovingId] = useState<string | null>(null)
+  const [processingId, setProcessingId] = useState<string | null>(null)
 
   const todayStr = new Date().toISOString().slice(0, 10)
 
@@ -68,30 +69,32 @@ export default function LabResults() {
 
   const loadCompletedCollected = useCallback(async () => {
     try {
-      const [completedRes, collectedRes] = await Promise.all([
-        api.get('/lab-orders?status=completed').catch(() => ({ data: [] })),
-        api.get('/lab-orders?status=collected').catch(() => ({ data: [] })),
-      ])
-      setCompletedOrders(completedRes.data || [])
-      setCollectedOrders(collectedRes.data || [])
+      const completedRes = await api.get('/lab-orders?status=completed').catch(() => ({ data: [] }))
+      var allComplete = completedRes.data || []
+      setAllCompleted(allComplete)
+      setUncollectedComplete(allComplete.filter((o: any) => !o.results_collected_at && !o.encounter_id))
+      setCollectedOrders(allComplete.filter((o: any) => o.results_collected_at))
     } catch {}
   }, [])
 
   const loadStats = useCallback(async () => {
     try {
-      const [draftRes, completedRes, collectedRes, todayRes] = await Promise.all([
+      const [draftRes, completedRes] = await Promise.all([
         api.get('/lab-results?status=draft').catch(() => ({ data: [] })),
         api.get('/lab-orders?status=completed').catch(() => ({ data: [] })),
-        api.get('/lab-orders?status=collected').catch(() => ({ data: [] })),
-        api.get(`/lab-results?approved_today=${todayStr}`).catch(() => ({ data: [] })),
       ])
+      var allComplete = completedRes.data || []
+      var todayStr = new Date().toISOString().slice(0, 10)
+      var completedToday = allComplete.filter((o: any) => { var d = new Date(o.created_at); return d.toISOString().slice(0, 10) === todayStr })
       setStats({
         pendingApproval: (draftRes.data || []).length,
-        completedCollected: (completedRes.data || []).length + (collectedRes.data || []).length,
-        totalToday: (todayRes.data || []).length,
+        totalCompleted: allComplete.length,
+        notCollected: allComplete.filter((o: any) => !o.results_collected_at && !o.encounter_id).length,
+        collected: allComplete.filter((o: any) => o.results_collected_at).length,
+        completedToday: completedToday.length,
       })
     } catch {}
-  }, [todayStr])
+  }, [])
 
   const loadAll = useCallback(async () => {
     setLoading(true)
@@ -102,37 +105,40 @@ export default function LabResults() {
   useEffect(() => { loadAll() }, [loadAll])
 
   async function handleApprove(id: string) {
-    setApprovingId(id)
+    setProcessingId(id)
     try {
       await api.put(`/lab-results/${id}/approve`, { approved_by: staffId })
       await loadAll()
-    } catch {} finally { setApprovingId(null) }
+    } catch (err: any) { console.error('Approve failed:', err) } finally { setProcessingId(null) }
   }
 
   async function handleReject(id: string) {
-    setApprovingId(id)
+    setProcessingId(id)
     try {
       await api.put(`/lab-results/${id}/reject`)
       await loadAll()
-    } catch {} finally { setApprovingId(null) }
+    } catch (err: any) { console.error('Reject failed:', err) } finally { setProcessingId(null) }
+  }
+
+  async function handleMarkCollected(order: any) {
+    setProcessingId(order.id)
+    try {
+      await api.put(`/lab-orders/${order.id}`, { results_collected_at: new Date().toISOString(), results_collected_by: staffId })
+      await loadAll()
+    } catch (err: any) { console.error('Mark collected failed:', err) } finally { setProcessingId(null) }
   }
 
   async function openPrintModal(order: any) {
     try {
-      const res = await api.get(`/lab-results/${order.id}`)
+      const res = await api.get(`/lab-results/${order.id}?status=completed`)
       setPrintModal({ ...order, results: res.data || [] })
     } catch { setPrintModal(order) }
   }
 
-  const mergedCompletedCollected = [...completedOrders, ...collectedOrders]
-    .filter((o, idx, arr) => arr.findIndex((x) => x.id === o.id) === idx)
-
-  const filteredCompleted = mergedCompletedCollected.filter((o: any) => {
-    const q = search.toLowerCase()
-    return !q ||
-      (o.patient_name || '').toLowerCase().includes(q) ||
-      (o.test_name || '').toLowerCase().includes(q) ||
-      (o.lab_number || '').toLowerCase().includes(q)
+  const filterBySearch = (items: any[]) => items.filter((o: any) => {
+    if (!search) return true
+    var q = search.toLowerCase()
+    return (o.patient_name || '').toLowerCase().includes(q) || (o.test_name || '').toLowerCase().includes(q) || (o.lab_number || '').toLowerCase().includes(q)
   })
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 size={32} className="animate-spin text-primary" /></div>
@@ -149,18 +155,26 @@ export default function LabResults() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-5 gap-4">
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
           <p className="text-2xl font-bold text-amber-600">{stats.pendingApproval}</p>
           <p className="text-xs text-slate-500">Pending Approval</p>
         </div>
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-          <p className="text-2xl font-bold text-emerald-600">{stats.completedCollected}</p>
-          <p className="text-xs text-slate-500">Completed & Collected</p>
+          <p className="text-2xl font-bold text-emerald-600">{stats.totalCompleted}</p>
+          <p className="text-xs text-slate-500">Total Completed</p>
         </div>
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
-          <p className="text-2xl font-bold text-blue-600">{stats.totalToday}</p>
-          <p className="text-xs text-slate-500">Total Today</p>
+          <p className="text-2xl font-bold text-sky-600">{stats.notCollected}</p>
+          <p className="text-xs text-slate-500">Not Collected</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <p className="text-2xl font-bold text-indigo-600">{stats.collected}</p>
+          <p className="text-xs text-slate-500">Collected</p>
+        </div>
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
+          <p className="text-2xl font-bold text-blue-600">{stats.completedToday}</p>
+          <p className="text-xs text-slate-500">Completed Today</p>
         </div>
       </div>
 
@@ -172,7 +186,15 @@ export default function LabResults() {
         </button>
         <button onClick={() => { setActiveTab('completed'); setCompletedPage(1) }}
           className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'completed' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-          Completed & Collected ({stats.completedCollected})
+          Completed ({stats.totalCompleted})
+        </button>
+        <button onClick={() => { setActiveTab('not-collected'); setCompletedPage(1) }}
+          className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'not-collected' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+          Not Collected ({stats.notCollected})
+        </button>
+        <button onClick={() => { setActiveTab('collected'); setCompletedPage(1) }}
+          className={`px-5 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'collected' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+          Collected ({stats.collected})
         </button>
       </div>
 
@@ -209,13 +231,13 @@ export default function LabResults() {
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                      <button onClick={() => handleReject(d.id)} disabled={approvingId === d.id}
+                      <button onClick={() => handleReject(d.id)} disabled={processingId === d.id}
                         className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors disabled:opacity-50">
-                        <XCircle size={12} /> Reject
+                        {processingId === d.id ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={12} />} Reject
                       </button>
-                      <button onClick={() => handleApprove(d.id)} disabled={approvingId === d.id}
+                      <button onClick={() => handleApprove(d.id)} disabled={processingId === d.id}
                         className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-600 text-xs font-medium hover:bg-emerald-100 transition-colors disabled:opacity-50">
-                        {approvingId === d.id ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
+                        {processingId === d.id ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />}
                         Approve
                       </button>
                     </div>
@@ -228,52 +250,163 @@ export default function LabResults() {
         </div>
       )}
 
-      {/* Completed & Collected Tab */}
-      {activeTab === 'completed' && (
+      {/* Not Collected Tab */}
+      {activeTab === 'not-collected' && (
         <div className="space-y-3">
-          {/* Search */}
           <div className="relative">
             <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" placeholder="Search by patient name, test name, or lab number..." value={search} onChange={(e) => { setSearch(e.target.value); setCompletedPage(1) }}
+            <input type="text" placeholder="Search by name, test, or lab #..." value={search} onChange={(e) => { setSearch(e.target.value); setCompletedPage(1) }}
               className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white" />
           </div>
-
-          {filteredCompleted.length === 0 ? (
+          {uncollectedComplete.length === 0 ? (
             <div className="flex flex-col items-center py-16 text-slate-400">
               <FileText size={48} className="text-slate-300 mb-3" />
-              <p className="text-sm font-medium">No completed results</p>
-              <p className="text-xs mt-1">Completed and collected lab orders will appear here</p>
+              <p className="text-sm font-medium">All results collected</p>
+              <p className="text-xs mt-1">No completed results waiting for patient collection</p>
             </div>
           ) : (
             <>
-              {usePagination(filteredCompleted, completedPage).items.map((o: any) => (
-                <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-                  <div className="px-5 py-3 flex items-center justify-between border-b border-slate-50">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <FlaskConical size={15} className="text-purple-500 flex-shrink-0" />
-                      <span className="text-sm font-semibold text-slate-800 truncate">{o.test_name}</span>
-                      <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium flex-shrink-0 ${o.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                        {o.status === 'completed' ? 'Completed' : 'Collected'}
-                      </span>
-                      {!o.encounter_id && (
-                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-sky-100 text-sky-700 flex-shrink-0">Walk-in</span>
-                      )}
+              {filterBySearch(uncollectedComplete).length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-8">No results match your search</p>
+              ) : (
+                usePagination(filterBySearch(uncollectedComplete), completedPage).items.map((o: any) => (
+                  <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                    <div className="px-5 py-3 flex items-center justify-between border-b border-slate-50">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <FlaskConical size={15} className="text-purple-500 flex-shrink-0" />
+                        <span className="text-sm font-semibold text-slate-800 truncate">{o.test_name}</span>
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-emerald-100 text-emerald-700 flex-shrink-0">Completed</span>
+                        {!o.encounter_id && (
+                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-sky-100 text-sky-700 flex-shrink-0">Walk-in</span>
+                        )}
+                      </div>
+                      <span className="text-xs text-slate-400 flex-shrink-0 ml-3">{new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
                     </div>
-                    <span className="text-xs text-slate-400 flex-shrink-0 ml-3">{new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
-                  </div>
-                  <div className="px-5 py-3 flex items-center justify-between">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-800">{o.patient_name || 'Walk-in Patient'}</p>
-                      {o.lab_number && <p className="text-xs text-slate-400 font-mono">#{o.lab_number}</p>}
+                    <div className="px-5 py-3 flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800">{o.patient_name || 'Walk-in Patient'}</p>
+                        {o.lab_number && <p className="text-xs text-slate-400 font-mono">#{o.lab_number}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                        <button onClick={() => openPrintModal(o)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors"><FileText size={12} /> View</button>
+                        {!o.encounter_id && (
+                          <button onClick={() => handleMarkCollected(o)} disabled={processingId === o.id}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-sky-50 text-sky-600 text-xs font-medium hover:bg-sky-100 transition-colors disabled:opacity-50">
+                            {processingId === o.id ? <Loader2 size={12} className="animate-spin" /> : null}
+                            Mark as Collected
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <button onClick={() => openPrintModal(o)}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex-shrink-0 ml-3">
-                      <FileText size={12} /> View
-                    </button>
                   </div>
-                </div>
-              ))}
-              <Pagination page={completedPage} totalPages={usePagination(filteredCompleted, completedPage).totalPages} onChange={setCompletedPage} />
+                ))
+              )}
+              <Pagination page={completedPage} totalPages={usePagination(filterBySearch(uncollectedComplete), completedPage).totalPages} onChange={setCompletedPage} />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Collected Tab */}
+      {activeTab === 'collected' && (
+        <div className="space-y-3">
+          <div className="relative">
+            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input type="text" placeholder="Search by name, test, or lab #..." value={search} onChange={(e) => { setSearch(e.target.value); setCompletedPage(1) }}
+              className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white" />
+          </div>
+          {collectedOrders.length === 0 ? (
+            <div className="flex flex-col items-center py-16 text-slate-400">
+              <CheckCircle size={48} className="text-slate-300 mb-3" />
+              <p className="text-sm font-medium">No collected results</p>
+              <p className="text-xs mt-1">Results that patients have collected will appear here</p>
+            </div>
+          ) : (
+            <>
+              {filterBySearch(collectedOrders).length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-8">No results match your search</p>
+              ) : (
+                usePagination(filterBySearch(collectedOrders), completedPage).items.map((o: any) => (
+                  <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                    <div className="px-5 py-3 flex items-center justify-between border-b border-slate-50">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <FlaskConical size={15} className="text-purple-500 flex-shrink-0" />
+                        <span className="text-sm font-semibold text-slate-800 truncate">{o.test_name}</span>
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-emerald-100 text-emerald-700 flex-shrink-0">Collected</span>
+                        {!o.encounter_id && (
+                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-sky-100 text-sky-700 flex-shrink-0">Walk-in</span>
+                        )}
+                      </div>
+                      <span className="text-xs text-slate-400 flex-shrink-0 ml-3">{new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                    </div>
+                    <div className="px-5 py-3 flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800">{o.patient_name || 'Walk-in Patient'}</p>
+                        {o.lab_number && <p className="text-xs text-slate-400 font-mono">#{o.lab_number}</p>}
+                        {o.results_collected_at && (
+                          <p className="text-[10px] text-sky-600 mt-0.5">
+                            Collected {new Date(o.results_collected_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        )}
+                      </div>
+                      <button onClick={() => openPrintModal(o)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex-shrink-0 ml-3">
+                        <FileText size={12} /> View
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+              <Pagination page={completedPage} totalPages={usePagination(filterBySearch(collectedOrders), completedPage).totalPages} onChange={setCompletedPage} />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Completed Tab (registered patients only) */}
+      {activeTab === 'completed' && (
+        <div className="space-y-3">
+          <div className="relative">
+            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input type="text" placeholder="Search by name, test, or lab #..." value={search} onChange={(e) => { setSearch(e.target.value); setCompletedPage(1) }}
+              className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white" />
+          </div>
+          {allCompleted.length === 0 ? (
+            <div className="flex flex-col items-center py-16 text-slate-400">
+              <CheckCircle size={48} className="text-slate-300 mb-3" />
+              <p className="text-sm font-medium">No completed results</p>
+              <p className="text-xs mt-1">All completed lab results will appear here</p>
+            </div>
+          ) : (
+            <>
+              {filterBySearch(allCompleted).length === 0 ? (
+                <p className="text-sm text-slate-400 text-center py-8">No results match your search</p>
+              ) : (
+                usePagination(filterBySearch(allCompleted), completedPage).items.map((o: any) => (
+                  <div key={o.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow">
+                    <div className="px-5 py-3 flex items-center justify-between border-b border-slate-50">
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <FlaskConical size={15} className="text-purple-500 flex-shrink-0" />
+                        <span className="text-sm font-semibold text-slate-800 truncate">{o.test_name}</span>
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-emerald-100 text-emerald-700 flex-shrink-0">Completed</span>
+                      </div>
+                      <span className="text-xs text-slate-400 flex-shrink-0 ml-3">{new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                    </div>
+                    <div className="px-5 py-3 flex items-center justify-between">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800">{o.patient_name || 'Walk-in Patient'}</p>
+                        {o.lab_number && <p className="text-xs text-slate-400 font-mono">#{o.lab_number}</p>}
+                      </div>
+                      <button onClick={() => openPrintModal(o)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex-shrink-0 ml-3">
+                        <FileText size={12} /> View
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+              <Pagination page={completedPage} totalPages={usePagination(filterBySearch(allCompleted), completedPage).totalPages} onChange={setCompletedPage} />
             </>
           )}
         </div>

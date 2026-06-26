@@ -5,7 +5,7 @@ import type { Patient, Encounter } from '../types'
 import {
   User, Clock, Pill, Beaker, Scan, Activity, Loader2, Bed,
   AlertTriangle, ChevronRight, ArrowLeft, Stethoscope, FlaskConical, Droplets, XCircle,
-  FileText, X, Info, Plus, CheckCircle, Edit2, Mic
+  FileText, X, Info, Plus, CheckCircle, Edit2, Mic, Printer, FileImage
 } from 'lucide-react'
 
 const PER_PAGE = 15
@@ -91,6 +91,9 @@ export default function PatientChart() {
   const [vitalsList, setVitalsList] = useState<any[]>([])
   const [admissions, setAdmissions] = useState<any[]>([])
   const [viewLabModal, setViewLabModal] = useState<any | null>(null)
+  const [viewRadModal, setViewRadModal] = useState<any | null>(null)
+  const [viewImage, setViewImage] = useState<string | null>(null)
+  const [imageZoom, setImageZoom] = useState(false)
   const [showVitalsForm, setShowVitalsForm] = useState(false)
   const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
@@ -317,7 +320,7 @@ export default function PatientChart() {
       const labOrders = labRes.data || []
       const resultsMap: Record<string, any[]> = {}
       for (const lo of labOrders) {
-        try { const r = await api.get(`/lab-results/${lo.id}`); if (r.data?.length) resultsMap[lo.id] = r.data } catch {}
+        try { const r = await api.get(`/lab-results/${lo.id}?status=completed`); if (r.data?.length) resultsMap[lo.id] = r.data } catch {}
       }
       setModalEncData({ prescriptions: rxRes.data || [], labOrders, labResultsMap: resultsMap, radiologyOrders: radRes.data || [], doctorName })
     } catch { setModalEncData({ prescriptions: [], labOrders: [], labResultsMap: {}, radiologyOrders: [], doctorName }) }
@@ -359,7 +362,7 @@ export default function PatientChart() {
           allRadOrders.push(...(radRes.data || []))
 
           for (const lo of (labRes.data || [])) {
-            try { const r = await api.get(`/lab-results/${lo.id}`); if (r.data?.length) resultsMap[lo.id] = r.data } catch {}
+            try { const r = await api.get(`/lab-results/${lo.id}?status=completed`); if (r.data?.length) resultsMap[lo.id] = r.data } catch {}
           }
 
           try {
@@ -794,6 +797,122 @@ export default function PatientChart() {
         </div>
       )}
 
+      {/* Radiology Report Modal */}
+      {viewRadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setViewRadModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <Scan size={22} className="text-indigo-500" />
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-800">{viewRadModal.imaging_type}</h2>
+                  {viewRadModal.imaging_number && <p className="text-xs text-slate-400 font-mono">#{viewRadModal.imaging_number}</p>}
+                </div>
+              </div>
+              <button onClick={() => setViewRadModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+
+            {/* Body */}
+            <div className="overflow-y-auto flex-1 p-6 space-y-5">
+              {/* Details Grid */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                  <p className="text-xs text-slate-500 mb-1">Patient</p>
+                  <p className="text-sm font-semibold text-slate-800">{viewRadModal.patient_name || '—'}</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                  <p className="text-xs text-slate-500 mb-1">Ordered By</p>
+                  <p className="text-sm font-semibold text-slate-800">{viewRadModal.doctor_name || '—'}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{new Date(viewRadModal.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                  <p className="text-xs text-slate-500 mb-1">Status</p>
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${viewRadModal.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : viewRadModal.status === 'review' || viewRadModal.status === 'rejected' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {viewRadModal.status === 'completed' ? <CheckCircle size={12} /> : null}
+                    {viewRadModal.status === 'review' || viewRadModal.status === 'rejected' ? 'In Review' : viewRadModal.status?.charAt(0).toUpperCase() + viewRadModal.status?.slice(1)}
+                  </span>
+                </div>
+              </div>
+
+              {/* Reported By */}
+              {viewRadModal.reported_by_name && (
+                <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Scan size={14} className="text-indigo-600" />
+                    <p className="text-xs text-slate-500">Radiologist / Reported By</p>
+                  </div>
+                  <p className="text-sm font-semibold text-slate-800">{viewRadModal.reported_by_name}</p>
+                  {viewRadModal.reported_at && <p className="text-xs text-slate-500 mt-0.5">Reported on: {new Date(viewRadModal.reported_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>}
+                </div>
+              )}
+
+              {/* Report Text */}
+              <div>
+                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5"><FileText size={12} /> Radiology Report</h4>
+                <div className="bg-white rounded-xl border border-slate-100 p-4 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed min-h-[100px]">{viewRadModal.report_text || 'No report available'}</div>
+              </div>
+
+              {/* Uploaded Image */}
+              {viewRadModal.image_path && (
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5"><FileImage size={12} /> Attached Image</h4>
+                  <div className="bg-slate-50 rounded-xl border border-slate-100 p-3 flex items-center justify-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => setViewImage(viewRadModal.image_path)}>
+                    <img src={viewRadModal.image_path} alt="Radiology image"
+                      className="max-w-full max-h-80 rounded-lg object-contain"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.innerHTML = '<p class="text-sm text-slate-400 py-4">Image not available</p>' }} />
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1.5 text-center">Click image to view full screen</p>
+                </div>
+              )}
+
+              {/* Print */}
+              <div className="flex justify-end">
+                <button onClick={() => window.print()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50">
+                  <Printer size={14} /> Print Report
+                </button>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end flex-shrink-0">
+              <button onClick={() => setViewRadModal(null)} className="px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full-screen Image Viewer */}
+      {viewImage && (
+        <div className="fixed inset-0 z-[60] bg-black/90 flex flex-col" onClick={() => { setViewImage(null); setImageZoom(false) }}>
+          <div className="flex items-center justify-between px-6 py-4 bg-black/60 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 text-white">
+              <Scan size={20} className="text-indigo-400" />
+              <div>
+                <p className="text-sm font-semibold">{viewRadModal?.patient_name || 'Patient'}</p>
+                <p className="text-xs text-slate-400">{viewRadModal?.imaging_type} {viewRadModal?.imaging_number ? `· ${viewRadModal.imaging_number}` : ''}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setImageZoom(!imageZoom)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${imageZoom ? 'bg-white text-slate-800' : 'bg-white/10 text-white hover:bg-white/20'}`}>
+                {imageZoom ? 'Fit to Screen' : 'Zoom In'}
+              </button>
+              <button onClick={() => { setViewImage(null); setImageZoom(false) }}
+                className="w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+                <X size={22} className="text-white" />
+              </button>
+            </div>
+          </div>
+          <div className={`flex-1 p-6 overflow-auto ${imageZoom ? 'block' : 'flex items-center justify-center'}`} onClick={(e) => e.stopPropagation()}>
+            <img src={viewImage} alt="Radiology image"
+              className={`transition-all duration-300 ${imageZoom ? 'w-auto h-auto max-w-none max-h-none cursor-zoom-out' : 'max-w-full max-h-full object-contain cursor-zoom-in'}`}
+              onClick={() => setImageZoom(!imageZoom)}
+              style={imageZoom ? { maxWidth: 'none', maxHeight: 'none', width: 'auto', height: 'auto', minWidth: '80vw', minHeight: '80vh' } : {}} />
+          </div>
+        </div>
+      )}
+
       {/* Radiology */}
       {activeSection === 'radiology' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
@@ -805,13 +924,24 @@ export default function PatientChart() {
                   <div key={rad.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
                     <div className="flex items-center justify-between mb-1 gap-3">
                       <p className="text-sm font-medium text-slate-800 truncate">{rad.imaging_type}</p>
-                    <span className={`px-2.5 py-0.5 rounded-lg text-xs font-medium ${rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{rad.status}</span>
+                      <span className={`px-2.5 py-0.5 rounded-lg text-xs font-medium flex-shrink-0 ${rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : rad.status === 'review' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'}`}>{rad.status === 'review' ? 'In Review' : rad.status === 'rejected' ? 'In Review' : rad.status === 'completed' ? 'Completed' : rad.status?.charAt(0).toUpperCase() + rad.status?.slice(1)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 sm:gap-3 text-[11px] text-slate-500 flex-wrap">
+                      {rad.doctor_name && <span>Ordered by: <strong>{rad.doctor_name}</strong></span>}
+                      <span>{new Date(rad.created_at).toLocaleString()}</span>
+                    </div>
+                    {rad.status === 'completed' && (
+                      <div className="mt-3 space-y-2">
+                        {rad.report_text && (
+                          <div className="text-xs text-slate-600 whitespace-pre-wrap bg-white rounded-lg p-3 border border-slate-200 leading-relaxed max-h-24 overflow-y-auto">{rad.report_text}</div>
+                        )}
+                        <button onClick={() => setViewRadModal(rad)}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors">
+                          <FileText size={14} /> {rad.report_text ? 'View Full Report' : 'View Details'}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2 sm:gap-3 text-[11px] text-slate-500 flex-wrap">
-                    {rad.doctor_name && <span>Ordered by: <strong>{rad.doctor_name}</strong></span>}
-                    <span>{new Date(rad.created_at).toLocaleString()}</span>
-                  </div>
-                </div>
               ))}
               <Pagination page={radPage} totalPages={usePagination(radOrders, radPage).totalPages} onChange={setRadPage} />
             </div>
@@ -1005,9 +1135,17 @@ export default function PatientChart() {
                       <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Scan size={12} /> Radiology Orders ({modalEncData.radiologyOrders.length})</p>
                       <div className="space-y-1.5">
                         {modalEncData.radiologyOrders.map((rad: any) => (
-                          <div key={rad.id} className="flex items-center justify-between bg-slate-50 rounded-xl p-3 text-sm gap-3">
-                            <span className="font-medium text-slate-800 truncate min-w-0">{rad.imaging_type}</span>
-                            <span className={`px-2 py-0.5 rounded-lg text-xs font-medium flex-shrink-0 ${rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{rad.status}</span>
+                          <div key={rad.id} className="bg-slate-50 rounded-xl p-3 text-sm space-y-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="font-medium text-slate-800 truncate min-w-0">{rad.imaging_type}</span>
+                              <span className={`px-2 py-0.5 rounded-lg text-xs font-medium flex-shrink-0 ${rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : rad.status === 'review' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'}`}>{rad.status === 'review' ? 'In Review' : rad.status === 'rejected' ? 'In Review' : rad.status === 'completed' ? 'Completed' : rad.status?.charAt(0).toUpperCase() + rad.status?.slice(1)}</span>
+                            </div>
+                            {rad.report_text && (
+                              <div className="text-xs text-slate-600 whitespace-pre-wrap bg-white rounded-lg p-2.5 border border-slate-100 max-h-20 overflow-y-auto">{rad.report_text}</div>
+                            )}
+                            {rad.reported_by_name && (
+                              <p className="text-[10px] text-slate-400">Reported by: {rad.reported_by_name}{rad.reported_at ? ` · ${new Date(rad.reported_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}</p>
+                            )}
                           </div>
                         ))}
                       </div>

@@ -17,7 +17,7 @@ router.get('/api/lab-orders', async (req: Request, res: Response) => {
     const tenantId = getTenantId();
     const { status, encounter_id, doctor_id, specimen_type, priority, is_paid } = req.query;
 
-    let query = `SELECT l.* FROM lab_orders l WHERE l.tenant_id = $1`;
+    let query = `SELECT l.*, enc.patient_id, pat.hospital_number FROM lab_orders l LEFT JOIN encounters enc ON enc.id = l.encounter_id LEFT JOIN patients pat ON pat.id = enc.patient_id WHERE l.tenant_id = $1`;
     const params: any[] = [tenantId];
     let idx = 2;
 
@@ -140,7 +140,7 @@ router.post('/api/lab-orders', async (req: Request, res: Response) => {
 router.put('/api/lab-orders/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { status, specimen_type, priority, collected_at, results_collected_at, doctor_read_at } = req.body;
+    const { status, specimen_type, priority, collected_at, results_collected_at, doctor_read_at, results_collected_by } = req.body;
 
     if (status === 'processing' || status === 'collected') {
       var paidCheck = await pool.query('SELECT is_paid FROM lab_orders WHERE id = $1', [id]);
@@ -157,9 +157,10 @@ router.put('/api/lab-orders/:id', async (req: Request, res: Response) => {
         priority = COALESCE($3, priority),
         collected_at = COALESCE($4, collected_at),
         results_collected_at = COALESCE($5, results_collected_at),
-        doctor_read_at = COALESCE($6, doctor_read_at)
-       WHERE id = $7 RETURNING *`,
-      [status || null, specimen_type || null, priority || null, collected_at || null, results_collected_at || null, doctor_read_at || null, id]
+        doctor_read_at = COALESCE($6, doctor_read_at),
+        results_collected_by = COALESCE($7, results_collected_by)
+       WHERE id = $8 RETURNING *`,
+      [status || null, specimen_type || null, priority || null, collected_at || null, results_collected_at || null, doctor_read_at || null, results_collected_by || null, id]
     );
 
     if (result.rows.length === 0) {
@@ -198,7 +199,7 @@ router.post('/api/lab-results', async (req: Request, res: Response) => {
       [id, tenantId, lab_order_id, resultNumber, analyte_name, value, reference_range_low || null, reference_range_high || null, abnormal]
     );
 
-    await pool.query(`UPDATE lab_orders SET status = 'processing' WHERE id = $1 AND status = 'ordered'`, [lab_order_id]);
+    await pool.query(`UPDATE lab_orders SET status = 'processing' WHERE id = $1 AND status IN ('ordered', 'collected')`, [lab_order_id]);
 
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
@@ -223,7 +224,7 @@ router.put('/api/lab-results/:id/approve', async (req: Request, res: Response) =
 
     const labOrderId = result.rows[0].lab_order_id;
     const allCompleted = await pool.query(
-      `SELECT COUNT(*) = SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as done FROM lab_results WHERE lab_order_id = $1`,
+      `SELECT COUNT(*) = SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as done FROM lab_results WHERE lab_order_id = $1 AND status NOT IN ('rejected', 'review')`,
       [labOrderId]
     );
     if (allCompleted.rows[0]?.done) {
@@ -249,9 +250,12 @@ router.put('/api/lab-results/:id/approve', async (req: Request, res: Response) =
 router.get('/api/lab-results/:orderId', async (req: Request, res: Response) => {
   try {
     const { orderId } = req.params;
-    const result = await pool.query(
-      `SELECT * FROM lab_results WHERE lab_order_id = $1 ORDER BY created_at`, [orderId]
-    );
+    const { status } = req.query;
+    var query = 'SELECT * FROM lab_results WHERE lab_order_id = $1';
+    var params: any[] = [orderId];
+    if (status) { query += ' AND status = $2'; params.push(status); }
+    query += ' ORDER BY created_at';
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
@@ -262,12 +266,14 @@ router.put('/api/lab-results/:id/reject', async (req: Request, res: Response) =>
   try {
     const { id } = req.params;
     const result = await pool.query(
-      `UPDATE lab_results SET status = 'draft' WHERE id = $1 RETURNING *`, [id]
+      `UPDATE lab_results SET status = 'review' WHERE id = $1 RETURNING *`, [id]
     );
     if (result.rows.length === 0) {
       res.status(404).json({ error: true, message: 'Lab result not found' });
       return;
     }
+    // Return lab order to 'review' so it reappears in worklist for editing
+    await pool.query(`UPDATE lab_orders SET status = 'review' WHERE id = $1`, [result.rows[0].lab_order_id]);
     res.json(result.rows[0]);
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });

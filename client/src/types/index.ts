@@ -126,6 +126,12 @@ export interface RadiologyOrder {
   report_text: string
   image_path: string
   is_paid?: boolean
+  patient_name?: string
+  doctor_name?: string
+  imaging_number?: string
+  reported_by?: string
+  reported_at?: string
+  reported_by_name?: string
   created_at: string
 }
 

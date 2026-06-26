@@ -1,5 +1,8 @@
 import express from 'express';
 import * as fs from 'fs';
+import * as path from 'path';
+import sharp from 'sharp';
+import multer from 'multer';
 import { corsMiddleware } from './middleware/cors';
 import { errorHandler } from './middleware/errorHandler';
 import { ensureSchema } from './db/init';
@@ -61,6 +64,41 @@ app.use(setupConsoleRouter);
 app.use(paymentsRouter);
 
 app.use(errorHandler);
+
+// Upload directory for radiology images
+const uploadsDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) { fs.mkdirSync(uploadsDir, { recursive: true }); }
+
+const storage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (_req, file, cb) => {
+    var ext = path.extname(file.originalname) || '.png';
+    cb(null, `rad-${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`);
+  }
+});
+const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
+
+app.use('/uploads', express.static(uploadsDir));
+
+app.post('/api/upload', upload.single('file'), async (req: any, res: any) => {
+  if (!req.file) return res.status(400).json({ error: true, message: 'No file uploaded' });
+  try {
+    var ext = path.extname(req.file.filename).toLowerCase();
+    if (ext === '.png' || ext === '.jpg' || ext === '.jpeg') {
+      var compressed = await sharp(req.file.path)
+        .resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80, mozjpeg: true })
+        .toBuffer();
+      fs.writeFileSync(req.file.path, compressed);
+      res.json({ path: `/uploads/${req.file.filename}`, filename: req.file.filename, compressed: true });
+    } else {
+      res.json({ path: `/uploads/${req.file.filename}`, filename: req.file.filename, compressed: false });
+    }
+  } catch (err: any) {
+    // Original file is untouched - sharp failed but file remains
+    res.json({ path: `/uploads/${req.file.filename}`, filename: req.file.filename, compressed: false });
+  }
+});
 
 async function start(): Promise<void> {
   try {

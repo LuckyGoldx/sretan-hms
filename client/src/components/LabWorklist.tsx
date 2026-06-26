@@ -52,6 +52,7 @@ const statusStyles: Record<string, string> = {
   collected: 'bg-amber-100 text-amber-700',
   processing: 'bg-purple-100 text-purple-700',
   completed: 'bg-emerald-100 text-emerald-700',
+  review: 'bg-rose-100 text-rose-700',
 }
 
 const statusLabels: Record<string, string> = {
@@ -59,6 +60,7 @@ const statusLabels: Record<string, string> = {
   collected: 'Collected',
   processing: 'Processing',
   completed: 'Completed',
+  review: 'Rejected - Review',
   collected_results: 'Results Collected',
 }
 
@@ -84,11 +86,13 @@ export default function LabWorklist() {
         const params = new URLSearchParams()
         if (isDoctor && !showMyOrders && currentUser?.id) params.set('doctor_id', currentUser.id)
         const paramStr = params.toString()
-        const [ordRes, statsRes] = await Promise.all([
-          api.get(`/lab-orders${paramStr ? `?${paramStr}` : ''}`).catch(() => ({ data: [] })),
+          const [ordRes, statsRes] = await Promise.all([
+          api.get(`/lab-orders${paramStr ? `?${paramStr}&` : '?'}is_paid=true`).catch(() => ({ data: [] })),
           api.get('/lab-orders/stats').catch(() => ({ data: { ordered: 0, collected: 0, processing: 0, completed: 0 } })),
         ])
-        setOrders(ordRes.data || [])
+        var allOrders = ordRes.data || []
+        // Exclude completed orders from the worklist
+        setOrders(allOrders.filter((o: any) => o.status !== 'completed'))
         setStats(statsRes.data || { ordered: 0, collected: 0, processing: 0, completed: 0 })
       } catch (err) { console.error('Failed to load lab worklist:', err) } finally { setLoading(false) }
     }
@@ -137,10 +141,10 @@ export default function LabWorklist() {
       setAnalytes([{ name: '', value: '', refLow: '', refHigh: '' }])
       setSelectedOrder(null)
       const [ordRes, statsRes] = await Promise.all([
-        api.get('/lab-orders').catch(() => ({ data: [] })),
+        api.get('/lab-orders?is_paid=true').catch(() => ({ data: [] })),
         api.get('/lab-orders/stats').catch(() => ({ data: { ordered: 0, collected: 0, processing: 0, completed: 0 } })),
       ])
-      setOrders(ordRes.data || [])
+      setOrders((ordRes.data || []).filter((o: any) => o.status !== 'completed'))
       setStats(statsRes.data)
     } catch (err) { console.error('Submit results failed:', err) } finally { setSubmitting(false) }
   }
@@ -214,6 +218,7 @@ export default function LabWorklist() {
           <option value="ordered">Ordered</option>
           <option value="collected">Collected</option>
           <option value="processing">Processing</option>
+          <option value="review">Review</option>
           <option value="collected_results">Results Collected</option>
         </select>
         {isDoctor && (
@@ -270,35 +275,20 @@ export default function LabWorklist() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                  {o.status === 'ordered' && o.is_paid !== false && (
+                  {o.status === 'ordered' && (
                     <button onClick={() => handleCollect(o.id)} disabled={collectingId === o.id}
                       className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-600 text-xs font-medium hover:bg-amber-100 transition-colors disabled:opacity-50">
                       {collectingId === o.id ? <Loader2 size={12} className="animate-spin" /> : null}
                       Collect Sample
                     </button>
                   )}
-                  {(o.status === 'collected' || o.status === 'ordered') && o.is_paid !== false && !o.results_collected_at && (
+                  {o.status === 'collected' && (
                     <button onClick={() => setSelectedOrder(o)}
                       className="px-3 py-1.5 rounded-lg bg-purple-50 text-purple-600 text-xs font-medium hover:bg-purple-100 transition-colors">Enter Results</button>
                   )}
-                  {o.status === 'ordered' && o.is_paid === false && (
-                    <span className="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-400 text-xs font-medium cursor-not-allowed">Awaiting Payment</span>
-                  )}
-                  {o.status === 'completed' && (
-                    <>
-                      <button onClick={() => openPrintModal(o.id)}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors"><FileText size={12} /> View</button>
-                      {o.results_collected_at ? (
-                        <span className="text-xs text-sky-600 font-medium flex items-center gap-1"><CheckCircle size={12} /> Collected</span>
-                      ) : (
-                        <button onClick={() => setCollectModal(o)}
-                          className="px-3 py-1.5 rounded-lg bg-sky-50 text-sky-600 text-xs font-medium hover:bg-sky-100 transition-colors">Mark Collected</button>
-                      )}
-                    </>
-                  )}
-                  {o.status === 'processing' && o.is_paid !== false && (
+                  {o.status === 'review' && (
                     <button onClick={() => setSelectedOrder(o)}
-                      className="px-3 py-1.5 rounded-lg bg-purple-50 text-purple-600 text-xs font-medium hover:bg-purple-100 transition-colors">Enter Results</button>
+                      className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-600 text-xs font-medium hover:bg-amber-100 transition-colors">Edit Results</button>
                   )}
                 </div>
               </div>

@@ -44,6 +44,7 @@ const DoctorVitals = lazy(() => import('./components/DoctorVitals'))
 const AdmissionsPage = lazy(() => import('./components/AdmissionsPage'))
 const WalkInSales = lazy(() => import('./components/WalkInSales'))
 const LabInventory = lazy(() => import('./components/LabInventory'))
+const DoctorResults = lazy(() => import('./components/DoctorResults'))
 const DoctorLabResults = lazy(() => import('./components/DoctorLabResults'))
 const LabLowStock = lazy(() => import('./components/LabLowStock'))
 const AppointmentsPage = lazy(() => import('./components/AppointmentsPage'))
@@ -59,6 +60,11 @@ const PharmacyDashboard = lazy(() => import('./components/PharmacyDashboard'))
 const Dispensing = lazy(() => import('./components/Dispensing'))
 const InventoryManager = lazy(() => import('./components/InventoryManager'))
 const InventoryManagement = lazy(() => import('./components/InventoryManagement'))
+const RadiologyDashboard = lazy(() => import('./components/RadiologyDashboard'))
+const RadiologyResults = lazy(() => import('./components/RadiologyResults'))
+const RadiologyReview = lazy(() => import('./components/RadiologyReview'))
+const RadiologyOrders = lazy(() => import('./components/RadiologyOrders'))
+const RadiologyHistory = lazy(() => import('./components/RadiologyHistory'))
 const RadiologyInventory = lazy(() => import('./components/RadiologyInventory'))
 const ExpiryMonitor = lazy(() => import('./components/ExpiryMonitor'))
 const PurchaseOrders = lazy(() => import('./components/PurchaseOrders'))
@@ -98,13 +104,14 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/my-prescriptions', label: 'Prescriptions', icon: Pill, roles: ['Doctor', 'Admin'], category: 'Clinical' },
   { to: '/vitals', label: 'Vitals', icon: Activity, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Clinical' },
   { to: '/consultation', label: 'Consultation', icon: Stethoscope, roles: ['Doctor', 'Admin'], category: 'Clinical' },
+  { to: '/doctor/results', label: 'Results', icon: FileText, roles: ['Doctor'], category: 'Clinical' },
   { to: '/appointments', label: 'Appointments', icon: Calendar, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Clinical' },
   { to: '/admissions', label: 'Admissions', icon: Home, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Clinical' },
   // ── Laboratory ──
-  { to: '/lab', label: 'Lab Dashboard', icon: Beaker, roles: ['Lab Scientist', 'Doctor', 'Admin'], category: 'Laboratory' },
+  { to: '/lab', label: 'Lab Dashboard', icon: Beaker, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
   { to: '/lab/worklist', label: 'Worklist', icon: FileText, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
-  { to: '/lab/results', label: 'Results', icon: CheckCircle, roles: ['Lab Scientist', 'Doctor', 'Admin'], category: 'Laboratory' },
-  { to: '/lab/history', label: 'History', icon: Clock, roles: ['Lab Scientist', 'Doctor', 'Admin'], category: 'Laboratory' },
+  { to: '/lab/results', label: 'Results', icon: CheckCircle, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
+  { to: '/lab/history', label: 'History', icon: Clock, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
   { to: '/lab/orders', label: 'Lab Orders', icon: ShoppingCart, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
   { to: '/lab/catalog', label: 'Test Catalog', icon: FlaskConical, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
   { to: '/lab/reports', label: 'Lab Reports', icon: BarChart3, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
@@ -120,9 +127,14 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/purchase-orders', label: 'Purchase Orders', icon: Truck, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
   { to: '/dispensing-history', label: 'Dispensing History', icon: ClipboardList, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
   // ── Radiology ──
-  { to: '/radiology', label: 'Radiology', icon: Scan, roles: ['Doctor', 'Admin'], category: 'Radiology' },
-  { to: '/radiology-inventory', label: 'Radiology Inventory', icon: Scan, roles: ['Admin'], category: 'Radiology' },
-  { to: '/radiology-expiry', label: 'Radiology Expiry', icon: Clock, roles: ['Admin'], category: 'Radiology' },
+  { to: '/radiology', label: 'Radiology Dashboard', icon: Scan, roles: ['Admin', 'Radiology'], category: 'Radiology' },
+  { to: '/radiology/worklist', label: 'Worklist', icon: ClipboardList, roles: ['Admin', 'Radiology'], category: 'Radiology' },
+  { to: '/radiology/results', label: 'Results', icon: CheckCircle, roles: ['Admin', 'Radiology'], category: 'Radiology' },
+  { to: '/radiology/review', label: 'Review', icon: CheckCircle, roles: ['Admin', 'Radiology'], category: 'Radiology' },
+  { to: '/radiology/orders', label: 'Orders', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology' },
+  { to: '/radiology/history', label: 'History', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology' },
+  { to: '/radiology-inventory', label: 'Radiology Inventory', icon: Package, roles: ['Admin', 'Radiology'], category: 'Radiology' },
+  { to: '/radiology-expiry', label: 'Radiology Expiry', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology' },
   // ── Records ──
   { to: '/records/patients', label: 'Patient Records', icon: Users, roles: ['Records', 'Admin'], category: 'Records' },
   { to: '/records/requests', label: 'Record Requests', icon: FileText, roles: ['Records', 'Admin'], category: 'Records' },
@@ -159,6 +171,8 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [pendingLabOrdersCount, setPendingLabOrdersCount] = useState(0)
   const [pendingAllCount, setPendingAllCount] = useState(0)
   const [pendingPatientsCount, setPendingPatientsCount] = useState(0)
+  const [pendingResultsCount, setPendingResultsCount] = useState(0)
+  const [doctorUnreadResultsCount, setDoctorUnreadResultsCount] = useState(0)
   const [collapsedCategories, setCollapsedCategories] = useState<string[]>([])
 
   useEffect(() => {
@@ -179,7 +193,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
     async function fetchCounts() {
       try {
         const staffId = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return '' })()
-        const [rxRes, labOrdRes, labResRes, unreadLabRes, pendingOrdRes, pendingAllRes, pendingPatsRes] = await Promise.all([
+        const [rxRes, labOrdRes, labResRes, unreadLabRes, pendingOrdRes, pendingAllRes, pendingPatsRes, pendingResultsRes, docRadUnreadRes] = await Promise.all([
           fetch('/api/prescriptions?status=pending', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
           fetch('/api/lab-orders?status=ordered', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
           fetch('/api/lab-results?status=completed', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
@@ -187,6 +201,8 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
           fetch('/api/lab-orders?is_paid=false', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
           fetch('/api/payments/all-pending-items', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
           fetch('/api/payments/pending-summary', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+          fetch('/api/lab-results?status=draft', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+          staffId ? fetch(`/api/radiology-orders?status=completed&doctor_id=${staffId}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }) : null,
         ])
         const rxData = await rxRes.json()
         const labOrdData = await labOrdRes.json()
@@ -194,9 +210,11 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         setPendingRxCount(Array.isArray(rxData) ? rxData.length : 0)
         setPendingLabCount(Array.isArray(labOrdData) ? labOrdData.length : 0)
         setCompletedLabCount(Array.isArray(labResData) ? labResData.length : 0)
+        var labUnreadCount = 0
         if (unreadLabRes) {
           const unreadLabData = await unreadLabRes.json()
-          setUnreadLabCount(Array.isArray(unreadLabData) ? unreadLabData.filter((o: any) => !o.doctor_read_at).length : 0)
+          labUnreadCount = Array.isArray(unreadLabData) ? unreadLabData.filter((o: any) => !o.doctor_read_at).length : 0
+          setUnreadLabCount(labUnreadCount)
         }
         const pendingOrdData = await pendingOrdRes.json()
         setPendingLabOrdersCount(Array.isArray(pendingOrdData) ? pendingOrdData.length : 0)
@@ -204,11 +222,34 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         setPendingAllCount(Array.isArray(pendingAllData) ? pendingAllData.length : 0)
         const pendingPatsData = await pendingPatsRes.json()
         setPendingPatientsCount(Array.isArray(pendingPatsData) ? pendingPatsData.length : 0)
+        const pendingResultsData = await pendingResultsRes.json()
+        setPendingResultsCount(Array.isArray(pendingResultsData) ? pendingResultsData.filter((r: any) => r.status === 'draft').length : 0)
+        if (docRadUnreadRes) {
+          var docRadData = await docRadUnreadRes.json()
+          var radUnread = Array.isArray(docRadData) ? docRadData.filter((o: any) => !o.doctor_read_at).length : 0
+          var totalCompleted = labUnreadCount + radUnread
+          // Subtract items already read via localStorage
+          try {
+            var readIds: string[] = JSON.parse(localStorage.getItem('doctor_read_results') || '[]')
+            totalCompleted = Math.max(0, totalCompleted - readIds.length)
+          } catch {}
+          setDoctorUnreadResultsCount(totalCompleted)
+        } else {
+          setDoctorUnreadResultsCount(labUnreadCount)
+        }
       } catch {}
     }
     fetchCounts()
     const id = setInterval(fetchCounts, 30000)
     return () => clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    function handleResultsRead(e: Event) {
+      setDoctorUnreadResultsCount((prev: number) => Math.max(0, prev - 1))
+    }
+    window.addEventListener('doctorResultsRead', handleResultsRead as EventListener)
+    return () => window.removeEventListener('doctorResultsRead', handleResultsRead as EventListener)
   }, [])
 
   function handleLogout() {
@@ -345,8 +386,14 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                 {to === '/paypoint/patients' && pendingPatientsCount > 0 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingPatientsCount}</span>
                 )}
+                {to === '/doctor/results' && role === 'Doctor' && doctorUnreadResultsCount > 0 && (
+                  <span className="ml-auto px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold">{doctorUnreadResultsCount}</span>
+                )}
                 {to === '/lab/results' && role === 'Doctor' && unreadLabCount > 0 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold">{unreadLabCount} unread</span>
+                )}
+                {to === '/lab/results' && role === 'Lab Scientist' && pendingResultsCount > 0 && (
+                  <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingResultsCount}</span>
                 )}
               </NavLink>
             ))
@@ -380,7 +427,7 @@ function LabRouter() {
   return (
     <Routes>
       <Route index element={<Suspense fallback={<LoadingFallback />}><LabDashboard /></Suspense>} />
-      <Route path="worklist" element={role === 'Doctor' ? <Suspense fallback={<LoadingFallback />}><DoctorLabResults /></Suspense> : <Suspense fallback={<LoadingFallback />}><LabWorklist /></Suspense>} />
+      <Route path="worklist" element={<Suspense fallback={<LoadingFallback />}><LabWorklist /></Suspense>} />
       <Route path="results" element={<Suspense fallback={<LoadingFallback />}><LabResults /></Suspense>} />
       <Route path="history" element={<Suspense fallback={<LoadingFallback />}><LabHistory /></Suspense>} />
       <Route path="orders" element={<Suspense fallback={<LoadingFallback />}><LabOrders /></Suspense>} />
@@ -533,6 +580,18 @@ export default function App() {
             }
           />
           <Route
+            path="/doctor/results"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Doctor']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <DoctorResults />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
             path="/patients"
             element={
               <Layout>
@@ -572,7 +631,7 @@ export default function App() {
             path="/lab/*"
             element={
               <Layout>
-                <ProtectedRoute roles={['Lab Scientist', 'Doctor', 'Admin']}>
+                <ProtectedRoute roles={['Lab Scientist', 'Admin']}>
                   <LabRouter />
                 </ProtectedRoute>
               </Layout>
@@ -619,8 +678,13 @@ export default function App() {
           <Route path="/paypoint/dashboard" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><PaypointDashboard /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/paypoint/billing" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><BillingPage /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/paypoint/history" element={<Layout><ProtectedRoute roles={['Paypoint', 'Admin']}><Suspense fallback={<LoadingFallback />}><PaypointCheckout /></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/radiology-inventory" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><RadiologyInventory /></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/radiology-expiry" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><RadiologyExpiry /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/radiology-inventory" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyInventory /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/radiology-expiry" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyExpiry /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/radiology/worklist" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyModule /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/radiology/results" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyResults /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/radiology/review" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyReview /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/radiology/orders" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyOrders /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/radiology/history" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyHistory /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/services-inventory" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><ServiceInventory /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance/dashboard" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinanceDashboard /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance/billing" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinancePatientBilling /></Suspense></ProtectedRoute></Layout>} />
@@ -710,12 +774,12 @@ export default function App() {
             }
           />
           <Route
-            path="/radiology"
+            path="/radiology/*"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Admin']}>
+                <ProtectedRoute roles={['Admin', 'Radiology']}>
                   <Suspense fallback={<LoadingFallback />}>
-                    <RadiologyModule />
+                    <RadiologyDashboard />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>

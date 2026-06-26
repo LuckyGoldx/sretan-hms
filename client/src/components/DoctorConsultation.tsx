@@ -210,7 +210,7 @@ export default function DoctorConsultation() {
       const results: Record<string, any[]> = {}
       for (const lo of labOrders) {
         try {
-          const r = await api.get(`/lab-results/${lo.id}`)
+          const r = await api.get(`/lab-results/${lo.id}?status=completed`)
           if (r.data && r.data.length > 0) results[lo.id] = r.data
         } catch {}
       }
@@ -250,7 +250,9 @@ export default function DoctorConsultation() {
     setRadiologySubmitting(true)
     try {
       const encId = await ensureEncounter()
-      await api.post('/radiology-orders', { encounter_id: encId, imaging_type: radiologyForm.imaging_type })
+      const doctorName = (() => { try { const u = JSON.parse(localStorage.getItem('sretan_user') || '{}'); return u.name || '' } catch {} return '' })()
+      const patName = patient?.full_name || ''
+      await api.post('/radiology-orders', { encounter_id: encId, imaging_type: radiologyForm.imaging_type, doctor_name: doctorName, patient_name: patName })
       showToast('Radiology order submitted', 'success'); setRadiologyForm({ imaging_type: '' }); setActiveModal(null)
     } catch { showToast('Failed to submit radiology order', 'error') } finally { setRadiologySubmitting(false) }
   }
@@ -712,11 +714,19 @@ export default function DoctorConsultation() {
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Scan size={12} /> Radiology Orders ({timelineModal.radiologyOrders.length})</p>
                   <div className="space-y-2">
                     {timelineModal.radiologyOrders.map((rad: any) => (
-                      <div key={rad.id} className="flex items-center justify-between bg-slate-50 rounded-xl p-3 text-sm">
-                        <span className="font-medium text-slate-800">{rad.imaging_type}</span>
-                        <span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${
-                          rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                        }`}>{rad.status}</span>
+                      <div key={rad.id} className="bg-slate-50 rounded-xl p-3 text-sm space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-slate-800">{rad.imaging_type}</span>
+                          <span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${
+                            rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                          }`}>{rad.status}</span>
+                        </div>
+                        {rad.report_text && (
+                          <div className="text-xs text-slate-600 whitespace-pre-wrap bg-white rounded-lg p-2.5 border border-slate-100">{rad.report_text}</div>
+                        )}
+                        {rad.reported_by_name && (
+                          <p className="text-[10px] text-slate-400">Reported by: {rad.reported_by_name}{rad.reported_at ? ` · ${new Date(rad.reported_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}</p>
+                        )}
                       </div>
                     ))}
                   </div>
