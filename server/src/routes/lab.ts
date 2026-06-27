@@ -17,7 +17,11 @@ router.get('/api/lab-orders', async (req: Request, res: Response) => {
     const tenantId = getTenantId();
     const { status, encounter_id, doctor_id, specimen_type, priority, is_paid } = req.query;
 
-    let query = `SELECT l.*, enc.patient_id, pat.hospital_number FROM lab_orders l LEFT JOIN encounters enc ON enc.id = l.encounter_id LEFT JOIN patients pat ON pat.id = enc.patient_id WHERE l.tenant_id = $1`;
+    let query = `SELECT l.*, enc.patient_id, pat.hospital_number,
+                  (SELECT s.name FROM lab_results lr JOIN staff_users s ON s.id = lr.entered_by WHERE lr.lab_order_id = l.id AND lr.entered_by IS NOT NULL AND lr.status = 'completed' LIMIT 1) as entered_by_name,
+                  (SELECT s.name FROM lab_results lr JOIN staff_users s ON s.id = lr.approved_by WHERE lr.lab_order_id = l.id AND lr.approved_by IS NOT NULL LIMIT 1) as approved_by_name,
+                  (SELECT MIN(lr.approved_at) FROM lab_results lr WHERE lr.lab_order_id = l.id AND lr.approved_at IS NOT NULL) as approved_at
+                  FROM lab_orders l LEFT JOIN encounters enc ON enc.id = l.encounter_id LEFT JOIN patients pat ON pat.id = enc.patient_id WHERE l.tenant_id = $1`;
     const params: any[] = [tenantId];
     let idx = 2;
 
@@ -177,7 +181,7 @@ router.put('/api/lab-orders/:id', async (req: Request, res: Response) => {
 router.post('/api/lab-results', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { lab_order_id, analyte_name, value, reference_range_low, reference_range_high, is_abnormal } = req.body;
+    const { lab_order_id, analyte_name, value, reference_range_low, reference_range_high, is_abnormal, entered_by } = req.body;
 
     if (!lab_order_id || !analyte_name || value === undefined) {
       res.status(400).json({ error: true, message: 'lab_order_id, analyte_name, and value are required' });
@@ -194,9 +198,9 @@ router.post('/api/lab-results', async (req: Request, res: Response) => {
     );
 
     const result = await pool.query(
-      `INSERT INTO lab_results (id, tenant_id, lab_order_id, result_number, analyte_name, value, reference_range_low, reference_range_high, is_abnormal)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [id, tenantId, lab_order_id, resultNumber, analyte_name, value, reference_range_low || null, reference_range_high || null, abnormal]
+      `INSERT INTO lab_results (id, tenant_id, lab_order_id, result_number, analyte_name, value, reference_range_low, reference_range_high, is_abnormal, entered_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [id, tenantId, lab_order_id, resultNumber, analyte_name, value, reference_range_low || null, reference_range_high || null, abnormal, entered_by || null]
     );
 
     await pool.query(`UPDATE lab_orders SET status = 'processing' WHERE id = $1 AND status IN ('ordered', 'collected')`, [lab_order_id]);

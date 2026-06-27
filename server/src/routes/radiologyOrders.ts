@@ -20,12 +20,12 @@ router.get('/api/radiology-orders', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const { status, encounter_id, doctor_id, is_paid, imaging_type } = req.query;
-    let query = `SELECT r.*, enc.patient_id, pat.hospital_number, s.name as staff_name, sr.name as reported_by_name
+    let query = `SELECT r.*, enc.patient_id, pat.hospital_number, s.name as reported_by_name, sr.name as approved_by_name
                  FROM radiology_orders r
                  LEFT JOIN encounters enc ON enc.id = r.encounter_id
                  LEFT JOIN patients pat ON pat.id = enc.patient_id
                  LEFT JOIN staff_users s ON s.id = r.reported_by
-                 LEFT JOIN staff_users sr ON sr.id = r.reported_by
+                 LEFT JOIN staff_users sr ON sr.id = r.approved_by
                  WHERE r.tenant_id = $1`;
     const params: any[] = [tenantId];
     let idx = 2;
@@ -112,6 +112,7 @@ router.put('/api/radiology-orders/:id', async (req: Request, res: Response) => {
         reported_by = CASE WHEN $3 IN ('processing','review') AND reported_by IS NULL THEN COALESCE($4, reported_by) ELSE reported_by END,
         reported_at = CASE WHEN $3 IN ('processing','review') AND reported_at IS NULL THEN NOW() ELSE reported_at END,
         approved_by = CASE WHEN $3 = 'completed' THEN COALESCE($5, approved_by) ELSE approved_by END,
+        approved_at = CASE WHEN $3 = 'completed' AND approved_at IS NULL THEN NOW() ELSE approved_at END,
         updated_at = NOW()
        WHERE id = $6 AND tenant_id = $7 RETURNING *`,
       [report_text || null, image_path || null, status || null, reported_by || null, approved_by || null, id, tenantId]

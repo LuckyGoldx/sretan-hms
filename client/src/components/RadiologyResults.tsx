@@ -141,9 +141,7 @@ export default function RadiologyResults() {
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <Scan size={15} className="text-indigo-500 flex-shrink-0" />
                   <span className="text-sm font-semibold text-slate-800 truncate">{o.imaging_type}</span>
-                  <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium flex-shrink-0 ${activeTab === 'not-collected' ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                    {activeTab === 'not-collected' ? 'Not Collected' : 'Collected'}
-                  </span>
+                  <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium flex-shrink-0 bg-emerald-100 text-emerald-700`}>Completed</span>
                   {o.imaging_number && <span className="text-xs text-slate-400 font-mono flex-shrink-0">{o.imaging_number}</span>}
                 </div>
                 <span className="text-xs text-slate-400 flex-shrink-0 ml-3">{new Date(o.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>

@@ -56,6 +56,9 @@ type ResultItem = {
   image_path?: string
   reported_by_name?: string
   reported_at?: string
+  entered_by_name?: string
+  approved_by_name?: string
+  approved_at?: string
   lab_number?: string
   imaging_number?: string
   is_paid?: boolean
@@ -81,6 +84,8 @@ export default function DoctorResults() {
   const [readIds, setReadIds] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem('doctor_read_results') || '[]')) } catch { return new Set<string>() }
   })
+  const readIdsRef = useRef(readIds)
+  readIdsRef.current = readIds
   const dateRef = useRef<HTMLDivElement>(null)
 
   const staffId = useMemo(() => {
@@ -91,6 +96,14 @@ export default function DoctorResults() {
     if (!staffId) return
     loadData()
   }, [staffId])
+
+  // Sync readIds from localStorage whenever items change (re-fetch, etc.)
+  useEffect(() => {
+    try {
+      var stored: string[] = JSON.parse(localStorage.getItem('doctor_read_results') || '[]')
+      setReadIds(new Set(stored))
+    } catch {}
+  }, [items])
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -168,10 +181,11 @@ export default function DoctorResults() {
   function markAsRead(item: ResultItem) {
     if (item.status !== 'completed') return
     var key = `${item.type}-${item.id}`
-    if (!readIds.has(key)) {
-      var next = new Set(readIds)
+    if (!readIdsRef.current.has(key)) {
+      var next = new Set(readIdsRef.current)
       next.add(key)
       setReadIds(next)
+      readIdsRef.current = next
       localStorage.setItem('doctor_read_results', JSON.stringify([...next]))
       try { window.dispatchEvent(new CustomEvent('doctorResultsRead', { detail: { id: key } })) } catch {}
     }
@@ -209,30 +223,6 @@ export default function DoctorResults() {
           <p className="text-sm text-slate-500">{items.length} total (lab: {items.filter((i) => i.type === 'lab').length} · radiology: {items.filter((i) => i.type === 'radiology').length})</p>
         </div>
       </div>
-
-      {/* Stats cards */}
-      {items.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-          <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-3">
-            <p className="text-lg font-bold text-purple-600">{items.filter((i) => i.type === 'lab').length}</p>
-            <p className="text-[10px] text-slate-500">Total Lab</p>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-3">
-            <p className="text-lg font-bold text-indigo-600">{items.filter((i) => i.type === 'radiology').length}</p>
-            <p className="text-[10px] text-slate-500">Total Radiology</p>
-          </div>
-          {Object.entries(statusMeta).map(([key, meta]) => {
-            var count = key === 'review' ? (statusCounts['review'] || 0) + (statusCounts['rejected'] || 0) : (statusCounts[key] || 0)
-            if (count === 0 && key !== 'completed') return null
-            return (
-              <div key={key} className="bg-white rounded-xl border border-slate-100 shadow-sm p-3">
-                <p className={`text-lg font-bold ${meta.color.split(' ')[1]}`}>{count}</p>
-                <p className="text-[10px] text-slate-500">{meta.label}</p>
-              </div>
-            )
-          })}
-        </div>
-      )}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -345,8 +335,14 @@ export default function DoctorResults() {
                         <User size={14} className="text-slate-400" /> {item.patient_name || '—'}
                       </button>
                       {item.hospital_number && <p className="text-[10px] text-slate-400 ml-6">{item.hospital_number}</p>}
+                    {item.entered_by_name && isCompleted && (
+                      <p className="text-[10px] text-sky-600 mt-0.5">Entered by: {item.entered_by_name}{item.approved_at ? ` · ${formatDate(item.approved_at)}` : ''}</p>
+                    )}
                     {item.reported_by_name && isCompleted && (
-                      <p className="text-[10px] text-sky-600 mt-0.5">Reported by: {item.reported_by_name} · {formatDate(item.reported_at || item.created_at)}</p>
+                      <p className="text-[10px] text-indigo-600 mt-0.5">Reported by: {item.reported_by_name} · {formatDate(item.reported_at || item.created_at)}</p>
+                    )}
+                    {item.approved_by_name && isCompleted && (
+                      <p className="text-[10px] text-purple-600 mt-0.5">Approved by: {item.approved_by_name} · {formatDate(item.approved_at || item.created_at)}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 ml-3">
@@ -445,14 +441,25 @@ export default function DoctorResults() {
                 </div>
               )}
 
-              {detail.reported_by_name && (
+              {detail.entered_by_name && (
+                <div className="bg-sky-50 rounded-xl p-4 border border-sky-100">
+                  <p className="text-xs text-slate-500 mb-1">Entered By</p>
+                  <p className="text-sm font-semibold text-slate-800">{detail.entered_by_name}</p>
+                  {detail.approved_at && <p className="text-xs text-slate-500 mt-0.5">{formatDate(detail.approved_at)}</p>}
+                </div>
+              )}
+              {detail.reported_by_name && detail.type === 'radiology' && (
                 <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
-                  <div className="flex items-center gap-2 mb-1">
-                    {detail.type === 'lab' ? <FlaskConical size={14} className="text-purple-600" /> : <Scan size={14} className="text-indigo-600" />}
-                    <p className="text-xs text-slate-500">Reported By</p>
-                  </div>
+                  <p className="text-xs text-slate-500 mb-1">Reported By</p>
                   <p className="text-sm font-semibold text-slate-800">{detail.reported_by_name}</p>
                   {detail.reported_at && <p className="text-xs text-slate-500 mt-0.5">{formatDate(detail.reported_at)}</p>}
+                </div>
+              )}
+              {detail.approved_by_name && (
+                <div className="bg-purple-50 rounded-xl p-4 border border-purple-100">
+                  <p className="text-xs text-slate-500 mb-1">Approved By</p>
+                  <p className="text-sm font-semibold text-slate-800">{detail.approved_by_name}</p>
+                  {detail.approved_at && <p className="text-xs text-slate-500 mt-0.5">{formatDate(detail.approved_at)}</p>}
                 </div>
               )}
 
