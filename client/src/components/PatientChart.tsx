@@ -1741,6 +1741,7 @@ export default function PatientChart() {
               <h2 className="text-sm font-semibold text-slate-700">Treatment Summary ({treatments.length})</h2>
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              <Hint text="Search for treatments by name, dosage, or nurse.">
               <div className="relative flex-1 min-w-[180px]">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 <input type="text" placeholder="Search treatment..." value={summarySearch}
@@ -1760,17 +1761,20 @@ export default function PatientChart() {
                   </div>
                 )}
               </div>
+              </Hint>
               <div className="flex flex-wrap gap-1.5">
                 {[
-                  { value: 'all', label: 'All Time' },
-                  { value: 'today', label: 'Today' },
-                  { value: 'yesterday', label: 'Yesterday' },
-                  { value: 'this_week', label: 'This Week' },
-                  { value: 'custom_date', label: 'Custom Date' },
-                  { value: 'custom_range', label: 'Custom Range' },
+                  { value: 'all', label: 'All Time', tip: 'Show courses from all dates.' },
+                  { value: 'today', label: 'Today', tip: 'Show courses created today.' },
+                  { value: 'yesterday', label: 'Yesterday', tip: 'Show courses created yesterday.' },
+                  { value: 'this_week', label: 'This Week', tip: 'Show courses created this week.' },
+                  { value: 'custom_date', label: 'Custom Date', tip: 'Show courses from a specific date.' },
+                  { value: 'custom_range', label: 'Custom Range', tip: 'Show courses within a date range.' },
                 ].map((opt) => (
-                  <button key={opt.value} onClick={() => { setSummaryDateFilter(opt.value); setSummaryPage(1) }}
+                  <Hint key={opt.value} text={opt.tip}>
+                  <button onClick={() => { setSummaryDateFilter(opt.value); setSummaryPage(1) }}
                     className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${summaryDateFilter === opt.value ? 'bg-primary text-white border-primary shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-primary hover:text-primary'}`}>{opt.label}</button>
+                  </Hint>
                 ))}
               </div>
               {summaryDateFilter === 'custom_date' && (
@@ -1802,12 +1806,26 @@ export default function PatientChart() {
                 const yesterdayStart = new Date(todayStart.getTime() - 86400000)
                 const weekStart = new Date(todayStart.getTime() - todayStart.getDay() * 86400000)
 
-                const filtered = [...treatments].filter((t: any) => {
+                // Build course-level array from all sessions
+                const allCourses: any[] = []
+                for (const t of treatments) {
+                  const sessions = sessionsMap[t.id] || []
+                  for (const s of sessions) {
+                    allCourses.push({
+                      ...s,
+                      treatment_name: t.treatment,
+                      parent_id: t.id,
+                      parent_status: t.status,
+                    })
+                  }
+                }
+
+                const filtered = allCourses.filter((c: any) => {
                   if (summarySearch) {
                     const q = summarySearch.toLowerCase()
-                    if (!(t.treatment || '').toLowerCase().includes(q) && !(t.dosage || '').toLowerCase().includes(q) && !(t.staff_name || '').toLowerCase().includes(q)) return false
+                    if (!(c.treatment_name || '').toLowerCase().includes(q) && !(c.dosage || '').toLowerCase().includes(q) && !(c.staff_name || '').toLowerCase().includes(q)) return false
                   }
-                  const d = new Date(t.created_at)
+                  const d = new Date(c.created_at)
                   if (summaryDateFilter === 'today' && d < todayStart) return false
                   if (summaryDateFilter === 'yesterday' && (d < yesterdayStart || d >= todayStart)) return false
                   if (summaryDateFilter === 'this_week' && d < weekStart) return false
@@ -1821,34 +1839,47 @@ export default function PatientChart() {
                   return true
                 }).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-                const totalDosesGiven = filtered.reduce((sum: number, t: any) => sum + getTreatmentDoses(t.id).filter((d: any) => d.status === 'administered').length, 0)
+                const totalDosesGiven = filtered.reduce((sum: number, c: any) => {
+                  const ds = doseMap[c.id] || []
+                  return sum + ds.filter((d: any) => d.status === 'administered').length
+                }, 0)
 
                 return (
                   <>
                     {/* Stats Cards */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <Hint text="Courses with unmarked dose slots pending administration.">
                       <div className="bg-emerald-50 rounded-xl px-4 py-3 border border-emerald-100">
-                        <p className="text-lg font-bold text-emerald-700">{filtered.filter((t: any) => {
-                          const ds = getTreatmentDoses(t.id)
-                          return t.status === 'active' && !(ds.length > 0 && ds.every((d: any) => d.status === 'administered' || d.status === 'skipped'))
+                        <p className="text-lg font-bold text-emerald-700">{filtered.filter((c: any) => {
+                          if (c.status !== 'active') return false
+                          const ds = doseMap[c.id] || []
+                          return ds.length === 0 || ds.some((d: any) => d.status !== 'administered' && d.status !== 'skipped')
                         }).length}</p>
                         <p className="text-xs text-emerald-600">Active</p>
                       </div>
+                      </Hint>
+                      <Hint text="Courses where all doses have been administered or skipped.">
                       <div className="bg-blue-50 rounded-xl px-4 py-3 border border-blue-100">
-                        <p className="text-lg font-bold text-blue-700">{filtered.filter((t: any) => {
-                          const doses = getTreatmentDoses(t.id)
-                          return doses.length > 0 && doses.every((d: any) => d.status === 'administered' || d.status === 'skipped')
+                        <p className="text-lg font-bold text-blue-700">{filtered.filter((c: any) => {
+                          const ds = doseMap[c.id] || []
+                          const allDone = ds.length > 0 && ds.every((d: any) => d.status === 'administered' || d.status === 'skipped')
+                          return allDone || c.status === 'completed'
                         }).length}</p>
                         <p className="text-xs text-blue-600">Completed</p>
                       </div>
+                      </Hint>
+                      <Hint text="Courses that have been manually ended by a nurse.">
                       <div className="bg-red-50 rounded-xl px-4 py-3 border border-red-100">
-                        <p className="text-lg font-bold text-red-700">{filtered.filter((t: any) => t.status === 'ended').length}</p>
+                        <p className="text-lg font-bold text-red-700">{filtered.filter((c: any) => c.status === 'ended').length}</p>
                         <p className="text-xs text-red-600">Ended</p>
                       </div>
+                      </Hint>
+                      <Hint text="Total number of administered dose records across filtered courses.">
                       <div className="bg-purple-50 rounded-xl px-4 py-3 border border-purple-100">
                         <p className="text-lg font-bold text-purple-700">{totalDosesGiven}</p>
                         <p className="text-xs text-purple-600">Doses Given</p>
                       </div>
+                      </Hint>
                     </div>
 
                     {/* Table */}
@@ -1857,41 +1888,43 @@ export default function PatientChart() {
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider bg-slate-50">
-                              <th className="text-left px-3 py-2.5 font-medium">Treatment</th>
-                              <th className="text-left px-3 py-2.5 font-medium">Dosage</th>
-                              <th className="text-left px-3 py-2.5 font-medium">Route</th>
-                              <th className="text-left px-3 py-2.5 font-medium">Frequency</th>
-                              <th className="text-left px-3 py-2.5 font-medium">Nurse</th>
-                              <th className="text-left px-3 py-2.5 font-medium">Status</th>
-                              <th className="text-left px-3 py-2.5 font-medium">Started</th>
-                              <th className="text-left px-3 py-2.5 font-medium">Ended</th>
-                              <th className="text-left px-3 py-2.5 font-medium">Reason</th>
+                              <th className="text-left px-3 py-2.5 font-medium"><Hint text="Drug name."><span>Treatment</span></Hint></th>
+                              <th className="text-left px-3 py-2.5 font-medium"><Hint text="Dosage prescribed for this course."><span>Dosage</span></Hint></th>
+                              <th className="text-left px-3 py-2.5 font-medium"><Hint text="Administration route."><span>Route</span></Hint></th>
+                              <th className="text-left px-3 py-2.5 font-medium"><Hint text="Dosing frequency with administered times."><span>Frequency</span></Hint></th>
+                              <th className="text-left px-3 py-2.5 font-medium"><Hint text="Nurse who started the course."><span>Nurse</span></Hint></th>
+                              <th className="text-left px-3 py-2.5 font-medium"><Hint text="Current course status."><span>Status</span></Hint></th>
+                              <th className="text-left px-3 py-2.5 font-medium"><Hint text="Date and time the course was started."><span>Started</span></Hint></th>
+                              <th className="text-left px-3 py-2.5 font-medium"><Hint text="Date and time the course was ended or completed."><span>Ended</span></Hint></th>
+                              <th className="text-left px-3 py-2.5 font-medium"><Hint text="Nurse-entered reason if the course was ended."><span>Reason</span></Hint></th>
                             </tr>
                           </thead>
                           <tbody>
-                            {filtered.slice((summaryPage - 1) * TREATMENT_PER_PAGE, summaryPage * TREATMENT_PER_PAGE).map((t: any) => {
-                              const doses = getTreatmentDoses(t.id)
-                              const allDone = doses.length > 0 && doses.every((d: any) => d.status === 'administered' || d.status === 'skipped')
-                              const displayStatus = allDone ? 'completed' : t.status
-                              const administeredTimes = doses.filter((d: any) => d.status === 'administered').map((d: any) => to12Hour(d.scheduled_time?.slice(0, 5)))
-                              const freqText = t.frequency ? (administeredTimes.length > 0 ? `${t.frequency} (${administeredTimes.join(', ')})` : t.frequency) : (administeredTimes.length > 0 ? administeredTimes.join(', ') : '—')
+                            {filtered.slice((summaryPage - 1) * TREATMENT_PER_PAGE, summaryPage * TREATMENT_PER_PAGE).map((c: any) => {
+                              const ds = doseMap[c.id] || []
+                              const allDone = ds.length > 0 && ds.every((d: any) => d.status === 'administered' || d.status === 'skipped')
+                              const displayStatus = allDone && c.status !== 'ended' ? 'completed' : c.status
+                              const administeredTimes = ds.filter((d: any) => d.status === 'administered').map((d: any) => to12Hour(d.scheduled_time?.slice(0, 5)))
+                              const freqText = c.frequency ? (administeredTimes.length > 0 ? `${c.frequency} (${administeredTimes.join(', ')})` : c.frequency) : (administeredTimes.length > 0 ? administeredTimes.join(', ') : '—')
                               return (
-                                <tr key={t.id}
-                                  onClick={() => { setDoseDetail({ type: 'treatment', data: t }) }}
+                                <tr key={c.id}
+                                  onClick={() => setChildInfoModal({ session: c, treatmentName: c.treatment_name })}
                                   className={`border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors ${displayStatus === 'ended' ? 'bg-red-50/30' : ''}`}>
-                                  <td className="px-3 py-3 font-medium text-slate-800">{t.treatment}</td>
-                                  <td className="px-3 py-3 text-slate-600">{t.dosage || '—'}</td>
-                                  <td className="px-3 py-3 text-slate-600">{t.route || '—'}</td>
-                                  <td className="px-3 py-3 text-xs text-slate-600">{freqText}</td>
-                                  <td className="px-3 py-3 text-slate-600">{t.staff_name || '—'}</td>
+                                  <td className="px-3 py-3 font-medium text-slate-800"><Hint text={c.treatment_name}><span>{c.treatment_name}</span></Hint></td>
+                                  <td className="px-3 py-3 text-slate-600"><Hint text={`Dosage: ${c.dosage || '—'}`}><span>{c.dosage || '—'}</span></Hint></td>
+                                  <td className="px-3 py-3 text-slate-600"><Hint text={`Route: ${c.route || '—'}`}><span>{c.route || '—'}</span></Hint></td>
+                                  <td className="px-3 py-3 text-xs text-slate-600"><Hint text={`Frequency: ${freqText}`}><span>{freqText}</span></Hint></td>
+                                  <td className="px-3 py-3 text-slate-600"><Hint text={`Started by: ${c.staff_name || '—'}`}><span>{c.staff_name || '—'}</span></Hint></td>
                                   <td className="px-3 py-3">
+                                    <Hint text={`Status: ${displayStatus === 'active' ? 'Active — has unmarked doses' : displayStatus === 'completed' ? 'Completed — all doses recorded' : displayStatus === 'ended' ? 'Ended — manually ended' : 'Expired'}`}>
                                     <span className={`inline-flex px-2 py-0.5 rounded-lg text-[10px] font-medium ${displayStatus === 'active' ? 'bg-emerald-100 text-emerald-700' : displayStatus === 'completed' ? 'bg-blue-100 text-blue-700' : displayStatus === 'ended' ? 'bg-red-100 text-red-700' : 'bg-slate-200 text-slate-600'}`}>
                                       {displayStatus === 'active' ? 'Active' : displayStatus === 'completed' ? 'Completed' : displayStatus === 'ended' ? 'Ended' : 'Expired'}
                                     </span>
+                                    </Hint>
                                   </td>
-                                  <td className="px-3 py-3 text-xs text-slate-500">{new Date(t.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-                                  <td className="px-3 py-3 text-xs text-slate-500">{t.end_date ? new Date(t.end_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
-                                  <td className="px-3 py-3 text-xs text-slate-500">{t.end_reason || '—'}</td>
+                                  <td className="px-3 py-3 text-xs text-slate-500"><Hint text={`Started: ${new Date(c.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}`}><span>{new Date(c.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></Hint></td>
+                                  <td className="px-3 py-3 text-xs text-slate-500"><Hint text={c.end_date ? `Ended: ${new Date(c.end_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'Course still active.'}><span>{c.end_date ? new Date(c.end_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</span></Hint></td>
+                                  <td className="px-3 py-3 text-xs text-slate-500"><Hint text={c.end_reason ? `Reason: ${c.end_reason}` : 'No reason provided.'}><span>{c.end_reason || '—'}</span></Hint></td>
                                 </tr>
                               )
                             })}
@@ -1918,6 +1951,7 @@ export default function PatientChart() {
               <Droplets size={40} className="mx-auto text-slate-300 mb-3" />
               <p className="text-sm font-medium text-slate-500 mb-4">No fluid balance sessions yet</p>
               {!isDoctor && (
+                <Hint text="Create a new daily fluid balance session to start recording intake and output.">
                 <button onClick={async () => {
                   if (!patientId) return
                   setCreatingSession(true)
@@ -1930,13 +1964,15 @@ export default function PatientChart() {
                   className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
                   {creatingSession ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} New Session (Day)
                 </button>
+                </Hint>
               )}
             </div>
           ) : (
             <>
               <div className="flex items-center justify-between">
-                <p className="text-sm text-slate-500">{fluidSessions.length} session{fluidSessions.length !== 1 ? 's' : ''}</p>
+                <Hint text="Total number of daily fluid balance sessions."><p className="text-sm text-slate-500">{fluidSessions.length} session{fluidSessions.length !== 1 ? 's' : ''}</p></Hint>
                 {!isDoctor && (
+                  <Hint text="Start a new fluid balance day for this patient.">
                   <button onClick={async () => {
                     if (!patientId) return
                     setCreatingSession(true)
@@ -1949,6 +1985,7 @@ export default function PatientChart() {
                     className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
                     {creatingSession ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} New Session (Day)
                   </button>
+                  </Hint>
                 )}
               </div>
 
@@ -1963,45 +2000,67 @@ export default function PatientChart() {
                       <button onClick={() => setActiveSession(isActive ? null : sess.id)}
                         className="w-full px-5 py-3 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors flex-wrap">
                         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+                          <Hint text="Session date — click to expand/collapse.">
                           <Droplets size={16} className="text-primary flex-shrink-0" />
+                          </Hint>
+                          <Hint text={`Fluid balance session for ${new Date(sess.session_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}.`}>
                           <span className="text-sm font-semibold text-slate-800">{new Date(sess.session_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          </Hint>
+                          <Hint text="Number of intake and output entries recorded this session.">
                           <span className="px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 text-[10px] font-medium flex-shrink-0">{sessEntries.length} entries</span>
+                          </Hint>
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3 text-xs flex-wrap">
-                          {sess.staff_name && <span className="text-slate-400">by <strong>{sess.staff_name}</strong></span>}
+                          {sess.staff_name && <Hint text={`Session started by ${sess.staff_name}.`}><span className="text-slate-400">by <strong>{sess.staff_name}</strong></span></Hint>}
+                          <Hint text="Net fluid balance = total intake − total output. Green is positive, red is negative.">
                           <span className={`font-semibold ${totalIntake - totalOutput >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
                             Net: {(totalIntake - totalOutput).toFixed(0)} mL
                           </span>
+                          </Hint>
                         </div>
                       </button>
 
                       {isActive && (
                         <div className="border-t border-slate-100 p-4 space-y-3">
                           <div className="grid grid-cols-3 gap-3">
+                            <Hint text="View total intake amount. Click to see detailed breakdown.">
                             <div onClick={() => { setActiveSession(sess.id); setFluidDetail('intake'); setFluidEditMode(false); setShowFluidDetailModal(true) }} className="bg-blue-50 rounded-xl p-3 text-center cursor-pointer hover:bg-blue-100 transition-colors">
                               <p className="text-xs text-blue-500 font-medium">Intake</p>
                               <p className="text-lg font-bold text-blue-700">{totalIntake.toFixed(0)} mL</p>
                             </div>
+                            </Hint>
+                            <Hint text="View total output amount. Click to see detailed breakdown.">
                             <div onClick={() => { setActiveSession(sess.id); setFluidDetail('output'); setFluidEditMode(false); setShowFluidDetailModal(true) }} className="bg-amber-50 rounded-xl p-3 text-center cursor-pointer hover:bg-amber-100 transition-colors">
                               <p className="text-xs text-amber-500 font-medium">Output</p>
                               <p className="text-lg font-bold text-amber-700">{totalOutput.toFixed(0)} mL</p>
                             </div>
+                            </Hint>
+                            <Hint text="Net balance = Intake − Output. Positive (green) means more in than out.">
                             <div className="bg-emerald-50 rounded-xl p-3 text-center">
                               <p className="text-xs text-emerald-500 font-medium">Net</p>
                               <p className={`text-lg font-bold ${totalIntake - totalOutput >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{(totalIntake - totalOutput).toFixed(0)} mL</p>
                             </div>
+                            </Hint>
                           </div>
 
                           {!isDoctor && (
                             <div className="flex gap-2 flex-wrap">
+                              <Hint text="Record a new intake entry (fluid administered to patient).">
                               <button onClick={() => { setActiveSession(sess.id); setFluidForm({ fluid_type: '', intake_ml: '', output_ml: '', route: '', notes: '' }); setFluidRoutes([]); setFluidOtherRoute(''); setFluidSearch(''); setIsFluidOther(false); setShowFluidModal(true) }}
                                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-colors"><Plus size={14} /> Add Intake</button>
+                              </Hint>
+                              <Hint text="View all intake entries recorded for this session.">
                               <button onClick={() => { setActiveSession(sess.id); setFluidDetail('intake'); setFluidEditMode(false); setShowFluidDetailModal(true) }}
                                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-blue-50 text-blue-600 text-xs font-medium hover:bg-blue-100 transition-colors"><Droplets size={14} /> Intake Detail</button>
+                              </Hint>
+                              <Hint text="View all output entries recorded for this session.">
                               <button onClick={() => { setActiveSession(sess.id); setFluidDetail('output'); setFluidEditMode(false); setShowFluidDetailModal(true) }}
                                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-50 text-amber-600 text-xs font-medium hover:bg-amber-100 transition-colors"><Droplets size={14} /> Output Detail</button>
+                              </Hint>
+                              <Hint text="Record a new output entry (fluid lost by patient).">
                               <button onClick={() => { setActiveSession(sess.id); setShowOutputModal(true); setOutputForm({ urine: '', vomit: '', aspirate: '', bowels: '', blood_loss: '' }) }}
                                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-colors"><Plus size={14} /> Add Output</button>
+                              </Hint>
                             </div>
                           )}
 
@@ -2009,7 +2068,7 @@ export default function PatientChart() {
                             <div className="space-y-3 pt-2">
                               {/* Intake Entries */}
                               <div>
-                                <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-1.5"><Droplets size={13} /> Intake Entries ({sessEntries.filter((e: any) => Number(e.intake_ml) > 0).length})</p>
+                                <Hint text="All intake (fluid administered) entries recorded this session."><p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-1.5"><Droplets size={13} /> Intake Entries ({sessEntries.filter((e: any) => Number(e.intake_ml) > 0).length})</p></Hint>
                                 {sessEntries.filter((e: any) => Number(e.intake_ml) > 0).length > 0 ? (
                                   <div className="space-y-1.5">
                                     {sessEntries.filter((e: any) => Number(e.intake_ml) > 0).sort((a: any, b: any) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime()).slice(0, 5).map((f: any) => {
@@ -2017,33 +2076,37 @@ export default function PatientChart() {
                                       const intakeRoutes = details?.intake || {}
                                       return (
                                         <div key={f.id} onClick={() => { setSelectedEntry(f); setShowEntryModal(true) }} className="p-2.5 rounded-xl bg-blue-50 border border-blue-100 cursor-pointer hover:bg-blue-100 transition-colors">
+                                          <Hint text={`Intake entry recorded on ${new Date(f.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${f.staff_name ? ` by ${f.staff_name}` : ''}. Click to view details.`}>
                                           <div className="flex items-center gap-1 flex-wrap text-[11px] text-slate-500 mb-1">
                                             <span>{new Date(f.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
                                             {f.staff_name && <span>by {f.staff_name}</span>}
                                           </div>
+                                          </Hint>
                                           <div className="flex items-center gap-1 flex-wrap">
-                                            <p className="text-xs font-semibold text-blue-700">Intake: {Number(f.intake_ml).toFixed(0)} mL</p>
-                                            {f.fluid_type && <span className="text-[10px] text-blue-600 font-medium truncate max-w-[120px] sm:max-w-[160px]">{f.fluid_type}</span>}
+                                            <Hint text={`Total intake amount for this entry: ${Number(f.intake_ml).toFixed(0)} mL.`}><p className="text-xs font-semibold text-blue-700">Intake: {Number(f.intake_ml).toFixed(0)} mL</p></Hint>
+                                            {f.fluid_type && <Hint text={`Fluid type: ${f.fluid_type}.`}><span className="text-[10px] text-blue-600 font-medium truncate max-w-[120px] sm:max-w-[160px]">{f.fluid_type}</span></Hint>}
                                           </div>
                                           {Object.keys(intakeRoutes).length > 0 ? (
                                             <div className="text-[10px] text-blue-500 mt-0.5 space-y-0.5">
                                               {Object.entries(intakeRoutes).map(([r, ml]) => (
-                                                <div key={r} className="flex gap-2"><span className="capitalize">{r}:</span><span className="font-medium">{String(ml)} mL</span></div>
+                                                <Hint key={r} text={`Route breakdown — ${r}: ${String(ml)} mL`}>
+                                                <div className="flex gap-2"><span className="capitalize">{r}:</span><span className="font-medium">{String(ml)} mL</span></div>
+                                                </Hint>
                                               ))}
                                             </div>
                                           ) : f.route ? (
-                                            <div className="text-[10px] text-blue-400 mt-0.5">Route: <span className="font-medium capitalize">{f.route}</span></div>
+                                            <Hint text={`Administration route: ${f.route}.`}><div className="text-[10px] text-blue-400 mt-0.5">Route: <span className="font-medium capitalize">{f.route}</span></div></Hint>
                                           ) : null}
                                         </div>
                                       )
                                     })}
                                   </div>
-                                ) : <p className="text-xs text-blue-400 italic">No intake recorded this session</p>}
+                                ) : <Hint text="No fluid intake has been recorded for this session yet."><p className="text-xs text-blue-400 italic">No intake recorded this session</p></Hint>}
                               </div>
 
                               {/* Output Entries */}
                               <div>
-                                <p className="text-xs font-semibold text-amber-700 mb-2 flex items-center gap-1.5"><Droplets size={13} /> Output Entries ({sessEntries.filter((e: any) => Number(e.output_ml) > 0).length})</p>
+                                <Hint text="All output (fluid lost) entries recorded this session."><p className="text-xs font-semibold text-amber-700 mb-2 flex items-center gap-1.5"><Droplets size={13} /> Output Entries ({sessEntries.filter((e: any) => Number(e.output_ml) > 0).length})</p></Hint>
                                 {sessEntries.filter((e: any) => Number(e.output_ml) > 0).length > 0 ? (
                                   <div className="space-y-1.5">
                                     {sessEntries.filter((e: any) => Number(e.output_ml) > 0).sort((a: any, b: any) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime()).slice(0, 5).map((f: any) => {
@@ -2051,15 +2114,19 @@ export default function PatientChart() {
                                       const outputTypes = details?.output || {}
                                       return (
                                         <div key={f.id} onClick={() => { setSelectedEntry(f); setShowEntryModal(true) }} className="p-2.5 rounded-xl bg-amber-50 border border-amber-100 cursor-pointer hover:bg-amber-100 transition-colors">
+                                          <Hint text={`Output entry recorded on ${new Date(f.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}${f.staff_name ? ` by ${f.staff_name}` : ''}. Click to view details.`}>
                                           <div className="flex items-center gap-1 flex-wrap text-[11px] text-slate-500 mb-1">
                                             <span>{new Date(f.recorded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
                                             {f.staff_name && <span>by {f.staff_name}</span>}
                                           </div>
-                                          <p className="text-xs font-semibold text-amber-700">Output: {Number(f.output_ml).toFixed(0)} mL</p>
+                                          </Hint>
+                                          <Hint text={`Total output amount for this entry: ${Number(f.output_ml).toFixed(0)} mL.`}><p className="text-xs font-semibold text-amber-700">Output: {Number(f.output_ml).toFixed(0)} mL</p></Hint>
                                           {Object.keys(outputTypes).length > 0 && (
                                             <div className="text-[10px] text-amber-500 mt-0.5 space-y-0.5">
                                               {Object.entries(outputTypes).map(([t, ml]) => (
-                                                <div key={t} className="flex gap-2 text-[10px] text-amber-500"><span className="capitalize">{t.replace('_', ' ')}:</span><span className="font-medium">{String(ml)}</span></div>
+                                                <Hint key={t} text={`Output type — ${t.replace('_', ' ')}: ${String(ml)} mL`}>
+                                                <div className="flex gap-2 text-[10px] text-amber-500"><span className="capitalize">{t.replace('_', ' ')}:</span><span className="font-medium">{String(ml)}</span></div>
+                                                </Hint>
                                               ))}
                                             </div>
                                           )}
@@ -2067,12 +2134,12 @@ export default function PatientChart() {
                                       )
                                     })}
                                   </div>
-                                ) : <p className="text-xs text-amber-400 italic">No output recorded this session</p>}
+                                ) : <Hint text="No fluid output has been recorded for this session yet."><p className="text-xs text-amber-400 italic">No output recorded this session</p></Hint>}
                               </div>
-                              {sessEntries.length > 10 && <p className="text-[11px] text-slate-400 text-center">+ {sessEntries.length - 10} more entries</p>}
+                              {sessEntries.length > 10 && <Hint text={`${sessEntries.length - 10} additional entries not shown. Open details to see all.`}><p className="text-[11px] text-slate-400 text-center">+ {sessEntries.length - 10} more entries</p></Hint>}
                             </div>
                           ) : (
-                            <p className="text-xs text-slate-400 italic text-center py-3">No entries yet. Click "Add Intake" or "Add Output" to record.</p>
+                            <Hint text="This session has no intake or output records yet."><p className="text-xs text-slate-400 italic text-center py-3">No entries yet. Click "Add Intake" or "Add Output" to record.</p></Hint>
                           )}
                         </div>
                       )}
