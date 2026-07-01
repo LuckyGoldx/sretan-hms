@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import DoctorComment from './DoctorComment'
 import type { RadiologyOrder } from '../types'
 import {
   ArrowLeft,
@@ -262,6 +263,7 @@ export default function RadiologyModule() {
                         <p className="text-[10px] text-slate-400">
                           {new Date(order.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </p>
+                        {order.doctor_comment && <DoctorComment comment={order.doctor_comment} />}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0 ml-3">
@@ -287,6 +289,7 @@ export default function RadiologyModule() {
                 <div>
                   <h2 className="text-base font-semibold text-slate-800">Report Editor — {selectedOrder.imaging_type}</h2>
                   {selectedOrder.patient_name && <p className="text-xs text-slate-400">{selectedOrder.patient_name} {selectedOrder.imaging_number ? `· ${selectedOrder.imaging_number}` : ''}</p>}
+                  {selectedOrder.doctor_comment && <DoctorComment comment={selectedOrder.doctor_comment} />}
                 </div>
               </div>
               <button onClick={closeEditor} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>

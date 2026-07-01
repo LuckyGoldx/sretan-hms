@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import DoctorComment from './DoctorComment'
 import {
   Scan, Loader2, FileText, X, Search, Clock, ArrowLeft, User, Calendar
 } from 'lucide-react'
@@ -108,6 +109,7 @@ export default function RadiologyHistory() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-slate-800">{o.patient_name || 'Walk-in Patient'}</p>
                   <p className="text-xs text-slate-400">{o.doctor_name ? `Ordered by: ${o.doctor_name}` : ''} {o.imaging_number ? `· ${o.imaging_number}` : ''}</p>
+                  {o.doctor_comment && <DoctorComment comment={o.doctor_comment} />}
                 </div>
                 <span className="text-xs text-primary font-medium">&rarr;</span>
               </div>
@@ -144,6 +146,7 @@ export default function RadiologyHistory() {
                 <span className="text-slate-500">Status</span>
                 <span className="font-medium capitalize">{detail.status}</span>
               </div>
+              {detail.doctor_comment && <DoctorComment comment={detail.doctor_comment} />}
               {detail.reported_by_name && (
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                   <p className="text-xs text-slate-500 mb-1">Reported By</p>

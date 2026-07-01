@@ -132,6 +132,7 @@ export interface RadiologyOrder {
   reported_by?: string
   reported_at?: string
   reported_by_name?: string
+  doctor_comment?: string
   created_at: string
 }
 

@@ -103,7 +103,7 @@ router.get('/api/lab-orders/stats', async (_req: Request, res: Response) => {
 router.post('/api/lab-orders', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { encounter_id, test_name, specimen_type, priority, patient_name, patient_phone, referred_by, request_number, lab_number: providedLabNumber, payment_id, walkin_phone } = req.body;
+    const { encounter_id, test_name, specimen_type, priority, patient_name, patient_phone, referred_by, request_number, lab_number: providedLabNumber, payment_id, walkin_phone, doctor_comment } = req.body;
 
     if (!test_name) {
       res.status(400).json({ error: true, message: 'test_name is required' });
@@ -129,10 +129,10 @@ router.post('/api/lab-orders', async (req: Request, res: Response) => {
 
     const id = uuidv4();
     const result = await pool.query(
-      `INSERT INTO lab_orders (id, tenant_id, lab_number, request_number, order_number, encounter_id, test_name, specimen_type, priority, patient_name, patient_phone, referred_by, payment_id, is_paid, walkin_phone)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+      `INSERT INTO lab_orders (id, tenant_id, lab_number, request_number, order_number, encounter_id, test_name, specimen_type, priority, patient_name, patient_phone, referred_by, payment_id, is_paid, walkin_phone, doctor_comment)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
       [id, tenantId, labNumber, request_number || null, orderNumber, encounter_id || null, test_name, specimen_type || null, priority || 'routine',
-       patient_name || null, patient_phone || null, referred_by || null, payment_id || null, payment_id ? true : (!encounter_id ? true : false), walkin_phone || null]
+       patient_name || null, patient_phone || null, referred_by || null, payment_id || null, payment_id ? true : (!encounter_id ? true : false), walkin_phone || null, doctor_comment || null]
     );
 
     res.status(201).json(result.rows[0]);
@@ -255,10 +255,14 @@ router.get('/api/lab-results/:orderId', async (req: Request, res: Response) => {
   try {
     const { orderId } = req.params;
     const { status } = req.query;
-    var query = 'SELECT * FROM lab_results WHERE lab_order_id = $1';
+    var query = `SELECT lr.*, es.name as entered_by_name, es2.name as approved_by_name
+                 FROM lab_results lr
+                 LEFT JOIN staff_users es ON es.id = lr.entered_by
+                 LEFT JOIN staff_users es2 ON es2.id = lr.approved_by
+                 WHERE lr.lab_order_id = $1`;
     var params: any[] = [orderId];
-    if (status) { query += ' AND status = $2'; params.push(status); }
-    query += ' ORDER BY created_at';
+    if (status) { query += ' AND lr.status = $2'; params.push(status); }
+    query += ' ORDER BY lr.created_at';
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err: any) {

@@ -1,20 +1,51 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import DoctorComment from './DoctorComment'
 import type { Patient, Encounter } from '../types'
 import {
-  User, Clock, Pill, Beaker, Scan, Activity, Loader2, Bed,
+  User, Clock, Pill, Beaker, Scan, Activity, Loader2, Bed, Search, ClipboardList, ChevronDown, Info,
   AlertTriangle, ChevronRight, ArrowLeft, Stethoscope, FlaskConical, Droplets, XCircle,
-  FileText, X, Info, Plus, CheckCircle, Edit2, Mic, Printer, FileImage
+  FileText, X, Plus, CheckCircle, Edit2, Mic, Printer, FileImage
 } from 'lucide-react'
 
 const PER_PAGE = 15
+const TREATMENT_PER_PAGE = 25
 
 function usePagination<T>(items: T[], page: number): { items: T[]; totalPages: number } {
   const totalPages = Math.max(1, Math.ceil(items.length / PER_PAGE))
   const safePage = Math.min(page, totalPages)
   const start = (safePage - 1) * PER_PAGE
   return { items: items.slice(start, start + PER_PAGE), totalPages }
+}
+
+function Hint({ text, children }: { text: string; children: React.ReactNode }) {
+  const [show, setShow] = useState(false)
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  return (
+    <span className="inline" style={{ position: 'relative' }}
+      onMouseEnter={(e) => { setShow(true); const r = (e.target as HTMLElement).getBoundingClientRect(); setPos({ x: r.left + r.width / 2, y: r.top - 8 }) }}
+      onMouseLeave={() => setShow(false)}>
+      {children}
+      {show && (
+        <div className="fixed z-[100] pointer-events-none" style={{ left: pos.x, top: pos.y, transform: 'translate(-50%, -100%)' }}>
+          <div className="bg-slate-800 text-white text-[11px] leading-relaxed rounded-xl px-3 py-2 shadow-xl max-w-[220px] text-center whitespace-pre-line">{text}</div>
+          <div className="w-2 h-2 bg-slate-800 rotate-45 mx-auto -mt-1" />
+        </div>
+      )}
+    </span>
+  )
+}
+
+function to12Hour(time: string): string {
+  if (!time) return ''
+  const parts = time.split(':')
+  const h = parseInt(parts[0], 10)
+  const m = parts[1] || '00'
+  if (isNaN(h)) return time
+  const period = h >= 12 ? 'PM' : 'AM'
+  const hour12 = h % 12 || 12
+  return `${hour12}:${m} ${period}`
 }
 
 function VoiceInput({ value, onChange }: { value: string; onChange: (val: string) => void }) {
@@ -120,10 +151,31 @@ export default function PatientChart() {
   const [treatmentForm, setTreatmentForm] = useState({ treatment: '', dosage: '', route: '', frequency: '', notes: '' })
   const [selectedTimes, setSelectedTimes] = useState<string[]>([])
   const [doseMap, setDoseMap] = useState<Record<string, any[]>>({})
+  const [treatmentSuggestions, setTreatmentSuggestions] = useState<string[]>([])
+  const [showTreatmentDropdown, setShowTreatmentDropdown] = useState(false)
+  const [treatmentRoute, setTreatmentRoute] = useState<string[]>([])
+  const [treatmentOtherRoute, setTreatmentOtherRoute] = useState('')
+  const [sessionsMap, setSessionsMap] = useState<Record<string, any[]>>({})
+  const [expandedTreatments, setExpandedTreatments] = useState<Record<string, boolean>>({})
+  const [showAddSessionModal, setShowAddSessionModal] = useState(false)
+  const [addSessionTreatment, setAddSessionTreatment] = useState<any | null>(null)
+  const [txFilter, setTxFilter] = useState<'all' | 'active'>('all')
   const [treatmentSubmitting, setTreatmentSubmitting] = useState(false)
+  const [addTxChoice, setAddTxChoice] = useState<{ treatment_id: string; name: string } | null>(null)
   const [showFluidModal, setShowFluidModal] = useState(false)
   const [confirmDose, setConfirmDose] = useState<{ doseId: string; treatmentName: string; time: string; treatmentId: string } | null>(null)
   const [endTreatment, setEndTreatment] = useState<{ treatmentId: string; treatmentName: string } | null>(null)
+  const [endReason, setEndReason] = useState('')
+  const [endIsDrug, setEndIsDrug] = useState(false)
+  const [drugEndChoice, setDrugEndChoice] = useState<{ treatmentId: string; name: string } | null>(null)
+  const [parentInfoModal, setParentInfoModal] = useState<any | null>(null)
+  const [childInfoModal, setChildInfoModal] = useState<{ session: any; treatmentName: string } | null>(null)
+  const [summarySearch, setSummarySearch] = useState('')
+  const [summaryDateFilter, setSummaryDateFilter] = useState('all')
+  const [summaryDateFrom, setSummaryDateFrom] = useState('')
+  const [summaryDateTo, setSummaryDateTo] = useState('')
+  const [summaryPage, setSummaryPage] = useState(1)
+  const [showSummaryDropdown, setShowSummaryDropdown] = useState(false)
   const [skipReason, setSkipReason] = useState<{ doseId: string; treatmentId: string } | null>(null)
   const [skipReasonText, setSkipReasonText] = useState('')
   const [doseDetail, setDoseDetail] = useState<any | null>(null)
@@ -143,13 +195,42 @@ export default function PatientChart() {
   const [showEntryModal, setShowEntryModal] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<any>(null)
 
-  async function autoCompleteTreatment(treatmentId: string, doses: any[]) {
+  async function performAddTreatment() {
+    if (!treatmentForm.treatment.trim() || !patientId) return
+    setTreatmentSubmitting(true)
+    try {
+      const timesStr = selectedTimes.join(',')
+      const routeStr = [...treatmentRoute, ...(treatmentOtherRoute.trim() ? [treatmentOtherRoute.trim()] : [])].join(', ')
+      const res = await api.post('/treatments', { ...treatmentForm, route: routeStr || null, patient_id: patientId, staff_id: currentUser?.id, times: timesStr || undefined })
+      const { treatment_id } = res.data || {}
+      setShowTreatmentModal(false)
+      setTreatmentForm({ treatment: '', dosage: '', route: '', frequency: '', notes: '' })
+      setSelectedTimes([]); setTreatmentRoute([]); setTreatmentOtherRoute('')
+      const res2 = await api.get(`/treatments?patient_id=${patientId}`)
+      setTreatments(res2.data || [])
+      if (treatment_id) {
+        const sessRes = await api.get(`/treatment-sessions?treatment_id=${treatment_id}`)
+        setSessionsMap((prev) => ({ ...prev, [treatment_id]: sessRes.data || [] }))
+        const doseMapNew: Record<string, any[]> = { ...doseMap }
+        for (const s of (sessRes.data || [])) { try { const doseRes = await api.get(`/treatment-doses?session_id=${s.id}`); doseMapNew[s.id] = doseRes.data || [] } catch { doseMapNew[s.id] = [] } }
+        setDoseMap(doseMapNew)
+      }
+    } catch {} finally { setTreatmentSubmitting(false) }
+  }
+
+  async function autoCompleteTreatment(sessionId: string, doses: any[]) {
     if (doses.length === 0) return
     const allDone = doses.every((d: any) => d.status === 'administered' || d.status === 'skipped')
     if (!allDone) return
     try {
-      const res = await api.put(`/treatments/${treatmentId}`, { status: 'completed', end_date: new Date().toISOString(), ended_by: currentUser?.id })
-      setTreatments((prev) => prev.map((x: any) => x.id === treatmentId ? { ...x, ...res.data, status: 'completed' } : x))
+      await api.put(`/treatment-sessions/${sessionId}`, { status: 'completed', end_date: new Date().toISOString(), ended_by: currentUser?.id })
+      setSessionsMap((prev) => {
+        const next = { ...prev }
+        for (const key of Object.keys(next)) {
+          next[key] = next[key].map((s: any) => s.id === sessionId ? { ...s, status: 'completed', end_date: new Date().toISOString() } : s)
+        }
+        return next
+      })
     } catch {}
   }
 
@@ -238,6 +319,13 @@ export default function PatientChart() {
   const [modalEnc, setModalEnc] = useState<any | null>(null)
   const [modalEncData, setModalEncData] = useState<{ prescriptions: any[]; labOrders: any[]; labResultsMap: Record<string, any[]>; radiologyOrders: any[]; doctorName: string } | null>(null)
   const [staffCache, setStaffCache] = useState<Record<string, string>>({})
+  useEffect(() => {
+    api.get<any[]>('/inventory?category=pharmacy').then((res) => {
+      const drugs = [...new Set((res.data || []).map((i: any) => i.drug_name).filter(Boolean))] as string[]
+      setTreatmentSuggestions(drugs)
+    }).catch(() => {})
+  }, [])
+
   const currentUser: { id: string; name: string; role: string } | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u) } catch {} return null })()
   const isNurse = currentUser?.role === 'Nurse'
   const isDoctor = currentUser?.role === 'Doctor'
@@ -426,18 +514,42 @@ export default function PatientChart() {
   }, [radOrders.length])
 
   useEffect(() => {
+    const isNurseUser = (() => { try { const u = JSON.parse(localStorage.getItem('sretan_user') || '{}'); return u?.role === 'Nurse' } catch { return false } })()
+    if (isNurseUser && treatments.length > 0) {
+      const hasActive = treatments.some((t: any) => t.status === 'active')
+      setTxFilter(hasActive ? 'active' : 'all')
+    }
+  }, [treatments.length])
+
+  function getTreatmentDoses(tId: string): any[] {
+    const sess = sessionsMap[tId] || []
+    const result: any[] = []
+    for (const s of sess) result.push(...(doseMap[s.id] || []))
+    return result
+  }
+
+  useEffect(() => {
     if (treatments.length === 0) return
-    async function loadDoses() {
-      const map: Record<string, any[]> = {}
+    async function loadSessionsAndDoses() {
+      const sessMap: Record<string, any[]> = {}
+      const doseMapNew: Record<string, any[]> = {}
       for (const t of treatments) {
         try {
-          const res = await api.get(`/treatment-doses?treatment_id=${t.id}`)
-          map[t.id] = res.data || []
-        } catch { map[t.id] = [] }
+          const sessRes = await api.get(`/treatment-sessions?treatment_id=${t.id}`)
+          const sessions = sessRes.data || []
+          sessMap[t.id] = sessions
+          for (const s of sessions) {
+            try {
+              const doseRes = await api.get(`/treatment-doses?session_id=${s.id}`)
+              doseMapNew[s.id] = doseRes.data || []
+            } catch { doseMapNew[s.id] = [] }
+          }
+        } catch { sessMap[t.id] = [] }
       }
-      setDoseMap(map)
+      setSessionsMap(sessMap)
+      setDoseMap(doseMapNew)
     }
-    loadDoses()
+    loadSessionsAndDoses()
   }, [treatments.length])
 
   if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><Loader2 size={32} className="animate-spin text-primary" /></div>
@@ -455,7 +567,8 @@ export default function PatientChart() {
     { id: 'lab', label: labOrders.length > 0 ? `Lab (${labOrders.length})` : 'Lab', icon: FlaskConical },
     { id: 'radiology', label: radOrders.length > 0 ? `Radiology (${radOrders.length})` : 'Radiology', icon: Scan },
     { id: 'admissions', label: admissions.length > 0 ? `Admissions (${admissions.length})` : 'Admissions', icon: Bed },
-    { id: 'treatment_sheet', label: treatments.length > 0 ? `Treatments (${treatments.length})` : 'Treatments', icon: Pill },
+    { id: 'treatment_sheet', label: `Tx Sheet (${treatments.filter((t: any) => t.status === 'active').length})`, icon: Pill },
+    { id: 'treatment_summary', label: `Tx Summary (${treatments.length})`, icon: ClipboardList },
     { id: 'fluid_balance', label: fluidSessions.length > 0 ? `Fluid (${fluidSessions.length})` : 'Fluid', icon: Droplets },
     { id: 'nurse_clinical_notes', label: nurseOnlyNotes.length > 0 ? `Nurses Clin. Notes (${nurseOnlyNotes.length})` : 'Nurses Clin. Notes', icon: FileText },
     { id: 'doctor_clinical_notes', label: (doctorNotes.length + soapEncounters.length) > 0 ? `Doctors Cli. Notes (${doctorNotes.length + soapEncounters.length})` : 'Doctors Cli. Notes', icon: Stethoscope },
@@ -586,7 +699,25 @@ export default function PatientChart() {
               {labOrders.length === 0 ? <p className="text-xs text-slate-400">None</p> : (
                 <div className="space-y-2">
                   {labOrders.slice(0, 5).map((l: any) => (
-                    <div key={l.id} className="flex justify-between text-xs gap-2"><span className="text-slate-700 truncate min-w-0">{l.test_name}</span><span className={`px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ${l.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{l.status}</span></div>
+                    <button key={l.id} onClick={() => setViewLabModal(l)}
+                      className="w-full flex justify-between text-xs gap-2 p-2 rounded-lg hover:bg-slate-50 transition-colors text-left">
+                      <span className="text-slate-700 font-medium truncate min-w-0">{l.test_name}</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ${l.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{l.status}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex items-center gap-2 mb-3"><Scan size={16} className="text-indigo-500" /><h3 className="text-sm font-semibold">Radiology Orders</h3></div>
+              {radOrders.length === 0 ? <p className="text-xs text-slate-400">None</p> : (
+                <div className="space-y-2">
+                  {radOrders.slice(0, 5).map((r: any) => (
+                    <button key={r.id} onClick={() => setViewRadModal(r)}
+                      className="w-full flex justify-between text-xs gap-2 p-2 rounded-lg hover:bg-slate-50 transition-colors text-left">
+                      <span className="text-slate-700 font-medium truncate min-w-0">{r.imaging_type}</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] flex-shrink-0 ${r.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : r.status === 'review' || r.status === 'rejected' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'}`}>{r.status === 'review' ? 'In Review' : r.status === 'rejected' ? 'In Review' : r.status}</span>
+                    </button>
                   ))}
                 </div>
               )}
@@ -719,6 +850,7 @@ export default function PatientChart() {
                     {lab.doctor_name && <span>Ordered by: <strong>{lab.doctor_name}</strong></span>}
                     {lab.lab_number && <span className="font-mono">#{lab.lab_number}</span>}
                   </div>
+                  {lab.doctor_comment && <DoctorComment comment={lab.doctor_comment} />}
                   {results.length > 0 ? (
                     <div className="space-y-1.5">
                       {results.map((r: any) => (
@@ -755,33 +887,48 @@ export default function PatientChart() {
 
       {viewLabModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setViewLabModal(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><FileText size={18} className="text-primary" /> Lab Result</h2>
               <button onClick={() => setViewLabModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="overflow-y-auto flex-1 p-6 space-y-4">
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div><span className="text-slate-500">Test:</span> <span className="font-medium">{viewLabModal.test_name}</span></div>
-                <div><span className="text-slate-500">Date:</span> <span className="font-medium">{new Date(viewLabModal.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span></div>
-                <div><span className="text-slate-500">Doctor:</span> <span className="font-medium">{viewLabModal.doctor_name || '—'}</span></div>
+                <div><span className="text-slate-500">Lab #:</span> <span className="font-mono text-xs">{viewLabModal.lab_number || '—'}</span></div>
                 <div><span className="text-slate-500">Status:</span> <span className="font-medium capitalize">{viewLabModal.status}</span></div>
-                {viewLabModal.lab_number && <div className="col-span-2"><span className="text-slate-500">Lab #:</span> <span className="font-mono text-xs">{viewLabModal.lab_number}</span></div>}
+                <div><span className="text-slate-500">Ordered:</span> <span className="font-medium">{new Date(viewLabModal.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></div>
+                <div className="col-span-2"><span className="text-slate-500">Ordered by:</span> <span className="font-medium">{viewLabModal.doctor_name || '—'}</span></div>
               </div>
+
+              {viewLabModal.doctor_comment && <DoctorComment comment={viewLabModal.doctor_comment} />}
+
               <div>
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Results</p>
                 {(labResults[viewLabModal.id] || []).length > 0 ? (
                   <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
-                    {(labResults[viewLabModal.id] || []).map((r: any) => (
-                      <div key={r.id} className={`px-4 py-3 flex items-center gap-2 text-sm flex-wrap ${r.is_abnormal ? 'bg-rose-50' : 'bg-white'}`}>
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <span className="font-medium text-slate-700">{r.analyte_name}</span>
-                          <span className={`font-bold ${r.is_abnormal ? 'text-rose-600' : 'text-slate-800'}`}>{r.value}</span>
+                    {(labResults[viewLabModal.id] || []).map((r: any, idx: number) => (
+                      <div key={r.id}>
+                        <div className={`px-4 py-3 flex items-center gap-2 text-sm flex-wrap ${r.is_abnormal ? 'bg-rose-50' : 'bg-white'}`}>
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <span className="font-medium text-slate-700">{r.analyte_name}</span>
+                            <span className={`font-bold ${r.is_abnormal ? 'text-rose-600' : 'text-slate-800'}`}>{r.value}</span>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <span className="text-xs text-slate-400">Ref: {r.reference_range_low || '?'}–{r.reference_range_high || '?'}</span>
+                            {r.is_abnormal && <AlertTriangle size={14} className="text-rose-500" />}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <span className="text-xs text-slate-400">Ref: {r.reference_range_low || '?'}–{r.reference_range_high || '?'}</span>
-                          {r.is_abnormal && <AlertTriangle size={14} className="text-rose-500" />}
-                        </div>
+                        {idx === (labResults[viewLabModal.id] || []).length - 1 && (
+                          <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100 text-xs text-slate-500 space-y-1">
+                            {r.entered_by_name && (
+                              <p>Entered by: <strong className="text-slate-700">{r.entered_by_name}</strong> &middot; {new Date(r.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                            )}
+                            {r.approved_by_name && (
+                              <p>Approved by: <strong className="text-slate-700">{r.approved_by_name}</strong> &middot; {r.approved_at ? new Date(r.approved_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</p>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -790,7 +937,7 @@ export default function PatientChart() {
                 )}
               </div>
             </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end">
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end flex-shrink-0">
               <button onClick={() => setViewLabModal(null)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Done</button>
             </div>
           </div>
@@ -826,6 +973,7 @@ export default function PatientChart() {
                   <p className="text-sm font-semibold text-slate-800">{viewRadModal.doctor_name || '—'}</p>
                   <p className="text-[10px] text-slate-400 mt-0.5">{new Date(viewRadModal.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
+                {viewRadModal.doctor_comment && <DoctorComment comment={viewRadModal.doctor_comment} />}
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                   <p className="text-xs text-slate-500 mb-1">Status</p>
                   <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${viewRadModal.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : viewRadModal.status === 'review' || viewRadModal.status === 'rejected' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'}`}>
@@ -930,6 +1078,7 @@ export default function PatientChart() {
                       {rad.doctor_name && <span>Ordered by: <strong>{rad.doctor_name}</strong></span>}
                       <span>{new Date(rad.created_at).toLocaleString()}</span>
                     </div>
+                    {rad.doctor_comment && <DoctorComment comment={rad.doctor_comment} />}
                     {rad.status === 'completed' && (
                       <div className="mt-3 space-y-2">
                         {rad.report_text && (
@@ -1116,6 +1265,7 @@ export default function PatientChart() {
                                 <span className="text-sm font-medium text-slate-800">{lab.test_name}</span>
                                 <span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${lab.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{lab.status}</span>
                               </div>
+                              {lab.doctor_comment && <DoctorComment comment={lab.doctor_comment} />}
                               {results.length > 0 && results.map((r: any) => (
                                 <div key={r.id} className={`flex items-center gap-2 sm:gap-3 text-xs px-2.5 py-1 rounded-lg mt-1 flex-wrap ${r.is_abnormal ? 'bg-rose-50 text-rose-700' : 'bg-white text-slate-600'}`}>
                                   <span className="font-medium flex-1 min-w-0 truncate">{r.analyte_name}</span>
@@ -1136,10 +1286,11 @@ export default function PatientChart() {
                       <div className="space-y-1.5">
                         {modalEncData.radiologyOrders.map((rad: any) => (
                           <div key={rad.id} className="bg-slate-50 rounded-xl p-3 text-sm space-y-2">
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="font-medium text-slate-800 truncate min-w-0">{rad.imaging_type}</span>
-                              <span className={`px-2 py-0.5 rounded-lg text-xs font-medium flex-shrink-0 ${rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : rad.status === 'review' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'}`}>{rad.status === 'review' ? 'In Review' : rad.status === 'rejected' ? 'In Review' : rad.status === 'completed' ? 'Completed' : rad.status?.charAt(0).toUpperCase() + rad.status?.slice(1)}</span>
-                            </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="font-medium text-slate-800 truncate min-w-0">{rad.imaging_type}</span>
+                            <span className={`px-2 py-0.5 rounded-lg text-xs font-medium flex-shrink-0 ${rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : rad.status === 'review' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'}`}>{rad.status === 'review' ? 'In Review' : rad.status === 'rejected' ? 'In Review' : rad.status === 'completed' ? 'Completed' : rad.status?.charAt(0).toUpperCase() + rad.status?.slice(1)}</span>
+                          </div>
+                          {rad.doctor_comment && <DoctorComment comment={rad.doctor_comment} />}
                             {rad.report_text && (
                               <div className="text-xs text-slate-600 whitespace-pre-wrap bg-white rounded-lg p-2.5 border border-slate-100 max-h-20 overflow-y-auto">{rad.report_text}</div>
                             )}
@@ -1332,89 +1483,427 @@ export default function PatientChart() {
       )}
       {activeSection === 'treatment_sheet' && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mb-4">
             <h2 className="text-sm font-semibold text-slate-700">Treatment Sheet</h2>
+            <div className="flex bg-slate-100 rounded-xl p-0.5">
+              <Hint text="Show only drugs with active courses that have unmarked dose slots.">
+                <button onClick={() => { setTxFilter('active'); setTreatmentPage(1) }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${txFilter === 'active' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>Active</button>
+              </Hint>
+              <Hint text="Show all drugs including ended and completed.">
+                <button onClick={() => { setTxFilter('all'); setTreatmentPage(1) }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all ${txFilter === 'all' ? 'bg-white text-primary shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>All</button>
+              </Hint>
+            </div>
             {!isDoctor && (
-              <button onClick={() => { setShowTreatmentModal(true); setTreatmentForm({ treatment: '', dosage: '', route: '', frequency: '', notes: '' }); setSelectedTimes([]) }}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform"><Plus size={14} /> Add Treatment</button>
+              <Hint text="Add a new drug treatment. If the drug already exists, you can add a course or create a new cycle.">
+                <button onClick={() => {
+                  setTreatmentForm({ treatment: '', dosage: '', route: '', frequency: '', notes: '' })
+                  setSelectedTimes([]); setTreatmentRoute([]); setTreatmentOtherRoute(''); setShowTreatmentModal(true)
+                }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform"><Plus size={14} /> Add Treatment</button>
+              </Hint>
             )}
           </div>
-          {treatments.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">No treatments recorded. Click Add Treatment to start.</p> : (
-            <div className="space-y-4">
-              {usePagination(treatments, treatmentPage).items.map((t: any) => {
-                const doses = doseMap[t.id] || []
-                const allDone = doses.length > 0 && doses.every((d: any) => d.status === 'administered' || d.status === 'skipped')
-                const displayStatus = allDone ? 'completed' : t.status
-                return (
-                  <div key={t.id} className="rounded-2xl border overflow-hidden">
-                    <div className={`px-5 py-3 border-b flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 ${t.status === 'active' && !allDone ? 'bg-blue-50 border-blue-100' : 'bg-slate-50 border-slate-100'}`}>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-semibold text-slate-800">{t.treatment}</span>
-                        <button onClick={() => setDoseDetail({ type: 'treatment', data: t })} className={`px-2 py-0.5 rounded-lg text-[10px] font-medium cursor-pointer hover:opacity-80 ${displayStatus === 'active' ? 'bg-emerald-100 text-emerald-700' : displayStatus === 'completed' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'}`}>
-                          {displayStatus === 'active' ? 'Active' : displayStatus === 'completed' ? 'Completed' : 'Expired'}
-                        </button>
-                      </div>
-                      <div className="flex flex-col items-start sm:items-end gap-0.5">
-                        <span className="text-[11px] text-slate-400">
-                          Started {new Date(t.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} by {t.staff_name || '—'}
-                        </span>
-                        {(displayStatus === 'expired' || displayStatus === 'completed') && (
-                          <span className="text-[11px] text-slate-400">{displayStatus === 'completed' ? 'Completed' : 'Ended'} — all doses recorded</span>
-                        )}
-                        {t.status === 'active' && !allDone && (
-                          <button onClick={() => setEndTreatment({ treatmentId: t.id, treatmentName: t.treatment })} className="px-3 py-1 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors">End</button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="p-4">
-                      <div className="flex flex-wrap gap-2 mb-3 text-xs">
-                        {t.dosage && <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700">{t.dosage}</span>}
-                        {t.route && <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-700">{t.route}</span>}
-                        {t.frequency && <span className="px-2 py-0.5 rounded bg-green-100 text-green-700">{t.frequency}</span>}
-                        {t.times && <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-700">{t.times}</span>}
-                        {t.staff_name && <span className="text-xs text-slate-400 ml-auto">{t.staff_name}</span>}
-                      </div>
-                      {t.notes && <p className="text-xs text-slate-500 mb-3">{t.notes}</p>}
-                      {doses.length > 0 ? (
-                        <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                          {doses.map((d: any) => {
-                            const isAdministered = d.status === 'administered'
-                            const isSkipped = d.status === 'skipped'
-                            return (
-                              <div key={d.id} className={`rounded-xl border p-2.5 text-center transition-all ${
-                                isAdministered ? 'bg-emerald-50 border-emerald-200' :
-                                isSkipped ? 'bg-rose-50 border-rose-200' :
-                                'bg-white border-slate-200 hover:border-blue-300 cursor-pointer'
-                              }`} onClick={() => {
-                                if (isAdministered || isSkipped) {
-                                  setDoseDetail({ ...d, treatment_name: t.treatment })
-                                  return
-                                }
-                                if (t.status !== 'active') return
-                                setConfirmDose({ doseId: d.id, treatmentName: t.treatment, time: d.scheduled_time?.slice(0, 5), treatmentId: t.id })
-                              }}>
-                                <p className="text-xs font-bold text-slate-700">{d.scheduled_time?.slice(0, 5)}</p>
-                                {isAdministered ? (
-                                  <p className="text-[10px] text-emerald-600 font-medium mt-1">Done {new Date(d.administered_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</p>
-                                ) : isSkipped ? (
-                                  <p className="text-[10px] text-rose-600 font-medium mt-1">Skipped</p>
-                                ) : (
-                                  <p className="text-[10px] text-slate-400 font-medium mt-1">Pending</p>
-                                )}
-                                {d.administered_by_name && <p className="text-[9px] text-slate-400 mt-0.5">{d.administered_by_name}</p>}
-                              </div>
-                            )
-                          })}
-                        </div>
+          {treatments.length === 0 ? (
+            <div className="text-center py-12">
+              <Pill size={40} className="mx-auto text-slate-300 mb-3" />
+              <p className="text-sm font-medium text-slate-500">No treatments recorded yet</p>
+              <p className="text-xs text-slate-400 mt-1 mb-4">Click <strong>Add Treatment</strong> to prescribe a new medication</p>
+              {!isDoctor && (
+                <button onClick={() => { setTreatmentForm({ treatment: '', dosage: '', route: '', frequency: '', notes: '' }); setSelectedTimes([]); setTreatmentRoute([]); setTreatmentOtherRoute(''); setShowTreatmentModal(true) }}
+                  className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform"><Plus size={16} /> Add Treatment</button>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {(() => {
+                const grouped: Record<string, any[]> = {}
+                for (const t of treatments) {
+                  if (!grouped[t.treatment]) grouped[t.treatment] = []
+                  grouped[t.treatment].push(t)
+                }
+                const groupNames = Object.keys(grouped).filter((name) => {
+                  if (txFilter === 'all') return true
+                  const t = grouped[name][0]
+                  return t.status === 'active'
+                }).sort((a, b) => {
+                  const aAllSess = grouped[a].flatMap((tx: any) => sessionsMap[tx.id] || [])
+                  const bAllSess = grouped[b].flatMap((tx: any) => sessionsMap[tx.id] || [])
+                  const aHasActive = grouped[a].some((t: any) => t.status === 'active')
+                  const bHasActive = grouped[b].some((t: any) => t.status === 'active')
+                  if (aHasActive !== bHasActive) return aHasActive ? -1 : 1
+                  const aLatest = aAllSess.length > 0 ? Math.max(...aAllSess.map((s: any) => new Date(s.created_at).getTime())) : new Date(grouped[a][0].created_at).getTime()
+                  const bLatest = bAllSess.length > 0 ? Math.max(...bAllSess.map((s: any) => new Date(s.created_at).getTime())) : new Date(grouped[b][0].created_at).getTime()
+                  return bLatest - aLatest
+                })
+                if (groupNames.length === 0) {
+                  return (
+                    <div className="text-center py-10">
+                      <Pill size={36} className="mx-auto text-slate-300 mb-3" />
+                      {txFilter === 'active' ? (
+                        <>
+                          <p className="text-sm font-medium text-slate-500">No active treatments</p>
+                          <p className="text-xs text-slate-400 mt-1 mb-4">All treatments have been completed or ended</p>
+                          <div className="flex items-center justify-center gap-2">
+                            <button onClick={() => setTxFilter('all')} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-colors">View All</button>
+                            {!isDoctor && (
+                              <button onClick={() => { setTreatmentForm({ treatment: '', dosage: '', route: '', frequency: '', notes: '' }); setSelectedTimes([]); setTreatmentRoute([]); setTreatmentOtherRoute(''); setShowTreatmentModal(true) }}
+                                className="px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform">+ Add Treatment</button>
+                            )}
+                          </div>
+                        </>
                       ) : (
-                        <p className="text-xs text-slate-400 italic">No dose schedule set</p>
+                        <>
+                          <p className="text-sm font-medium text-slate-500">No treatments recorded</p>
+                          <p className="text-xs text-slate-400 mt-1 mb-4">No medications have been prescribed for this patient yet</p>
+                          {!isDoctor && (
+                            <button onClick={() => { setTreatmentForm({ treatment: '', dosage: '', route: '', frequency: '', notes: '' }); setSelectedTimes([]); setTreatmentRoute([]); setTreatmentOtherRoute(''); setShowTreatmentModal(true) }}
+                              className="inline-flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform"><Plus size={16} /> Add Treatment</button>
+                          )}
+                        </>
                       )}
                     </div>
-                  </div>
-                )
-              })}
-              <Pagination page={treatmentPage} totalPages={usePagination(treatments, treatmentPage).totalPages} onChange={setTreatmentPage} />
+                  )
+                }
+                const pageGroups = groupNames.slice((treatmentPage - 1) * TREATMENT_PER_PAGE, treatmentPage * TREATMENT_PER_PAGE)
+                return pageGroups.map((name) => {
+                  const group = grouped[name]
+                  const latestT = group.find((t: any) => t.status === 'active') || group[0]
+                  const allSessions = group.flatMap((tx: any) => sessionsMap[tx.id] || []).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                  const activeSessions = allSessions.filter((s: any) => {
+                    if (s.status !== 'active') return false
+                    const ds = doseMap[s.id] || []
+                    return ds.length === 0 || ds.some((d: any) => d.status !== 'administered' && d.status !== 'skipped')
+                  })
+                  const treatmentActive = latestT.status !== 'ended' && latestT.status !== 'completed'
+                  const allSessionsDone = allSessions.length > 0 && allSessions.every((s: any) => {
+                    const ds = doseMap[s.id] || []
+                    return ds.length > 0 && ds.every((d: any) => d.status === 'administered' || d.status === 'skipped')
+                  })
+                  return (
+                    <div key={name} className={`rounded-2xl border overflow-hidden ${latestT.status === 'ended' ? 'border-red-200' : latestT.status === 'completed' ? 'border-blue-200' : 'border-slate-200'}`}>
+                      <div className={`px-5 py-3 border-b flex items-center justify-between gap-2 cursor-pointer hover:bg-slate-100 transition-colors ${latestT.status === 'ended' ? 'bg-red-50 border-red-100' : latestT.status === 'completed' ? 'bg-blue-50 border-blue-100' : 'bg-slate-50 border-slate-100'}`}
+                        onClick={() => setExpandedTreatments((prev) => ({ ...prev, [name]: !prev[name] }))}>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <Hint text="Drug/treatment name. Click to expand or collapse its courses."><span className="text-sm font-semibold text-slate-800">{name}</span></Hint>
+                          <Hint text="Total number of courses (dose cycles) under this drug."><span className="text-[10px] text-slate-400 bg-white rounded-lg px-2 py-0.5 border">{allSessions.length} course{allSessions.length !== 1 ? 's' : ''}</span></Hint>
+                          {activeSessions.length > 0 && <Hint text="Courses with unmarked dose slots pending administration."><span className="text-[10px] font-medium bg-emerald-100 text-emerald-700 rounded-lg px-2 py-0.5">{activeSessions.length} active</span></Hint>}
+                          {latestT.status === 'completed' && <Hint text="All courses completed — all doses administered or skipped."><span className="text-[10px] font-medium bg-blue-100 text-blue-700 rounded-lg px-2 py-0.5">Completed</span></Hint>}
+                          {latestT.status === 'ended' && <Hint text="This drug treatment has been ended by a nurse."><span className="text-[10px] font-medium bg-red-100 text-red-700 rounded-lg px-2 py-0.5">Ended</span></Hint>}
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <Hint text="View comprehensive drug summary — created by, ended by, dose stats, course history.">
+                            <button onClick={(e) => { e.stopPropagation(); setParentInfoModal(latestT) }}
+                              className="p-1.5 rounded-lg hover:bg-slate-200/60 transition-colors"><Info size={14} className="text-slate-400" /></button>
+                          </Hint>
+                          {treatmentActive && (
+                            <>
+                              <Hint text="Add a new course (dose cycle) to this drug. Latest dosage is pre-filled.">
+                                <button onClick={(e) => {
+                                  e.stopPropagation()
+                                  const lastActive = allSessions.find((s: any) => s.status === 'active' || s.status === 'completed')
+                                  setAddSessionTreatment({ treatment_id: latestT.id, name })
+                                  setTreatmentForm({ treatment: name, dosage: lastActive?.dosage || '', route: '', frequency: '', notes: '' })
+                                  setSelectedTimes([]); setTreatmentRoute([]); setTreatmentOtherRoute(''); setShowAddSessionModal(true)
+                                }}
+                                  className="px-3 py-1 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors">+ New Course</button>
+                              </Hint>
+                              <Hint text="End this drug treatment. Stops all active courses and hides the +New Course button.">
+                                <button onClick={(e) => {
+                                  e.stopPropagation()
+                                  setDrugEndChoice({ treatmentId: latestT.id, name })
+                                }}
+                                  className="px-3 py-1 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors">End Treatment</button>
+                              </Hint>
+                            </>
+                          )}
+                          <Hint text={expandedTreatments[name] ? 'Collapse courses' : 'Expand to view courses'}>
+                            <ChevronDown size={16} className={`text-slate-400 transition-transform ${expandedTreatments[name] ? 'rotate-180' : ''}`} />
+                          </Hint>
+                        </div>
+                      </div>
+                      {expandedTreatments[name] && (
+                        <div className="divide-y-2 divide-slate-100">
+                          {allSessions.length === 0 ? (
+                            <div className="px-5 py-6 text-center text-sm text-slate-400">
+                              No courses yet.
+                              <button onClick={() => {
+                                const lastActive = allSessions.find((s: any) => s.status === 'active' || s.status === 'completed')
+                                setAddSessionTreatment({ treatment_id: latestT.id, name })
+                                setTreatmentForm({ treatment: name, dosage: lastActive?.dosage || '', route: '', frequency: '', notes: '' })
+                                setSelectedTimes([]); setTreatmentRoute([]); setTreatmentOtherRoute(''); setShowAddSessionModal(true)
+                              }}
+                                className="ml-2 text-primary underline underline-offset-2">Create first course</button>
+                            </div>
+                          ) : (
+                            allSessions.map((s: any, idx: number, arr: any[]) => {
+                              const doses = doseMap[s.id] || []
+                              const allDone = doses.length > 0 && doses.every((d: any) => d.status === 'administered' || d.status === 'skipped')
+                              const displayStatus = allDone ? 'completed' : s.status
+                              const prevSess = idx < arr.length - 1 ? arr[idx + 1] : null
+                              const prevDosage = prevSess?.dosage
+                              const doseChange = s.dosage && prevDosage && s.dosage !== prevDosage ? (parseInt(s.dosage) > parseInt(prevDosage) ? 'increased' : 'reduced') : null
+                              return (
+                                <div key={s.id} className={`px-5 py-3 ${displayStatus === 'ended' ? 'bg-red-50/30' : displayStatus === 'active' ? 'bg-blue-50/20' : ''}`}>
+                                  <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <Hint text={`Course status: ${displayStatus}. Click for comprehensive details.`}>
+                                        <button onClick={() => setChildInfoModal({ session: s, treatmentName: name })}
+                                          className={`px-2 py-0.5 rounded-lg text-[10px] font-medium cursor-pointer hover:opacity-80 ${displayStatus === 'active' ? 'bg-emerald-100 text-emerald-700' : displayStatus === 'completed' ? 'bg-blue-100 text-blue-700' : displayStatus === 'ended' ? 'bg-red-100 text-red-700' : 'bg-slate-200 text-slate-600'}`}>
+                                          {displayStatus === 'active' ? 'Active' : displayStatus === 'completed' ? 'Completed' : 'Ended'}
+                                        </button>
+                                      </Hint>
+                                      <Hint text="View full course details — dosage, times, dose records, start/end info.">
+                                        <button onClick={() => setChildInfoModal({ session: s, treatmentName: name })}
+                                          className="p-0.5 rounded hover:bg-slate-200/60 transition-colors"><Info size={12} className="text-slate-400" /></button>
+                                      </Hint>
+                                      {s.dosage && <Hint text="Dosage prescribed for this course."><span className="text-xs text-slate-500">{s.dosage}</span></Hint>}
+                                      {doseChange && (
+                                        <Hint text={`Dosage changed from previous course — ${doseChange === 'increased' ? 'increased' : 'reduced'}.`}>
+                                          <span className={`text-[10px] font-medium ${doseChange === 'increased' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                            {doseChange === 'increased' ? '↑ Increased' : '↓ Reduced'}
+                                          </span>
+                                        </Hint>
+                                      )}
+                                      {s.route && <Hint text={`Administration route: ${s.route}.`}><span className="text-xs text-amber-600">{s.route}</span></Hint>}
+                                      {s.frequency && <Hint text={`Dosing frequency: ${s.frequency}.`}><span className="text-xs text-green-600">{s.frequency}</span></Hint>}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      {displayStatus === 'active' && (
+                                        <Hint text="Manually end this course. All unmarked doses will be left pending.">
+                                          <button onClick={() => { setEndTreatment({ treatmentId: s.id, treatmentName: name }); setEndIsDrug(false); setEndReason('') }} className="px-2 py-0.5 rounded bg-rose-50 text-rose-600 text-[10px] font-medium hover:bg-rose-100">End</button>
+                                        </Hint>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-[10px] text-slate-400 mb-1.5">
+                                    <Hint text={`Course started by ${s.staff_name || 'the nurse'} on ${new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}.`}>
+                                      <span>Started {new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })} by <strong>{s.staff_name || '—'}</strong></span>
+                                    </Hint>
+                                    {s.ended_by_name && (
+                                      <Hint text={`Course ${displayStatus === 'ended' ? 'ended' : 'completed'} by ${s.ended_by_name} on ${s.end_date ? new Date(s.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}.`}>
+                                        <span>Ended {s.end_date ? new Date(s.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''} by <strong>{s.ended_by_name}</strong></span>
+                                      </Hint>
+                                    )}
+                                  </div>
+                                  {s.end_reason && <Hint text="Nurse-provided reason for ending this course."><p className="text-[10px] text-red-500 mb-1">Reason: {s.end_reason}</p></Hint>}
+                                  {doses.length > 0 ? (
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-1.5">
+                                      {doses.map((d: any) => {
+                                        const isAdmin = d.status === 'administered'
+                                        const isSkipped = d.status === 'skipped'
+                                        return (
+                                          <Hint text={isAdmin ? `Given at ${to12Hour(d.scheduled_time?.slice(0, 5))}. Click to view details.` : isSkipped ? `Skipped at ${to12Hour(d.scheduled_time?.slice(0, 5))}. Click to view details.` : `Pending dose at ${to12Hour(d.scheduled_time?.slice(0, 5))}. Click to mark as given or skip.`}>
+                                          <div key={d.id} className={`rounded-lg border p-2 text-center transition-all ${
+                                            isAdmin ? 'bg-emerald-50 border-emerald-200' :
+                                            isSkipped ? 'bg-rose-50 border-rose-200' :
+                                            'bg-white border-slate-200 hover:border-blue-300 cursor-pointer'
+                                          }`} onClick={() => {
+                                            if (isAdmin || isSkipped) { setDoseDetail({ ...d, treatment_name: name }); return }
+                                            if (s.status !== 'active' || latestT.status === 'ended' || latestT.status === 'completed') return
+                                            setConfirmDose({ doseId: d.id, treatmentName: name, time: to12Hour(d.scheduled_time?.slice(0, 5)), treatmentId: s.id })
+                                          }}>
+                                            <p className="text-[11px] font-bold text-slate-700">{to12Hour(d.scheduled_time?.slice(0, 5))}</p>
+                                            {isAdmin ? <p className="text-[9px] text-emerald-600 font-bold mt-0.5">DONE</p> : isSkipped ? <p className="text-[9px] text-rose-600 font-bold mt-0.5">SKIPPED</p> : <p className="text-[9px] text-slate-400 mt-0.5">—</p>}
+                                            {d.administered_by_name && <p className="text-[10px] text-slate-600 font-medium">{d.administered_by_name}</p>}
+                                          </div>
+                                          </Hint>
+                                        )
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-slate-400 italic">No doses scheduled</p>
+                                  )}
+                                </div>
+                              )
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              })()}
+              <Pagination page={treatmentPage} totalPages={Math.max(1, Math.ceil([...new Set(treatments.map((t: any) => t.treatment))].length / TREATMENT_PER_PAGE))} onChange={setTreatmentPage} />
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Treatment Summary Tab */}
+      {activeSection === 'treatment_summary' && (
+        <div className="space-y-4">
+          {/* Filters */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <ClipboardList size={16} className="text-primary" />
+              <h2 className="text-sm font-semibold text-slate-700">Treatment Summary ({treatments.length})</h2>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                <input type="text" placeholder="Search treatment..." value={summarySearch}
+                  onChange={(e) => { setSummarySearch(e.target.value); setShowSummaryDropdown(true); setSummaryPage(1) }}
+                  onFocus={() => setShowSummaryDropdown(true)}
+                  onBlur={() => setTimeout(() => setShowSummaryDropdown(false), 200)}
+                  className="w-full rounded-xl border border-slate-200 pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                {showSummaryDropdown && (
+                  <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
+                    {[...new Set(treatments.map((t: any) => t.treatment).filter(Boolean))].filter((name) => name.toLowerCase().includes(summarySearch.toLowerCase())).slice(0, 10).map((name) => (
+                      <button key={name} type="button" onMouseDown={() => { setSummarySearch(name); setShowSummaryDropdown(false); setSummaryPage(1) }}
+                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors flex items-center gap-2"><Pill size={14} className="text-blue-500" /> {name}</button>
+                    ))}
+                    {[...new Set(treatments.map((t: any) => t.treatment).filter(Boolean))].filter((name) => name.toLowerCase().includes(summarySearch.toLowerCase())).length === 0 && (
+                      <div className="px-4 py-2.5 text-sm text-slate-400">No matching treatments</div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { value: 'all', label: 'All Time' },
+                  { value: 'today', label: 'Today' },
+                  { value: 'yesterday', label: 'Yesterday' },
+                  { value: 'this_week', label: 'This Week' },
+                  { value: 'custom_date', label: 'Custom Date' },
+                  { value: 'custom_range', label: 'Custom Range' },
+                ].map((opt) => (
+                  <button key={opt.value} onClick={() => { setSummaryDateFilter(opt.value); setSummaryPage(1) }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${summaryDateFilter === opt.value ? 'bg-primary text-white border-primary shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-primary hover:text-primary'}`}>{opt.label}</button>
+                ))}
+              </div>
+              {summaryDateFilter === 'custom_date' && (
+                <input type="date" value={summaryDateFrom} onChange={(e) => setSummaryDateFrom(e.target.value)}
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
+              )}
+              {summaryDateFilter === 'custom_range' && (
+                <>
+                  <input type="date" value={summaryDateFrom} onChange={(e) => { setSummaryDateFrom(e.target.value); setSummaryPage(1) }}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
+                  <span className="text-xs text-slate-400 self-center">to</span>
+                  <input type="date" value={summaryDateTo} onChange={(e) => { setSummaryDateTo(e.target.value); setSummaryPage(1) }}
+                    className="rounded-xl border border-slate-200 px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
+                </>
+              )}
+            </div>
+          </div>
+
+          {treatments.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
+              <ClipboardList size={40} className="mx-auto text-slate-300 mb-3" />
+              <p className="text-sm font-medium text-slate-500">No treatments recorded.</p>
+            </div>
+          ) : (
+            <>
+              {(() => {
+                const now = new Date()
+                const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+                const yesterdayStart = new Date(todayStart.getTime() - 86400000)
+                const weekStart = new Date(todayStart.getTime() - todayStart.getDay() * 86400000)
+
+                const filtered = [...treatments].filter((t: any) => {
+                  if (summarySearch) {
+                    const q = summarySearch.toLowerCase()
+                    if (!(t.treatment || '').toLowerCase().includes(q) && !(t.dosage || '').toLowerCase().includes(q) && !(t.staff_name || '').toLowerCase().includes(q)) return false
+                  }
+                  const d = new Date(t.created_at)
+                  if (summaryDateFilter === 'today' && d < todayStart) return false
+                  if (summaryDateFilter === 'yesterday' && (d < yesterdayStart || d >= todayStart)) return false
+                  if (summaryDateFilter === 'this_week' && d < weekStart) return false
+                  if (summaryDateFilter === 'custom_date' && summaryDateFrom) {
+                    const from = new Date(summaryDateFrom)
+                    if (d < from || d >= new Date(from.getTime() + 86400000)) return false
+                  }
+                  if (summaryDateFilter === 'custom_range' && summaryDateFrom && summaryDateTo) {
+                    if (d < new Date(summaryDateFrom) || d > new Date(summaryDateTo + 'T23:59:59')) return false
+                  }
+                  return true
+                }).sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
+                const totalDosesGiven = filtered.reduce((sum: number, t: any) => sum + getTreatmentDoses(t.id).filter((d: any) => d.status === 'administered').length, 0)
+
+                return (
+                  <>
+                    {/* Stats Cards */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="bg-emerald-50 rounded-xl px-4 py-3 border border-emerald-100">
+                        <p className="text-lg font-bold text-emerald-700">{filtered.filter((t: any) => {
+                          const ds = getTreatmentDoses(t.id)
+                          return t.status === 'active' && !(ds.length > 0 && ds.every((d: any) => d.status === 'administered' || d.status === 'skipped'))
+                        }).length}</p>
+                        <p className="text-xs text-emerald-600">Active</p>
+                      </div>
+                      <div className="bg-blue-50 rounded-xl px-4 py-3 border border-blue-100">
+                        <p className="text-lg font-bold text-blue-700">{filtered.filter((t: any) => {
+                          const doses = getTreatmentDoses(t.id)
+                          return doses.length > 0 && doses.every((d: any) => d.status === 'administered' || d.status === 'skipped')
+                        }).length}</p>
+                        <p className="text-xs text-blue-600">Completed</p>
+                      </div>
+                      <div className="bg-red-50 rounded-xl px-4 py-3 border border-red-100">
+                        <p className="text-lg font-bold text-red-700">{filtered.filter((t: any) => t.status === 'ended').length}</p>
+                        <p className="text-xs text-red-600">Ended</p>
+                      </div>
+                      <div className="bg-purple-50 rounded-xl px-4 py-3 border border-purple-100">
+                        <p className="text-lg font-bold text-purple-700">{totalDosesGiven}</p>
+                        <p className="text-xs text-purple-600">Doses Given</p>
+                      </div>
+                    </div>
+
+                    {/* Table */}
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider bg-slate-50">
+                              <th className="text-left px-3 py-2.5 font-medium">Treatment</th>
+                              <th className="text-left px-3 py-2.5 font-medium">Dosage</th>
+                              <th className="text-left px-3 py-2.5 font-medium">Route</th>
+                              <th className="text-left px-3 py-2.5 font-medium">Frequency</th>
+                              <th className="text-left px-3 py-2.5 font-medium">Nurse</th>
+                              <th className="text-left px-3 py-2.5 font-medium">Status</th>
+                              <th className="text-left px-3 py-2.5 font-medium">Started</th>
+                              <th className="text-left px-3 py-2.5 font-medium">Ended</th>
+                              <th className="text-left px-3 py-2.5 font-medium">Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filtered.slice((summaryPage - 1) * TREATMENT_PER_PAGE, summaryPage * TREATMENT_PER_PAGE).map((t: any) => {
+                              const doses = getTreatmentDoses(t.id)
+                              const allDone = doses.length > 0 && doses.every((d: any) => d.status === 'administered' || d.status === 'skipped')
+                              const displayStatus = allDone ? 'completed' : t.status
+                              const administeredTimes = doses.filter((d: any) => d.status === 'administered').map((d: any) => to12Hour(d.scheduled_time?.slice(0, 5)))
+                              const freqText = t.frequency ? (administeredTimes.length > 0 ? `${t.frequency} (${administeredTimes.join(', ')})` : t.frequency) : (administeredTimes.length > 0 ? administeredTimes.join(', ') : '—')
+                              return (
+                                <tr key={t.id}
+                                  onClick={() => { setDoseDetail({ type: 'treatment', data: t }) }}
+                                  className={`border-b border-slate-100 hover:bg-slate-50 cursor-pointer transition-colors ${displayStatus === 'ended' ? 'bg-red-50/30' : ''}`}>
+                                  <td className="px-3 py-3 font-medium text-slate-800">{t.treatment}</td>
+                                  <td className="px-3 py-3 text-slate-600">{t.dosage || '—'}</td>
+                                  <td className="px-3 py-3 text-slate-600">{t.route || '—'}</td>
+                                  <td className="px-3 py-3 text-xs text-slate-600">{freqText}</td>
+                                  <td className="px-3 py-3 text-slate-600">{t.staff_name || '—'}</td>
+                                  <td className="px-3 py-3">
+                                    <span className={`inline-flex px-2 py-0.5 rounded-lg text-[10px] font-medium ${displayStatus === 'active' ? 'bg-emerald-100 text-emerald-700' : displayStatus === 'completed' ? 'bg-blue-100 text-blue-700' : displayStatus === 'ended' ? 'bg-red-100 text-red-700' : 'bg-slate-200 text-slate-600'}`}>
+                                      {displayStatus === 'active' ? 'Active' : displayStatus === 'completed' ? 'Completed' : displayStatus === 'ended' ? 'Ended' : 'Expired'}
+                                    </span>
+                                  </td>
+                                  <td className="px-3 py-3 text-xs text-slate-500">{new Date(t.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
+                                  <td className="px-3 py-3 text-xs text-slate-500">{t.end_date ? new Date(t.end_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                                  <td className="px-3 py-3 text-xs text-slate-500">{t.end_reason || '—'}</td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <Pagination page={summaryPage} totalPages={Math.max(1, Math.ceil(filtered.length / TREATMENT_PER_PAGE))} onChange={setSummaryPage} />
+                    </div>
+                  </>
+                )
+              })()}
+            </>
           )}
         </div>
       )}
@@ -1643,7 +2132,7 @@ export default function PatientChart() {
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1.5">Route(s)</label>
                 <div className="grid grid-cols-3 gap-1.5">
-                  {['Oral', 'IV', 'Foley', 'Parenteral'].map((r) => {
+                  {['IV', 'Oral', 'Foley', 'Parenteral'].map((r) => {
                     const isSelected = fluidRoutes.includes(r)
                     return (
                       <button key={r} type="button" onClick={() => setFluidRoutes((prev) => prev.includes(r) ? prev.filter((v) => v !== r) : [...prev, r])}
@@ -1731,7 +2220,7 @@ export default function PatientChart() {
                   <div>
                     <p className="text-xs font-semibold text-blue-600 mb-3">Enter intake amounts per route</p>
                     <div className="space-y-3">
-                      {['Oral', 'IV', 'Foley', 'Parenteral', 'Other'].map((route) => (
+                      {['IV', 'Oral', 'Foley', 'Parenteral', 'Other'].map((route) => (
                         <div key={route}>
                           <label className="block text-xs font-medium text-slate-500 mb-1">{route} (mL)</label>
                           <input type="number" min={0} placeholder="0" value={(fluidForm as any)[`intake_${route.toLowerCase()}`] || ''}
@@ -2080,18 +2569,55 @@ export default function PatientChart() {
               <button onClick={() => setShowTreatmentModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
             <div className="p-6 space-y-4 overflow-y-auto">
-              {[{ key: 'treatment', label: 'Treatment *', placeholder: 'e.g. Paracetamol 500mg' },
-                { key: 'dosage', label: 'Dosage', placeholder: 'e.g. 500mg' },
-                { key: 'route', label: 'Route', placeholder: 'e.g. Oral, IV, IM' },
-                { key: 'frequency', label: 'Frequency', placeholder: 'e.g. 8 hourly, PRN' },
-              ].map((f: any) => (
-                <div key={f.key}>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
-                  <input type="text" placeholder={f.placeholder} value={(treatmentForm as any)[f.key]}
-                    onChange={(e) => setTreatmentForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Treatment <span className="text-rose-500">*</span></label>
+                <div className="relative">
+                  <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" />
+                  <input type="text" placeholder="Search drug or type custom..." value={treatmentForm.treatment}
+                    onChange={(e) => { setTreatmentForm((p) => ({ ...p, treatment: e.target.value })); setShowTreatmentDropdown(true) }}
+                    onFocus={() => setShowTreatmentDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowTreatmentDropdown(false), 200)}
+                    className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  {showTreatmentDropdown && treatmentForm.treatment.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
+                      {treatmentSuggestions.filter((d) => d.toLowerCase().includes(treatmentForm.treatment.toLowerCase())).slice(0, 10).map((drug) => (
+                        <button key={drug} type="button" onMouseDown={() => { setTreatmentForm((p) => ({ ...p, treatment: drug })); setShowTreatmentDropdown(false) }}
+                          className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors flex items-center gap-2"><Pill size={14} className="text-blue-500" /> {drug}</button>
+                      ))}
+                      <div className="px-4 py-2 text-xs text-slate-400 border-t border-slate-100">No match? The typed name will be saved as-is.</div>
+                    </div>
+                  )}
                 </div>
-              ))}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Dosage <span className="text-rose-500">*</span></label>
+                <input type="text" placeholder="e.g. 500mg" value={treatmentForm.dosage}
+                  onChange={(e) => setTreatmentForm((p) => ({ ...p, dosage: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1.5">Route(s) <span className="text-rose-500">*</span></label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {['Oral', 'IV', 'IM', 'SC', 'Topical', 'Other'].map((r) => {
+                    const isSelected = treatmentRoute.includes(r)
+                    return (
+                      <button key={r} type="button" onClick={() => setTreatmentRoute((prev) => prev.includes(r) ? prev.filter((v) => v !== r) : [...prev, r])}
+                        className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${isSelected ? 'bg-blue-500 text-white border-blue-500 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600'}`}>{r}</button>
+                    )
+                  })}
+                </div>
+                {treatmentRoute.includes('Other') && (
+                  <input type="text" placeholder="Specify other route..." value={treatmentOtherRoute}
+                    onChange={(e) => setTreatmentOtherRoute(e.target.value)}
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Frequency</label>
+                <input type="text" placeholder="e.g. 8 hourly, PRN" value={treatmentForm.frequency}
+                  onChange={(e) => setTreatmentForm((p) => ({ ...p, frequency: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+              </div>
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1.5">Administration Times</label>
                 <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
@@ -2123,18 +2649,22 @@ export default function PatientChart() {
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
               <button onClick={() => setShowTreatmentModal(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
               <button onClick={async () => {
-                if (!treatmentForm.treatment.trim() || !patientId) return
-                setTreatmentSubmitting(true)
-                try {
-                  const timesStr = selectedTimes.join(',')
-                  await api.post('/treatments', { patient_id: patientId, staff_id: currentUser?.id, ...treatmentForm, times: timesStr || undefined })
-                  setShowTreatmentModal(false)
-                  setTreatmentForm({ treatment: '', dosage: '', route: '', frequency: '', notes: '' })
-                  setSelectedTimes([])
-                  const res = await api.get(`/treatments?patient_id=${patientId}`)
-                  setTreatments(res.data || [])
-                } catch {} finally { setTreatmentSubmitting(false) }
-              }} disabled={treatmentSubmitting || !treatmentForm.treatment.trim()}
+                if (!treatmentForm.treatment.trim() || !patientId || !treatmentForm.dosage.trim() || !treatmentForm.frequency.trim() || selectedTimes.length === 0) return
+                const entered = treatmentForm.treatment.trim().toLowerCase()
+                const existingTx = treatments.find((t: any) => {
+                  const txName = t.treatment.toLowerCase()
+                  if (txName === entered) return true
+                  if (`${txName} ${treatmentForm.dosage}`.toLowerCase() === entered) return true
+                  if (txName === `${entered} ${treatmentForm.dosage}`.toLowerCase()) return true
+                  if (entered.length > 3 && txName.startsWith(entered + ' ')) return true
+                  return false
+                })
+                if (existingTx && (sessionsMap[existingTx.id] || []).length > 0) {
+                  setAddTxChoice({ treatment_id: existingTx.id, name: existingTx.treatment })
+                  return
+                }
+                performAddTreatment()
+              }} disabled={treatmentSubmitting || !treatmentForm.treatment.trim() || !treatmentForm.dosage.trim() || !treatmentForm.frequency.trim() || selectedTimes.length === 0}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
                 {treatmentSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Pill size={14} />} Save Treatment
               </button>
@@ -2143,6 +2673,240 @@ export default function PatientChart() {
         </div>
       )}
 
+      {/* Add Treatment Choice Modal */}
+      {addTxChoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setAddTxChoice(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="text-center px-6 pt-6 pb-4">
+              <div className="mx-auto w-16 h-16 rounded-2xl bg-blue-100 flex items-center justify-center mb-4">
+                <Pill size={32} className="text-primary" />
+              </div>
+              <h2 className="text-lg font-semibold text-slate-800">{addTxChoice.name}</h2>
+              <p className="text-sm text-slate-500 mt-1">This treatment already has existing courses. How would you like to proceed?</p>
+            </div>
+            <div className="px-6 pb-4 space-y-3">
+              <button onClick={async () => {
+                setShowTreatmentModal(false)
+                setAddTxChoice(null)
+                const timesStr = selectedTimes.join(',')
+                const routeStr = [...treatmentRoute, ...(treatmentOtherRoute.trim() ? [treatmentOtherRoute.trim()] : [])].join(', ')
+                setTreatmentSubmitting(true)
+                try {
+                  // Reactivate parent treatment if it was ended/completed
+                  await api.put(`/treatments/${addTxChoice.treatment_id}`, { status: 'active' }).catch(() => {})
+                  setTreatments((prev) => prev.map((x: any) => x.id === addTxChoice.treatment_id ? { ...x, status: 'active' } : x))
+                  await api.post('/treatment-sessions', {
+                    treatment_id: addTxChoice.treatment_id,
+                    staff_id: currentUser?.id,
+                    dosage: treatmentForm.dosage || null,
+                    route: routeStr || null,
+                    frequency: treatmentForm.frequency || null,
+                    times: timesStr || undefined,
+                    notes: treatmentForm.notes || null,
+                  })
+                  setTreatmentForm({ treatment: '', dosage: '', route: '', frequency: '', notes: '' })
+                  setSelectedTimes([]); setTreatmentRoute([]); setTreatmentOtherRoute('')
+                  const sessRes = await api.get(`/treatment-sessions?treatment_id=${addTxChoice.treatment_id}`)
+                  setSessionsMap((prev) => ({ ...prev, [addTxChoice.treatment_id]: sessRes.data || [] }))
+                  const doseMapNew: Record<string, any[]> = { ...doseMap }
+                  for (const s of (sessRes.data || [])) { try { const doseRes = await api.get(`/treatment-doses?session_id=${s.id}`); doseMapNew[s.id] = doseRes.data || [] } catch { doseMapNew[s.id] = [] } }
+                  setDoseMap(doseMapNew)
+                  const existingTxName = treatments.find((t: any) => t.id === addTxChoice.treatment_id)?.treatment || addTxChoice.name
+                  if (!expandedTreatments[existingTxName]) setExpandedTreatments((prev) => ({ ...prev, [existingTxName]: true }))
+                } catch {} finally { setTreatmentSubmitting(false) }
+              }} disabled={treatmentSubmitting}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-blue-500 text-white text-sm font-semibold hover:bg-blue-600 transition-all">
+                <Plus size={16} /> Add to Existing Courses
+              </button>
+              <button onClick={async () => {
+                setAddTxChoice(null)
+                await performAddTreatment()
+              }} disabled={treatmentSubmitting}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50 transition-all">
+                <Pill size={16} /> Start New Cycle
+              </button>
+              <button onClick={() => setAddTxChoice(null)}
+                className="w-full py-2.5 rounded-xl text-sm text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drug End Choice Modal */}
+      {drugEndChoice && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setDrugEndChoice(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            {(() => {
+              const sessions = sessionsMap[drugEndChoice.treatmentId] || []
+              const allChildrenComplete = sessions.length > 0 && sessions.every((s: any) => {
+                const ds = doseMap[s.id] || []
+                return ds.length > 0 && ds.every((d: any) => d.status === 'administered' || d.status === 'skipped')
+              })
+              return (
+                <>
+                  <div className="text-center px-6 pt-6 pb-4">
+                    <div className={`mx-auto w-16 h-16 rounded-2xl flex items-center justify-center mb-4 ${allChildrenComplete ? 'bg-emerald-100' : 'bg-amber-100'}`}>
+                      {allChildrenComplete ? <CheckCircle size={32} className="text-emerald-500" /> : <AlertTriangle size={32} className="text-amber-500" />}
+                    </div>
+                    <h2 className="text-lg font-semibold text-slate-800">{drugEndChoice.name}</h2>
+                    <p className="text-sm text-slate-500 mt-1">
+                      {allChildrenComplete
+                        ? 'All courses are complete with all doses marked. You can mark this drug as completed.'
+                        : 'Some courses still have unmarked doses. What would you like to do?'
+                      }
+                    </p>
+                  </div>
+                  <div className="px-6 pb-4 space-y-3">
+                    {allChildrenComplete ? (
+                      <button onClick={async () => {
+                        const { treatmentId } = drugEndChoice
+                        setDrugEndChoice(null)
+                        await api.put(`/treatments/${treatmentId}`, { status: 'completed', end_date: new Date().toISOString(), ended_by: currentUser?.id })
+                        setTreatments((prev) => prev.map((x: any) => x.id === treatmentId ? { ...x, status: 'completed', end_date: new Date().toISOString(), ended_by_name: currentUser?.name } : x))
+                        const activeSess = Object.entries(sessionsMap).filter(([tid]) => tid === treatmentId).flatMap(([, v]) => v).filter((s: any) => s.status === 'active')
+                        for (const s of activeSess) {
+                          await api.put(`/treatment-sessions/${s.id}`, { status: 'completed', end_date: new Date().toISOString(), ended_by: currentUser?.id }).catch(() => {})
+                        }
+                        setSessionsMap((prev) => {
+                          const next = { ...prev }
+                          if (next[treatmentId]) {
+                            next[treatmentId] = next[treatmentId].map((s: any) => s.status === 'active' ? { ...s, status: 'completed', end_date: new Date().toISOString(), ended_by_name: currentUser?.name } : s)
+                          }
+                          return next
+                        })
+                      }}
+                        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 transition-all">
+                        <CheckCircle size={16} /> Mark as Completed
+                      </button>
+                    ) : (
+                      <button onClick={() => {
+                        const { treatmentId, name } = drugEndChoice
+                        setDrugEndChoice(null)
+                        setEndTreatment({ treatmentId, treatmentName: name })
+                        setEndIsDrug(true)
+                        setEndReason('')
+                      }}
+                        className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-rose-600 text-white text-sm font-semibold hover:bg-rose-700 transition-all">
+                        <AlertTriangle size={16} /> End Treatment
+                      </button>
+                    )}
+                    <button onClick={() => setDrugEndChoice(null)}
+                      className="w-full py-2.5 rounded-xl text-sm text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* Add Course Modal */}
+      {showAddSessionModal && addSessionTreatment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!treatmentSubmitting) setShowAddSessionModal(false) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <h2 className="text-base font-semibold text-slate-800">New Course — {addSessionTreatment.name}</h2>
+              <button onClick={() => setShowAddSessionModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Dosage</label>
+                <input type="text" placeholder="e.g. 500mg" value={treatmentForm.dosage}
+                  onChange={(e) => setTreatmentForm((p) => ({ ...p, dosage: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1.5">Route(s)</label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {['Oral', 'IV', 'IM', 'SC', 'Topical', 'Other'].map((r) => {
+                    const isSelected = treatmentRoute.includes(r)
+                    return (
+                      <button key={r} type="button" onClick={() => setTreatmentRoute((prev) => prev.includes(r) ? prev.filter((v) => v !== r) : [...prev, r])}
+                        className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${isSelected ? 'bg-blue-500 text-white border-blue-500 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300 hover:text-blue-600'}`}>{r}</button>
+                    )
+                  })}
+                </div>
+                {treatmentRoute.includes('Other') && (
+                  <input type="text" placeholder="Specify other route..." value={treatmentOtherRoute}
+                    onChange={(e) => setTreatmentOtherRoute(e.target.value)}
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Frequency <span className="text-rose-500">*</span></label>
+                <input type="text" placeholder="e.g. 8 hourly" value={treatmentForm.frequency}
+                  onChange={(e) => setTreatmentForm((p) => ({ ...p, frequency: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1.5">Administration Times <span className="text-rose-500">*</span></label>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                  {[
+                    { label: '6 AM', value: '6:00' }, { label: '8 AM', value: '8:00' },
+                    { label: '10 AM', value: '10:00' }, { label: '12 PM', value: '12:00' },
+                    { label: '2 PM', value: '14:00' }, { label: '4 PM', value: '16:00' },
+                    { label: '6 PM', value: '18:00' }, { label: '8 PM', value: '20:00' },
+                    { label: '10 PM', value: '22:00' }, { label: '12 AM', value: '0:00' },
+                    { label: '2 AM', value: '2:00' }, { label: '4 AM', value: '4:00' },
+                  ].map((t) => {
+                    const isSelected = selectedTimes.includes(t.value)
+                    return (
+                      <button key={t.value} type="button" onClick={() => setSelectedTimes((prev) => prev.includes(t.value) ? prev.filter((v) => v !== t.value) : [...prev, t.value].sort())}
+                        className={`px-3 py-2 rounded-xl text-xs font-medium border transition-all ${
+                          isSelected ? 'bg-primary text-white border-primary shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-primary hover:text-primary'
+                        }`}>{t.label}</button>
+                    )
+                  })}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Notes</label>
+                <textarea rows={2} placeholder="Reason for change, observations..." value={treatmentForm.notes}
+                  onChange={(e) => setTreatmentForm((p) => ({ ...p, notes: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
+              <button onClick={() => setShowAddSessionModal(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={async () => {
+                if (!patientId || !addSessionTreatment || !treatmentForm.dosage.trim() || !treatmentForm.frequency.trim() || selectedTimes.length === 0) return
+                setTreatmentSubmitting(true)
+                try {
+                  const timesStr = selectedTimes.join(',')
+                  const routeStr = [...treatmentRoute, ...(treatmentOtherRoute.trim() ? [treatmentOtherRoute.trim()] : [])].join(', ')
+                  await api.post('/treatment-sessions', {
+                    treatment_id: addSessionTreatment.treatment_id,
+                    staff_id: currentUser?.id,
+                    dosage: treatmentForm.dosage || null,
+                    route: routeStr || null,
+                    frequency: treatmentForm.frequency || null,
+                    times: timesStr || undefined,
+                    notes: treatmentForm.notes || null,
+                  })
+                  setShowAddSessionModal(false)
+                  setTreatmentForm({ treatment: '', dosage: '', route: '', frequency: '', notes: '' })
+                  setSelectedTimes([])
+                  setTreatmentRoute([])
+                  setTreatmentOtherRoute('')
+                  const sessRes = await api.get(`/treatment-sessions?treatment_id=${addSessionTreatment.treatment_id}`)
+                  setSessionsMap((prev) => ({ ...prev, [addSessionTreatment.treatment_id]: sessRes.data || [] }))
+                  const doseMapNew: Record<string, any[]> = { ...doseMap }
+                  for (const s of (sessRes.data || [])) {
+                    try { const doseRes = await api.get(`/treatment-doses?session_id=${s.id}`); doseMapNew[s.id] = doseRes.data || [] } catch { doseMapNew[s.id] = [] }
+                  }
+                  setDoseMap(doseMapNew)
+                  if (!expandedTreatments[addSessionTreatment.name]) {
+                    setExpandedTreatments((prev) => ({ ...prev, [addSessionTreatment.name]: true }))
+                  }
+                } catch {} finally { setTreatmentSubmitting(false) }
+              }} disabled={treatmentSubmitting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
+                {treatmentSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Create Course
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Vitals Entry Modal */}
       {showVitalsForm && (
@@ -2248,28 +3012,182 @@ export default function PatientChart() {
 
       {/* End Treatment Confirmation Modal */}
       {endTreatment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setEndTreatment(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setEndTreatment(null); setEndIsDrug(false) }}>
           <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="text-center px-6 pt-6 pb-4">
               <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-100 flex items-center justify-center mb-4">
                 <AlertTriangle size={32} className="text-amber-500" />
               </div>
-              <h2 className="text-lg font-semibold text-slate-800">End Treatment</h2>
+              <h2 className="text-lg font-semibold text-slate-800">{endIsDrug ? 'End Treatment' : 'End Course'}</h2>
               <p className="text-sm text-slate-500 mt-1">
-                Stop <strong className="text-slate-700">{endTreatment.treatmentName}</strong>? Remaining doses will be marked as expired.
+                {endIsDrug
+                  ? <>Stop all courses of <strong className="text-slate-700">{endTreatment.treatmentName}</strong>? Active courses will be ended and <strong>+ New Course</strong> will be hidden.</>
+                  : <>Stop this course of <strong className="text-slate-700">{endTreatment.treatmentName}</strong>?</>
+                }
               </p>
             </div>
-            <div className="px-6 pb-4 flex flex-col gap-2">
+            <div className="px-6 pb-4 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Reason for ending *</label>
+                <textarea placeholder="Enter reason for ending this treatment..." value={endReason}
+                  onChange={(e) => setEndReason(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
+              </div>
               <button onClick={async () => {
-                const endRes = await api.put(`/treatments/${endTreatment.treatmentId}`, { status: 'expired', end_date: new Date().toISOString(), ended_by: currentUser?.id })
-                setTreatments((prev) => prev.map((x: any) => x.id === endTreatment.treatmentId ? { ...x, status: 'expired', end_date: endRes.data?.end_date || new Date().toISOString(), ended_by_name: currentUser?.name } : x))
+                if (!endReason.trim()) return
+                if (endIsDrug) {
+                  await api.put(`/treatments/${endTreatment.treatmentId}`, { status: 'ended', end_date: new Date().toISOString(), ended_by: currentUser?.id, end_reason: endReason.trim() })
+                  setTreatments((prev) => prev.map((x: any) => x.id === endTreatment.treatmentId ? { ...x, status: 'ended', end_date: new Date().toISOString(), ended_by_name: currentUser?.name, end_reason: endReason.trim() } : x))
+                  const allSess = Object.entries(sessionsMap).filter(([tid]) => tid === endTreatment.treatmentId).flatMap(([, v]) => v).filter((s: any) => s.status !== 'ended' && s.status !== 'completed')
+                  for (const s of allSess) {
+                    await api.put(`/treatment-sessions/${s.id}`, { status: 'ended', end_date: new Date().toISOString(), ended_by: currentUser?.id }).catch(() => {})
+                  }
+                  setSessionsMap((prev) => {
+                    const next = { ...prev }
+                    if (next[endTreatment.treatmentId]) {
+                      next[endTreatment.treatmentId] = next[endTreatment.treatmentId].map((s: any) => s.status !== 'ended' && s.status !== 'completed' ? { ...s, status: 'ended', end_date: new Date().toISOString(), ended_by_name: currentUser?.name } : s)
+                    }
+                    return next
+                  })
+                } else {
+                  await api.put(`/treatment-sessions/${endTreatment.treatmentId}`, { status: 'ended', end_date: new Date().toISOString(), ended_by: currentUser?.id, end_reason: endReason.trim() })
+                  setSessionsMap((prev) => {
+                    const next = { ...prev }
+                    for (const key of Object.keys(next)) {
+                      next[key] = next[key].map((s: any) => s.id === endTreatment.treatmentId ? { ...s, status: 'ended', end_date: new Date().toISOString(), ended_by_name: currentUser?.name, end_reason: endReason.trim() } : s)
+                    }
+                    return next
+                  })
+                }
                 setEndTreatment(null)
+                setEndIsDrug(false)
+                setEndReason('')
               }}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 transition-all">
-                <AlertTriangle size={16} /> Yes, End Treatment
+                className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold transition-all ${endReason.trim() ? 'bg-amber-600 text-white hover:bg-amber-700' : 'bg-slate-200 text-slate-400 cursor-not-allowed'}`}>
+                <AlertTriangle size={16} /> Yes, {endIsDrug ? 'End Treatment' : 'End Course'}
               </button>
               <button onClick={() => setEndTreatment(null)}
                 className="w-full py-3 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Parent Treatment Info Modal */}
+      {parentInfoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setParentInfoModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <Info size={16} className="text-primary" />
+                <h2 className="text-base font-semibold text-slate-800">{parentInfoModal.treatment}</h2>
+              </div>
+              <button onClick={() => setParentInfoModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6 space-y-5">
+              {(() => {
+                const sessions = sessionsMap[parentInfoModal.id] || []
+                const allDoses = getTreatmentDoses(parentInfoModal.id)
+                const totalGiven = allDoses.filter((d: any) => d.status === 'administered').length
+                const totalSkipped = allDoses.filter((d: any) => d.status === 'skipped').length
+                const totalPending = allDoses.filter((d: any) => d.status !== 'administered' && d.status !== 'skipped').length
+                return (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Status</p>
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${parentInfoModal.status === 'ended' ? 'bg-red-100 text-red-700' : parentInfoModal.status === 'completed' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {parentInfoModal.status === 'ended' ? 'Ended' : parentInfoModal.status === 'completed' ? 'Completed' : 'Active'}
+                        </span>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Courses</p>
+                        <p className="text-xl font-bold text-slate-800">{sessions.length}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Created</p>
+                        <p className="text-xs font-medium text-slate-700">{new Date(parentInfoModal.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">by <strong>{parentInfoModal.staff_name || '—'}</strong></p>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Doses</p>
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-emerald-600 font-medium">{totalGiven} given</span>
+                          <span className="text-slate-300">|</span>
+                          <span className="text-rose-600 font-medium">{totalSkipped} skipped</span>
+                          {totalPending > 0 && <><span className="text-slate-300">|</span><span className="text-slate-500 font-medium">{totalPending} pending</span></>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {parentInfoModal.status === 'ended' && (
+                      <div className="bg-red-50 rounded-xl p-4 border border-red-100 space-y-1.5">
+                        <p className="text-[10px] text-red-600 uppercase tracking-wider font-medium">Ended</p>
+                        <p className="text-xs text-slate-700">
+                          {parentInfoModal.end_date ? new Date(parentInfoModal.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'}
+                          {parentInfoModal.ended_by_name ? <span> by <strong className="text-red-700">{parentInfoModal.ended_by_name}</strong></span> : ''}
+                        </p>
+                        {parentInfoModal.end_reason && (
+                          <div className="bg-white rounded-lg p-2.5 border border-red-50">
+                            <p className="text-[10px] text-slate-500 mb-0.5">Reason</p>
+                            <p className="text-sm font-medium text-red-700">{parentInfoModal.end_reason}</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {parentInfoModal.status === 'completed' && (
+                      <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                        <p className="text-[10px] text-blue-600 uppercase tracking-wider font-medium">Completed</p>
+                        <p className="text-xs text-slate-700">
+                          {parentInfoModal.end_date ? new Date(parentInfoModal.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'}
+                          {parentInfoModal.ended_by_name ? <span> by <strong className="text-blue-700">{parentInfoModal.ended_by_name}</strong></span> : ''}
+                        </p>
+                      </div>
+                    )}
+
+                    {sessions.length > 0 && (
+                      <div>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Course History</p>
+                        <div className="space-y-2">
+                          {[...sessions].sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).map((s: any) => {
+                            const ds = doseMap[s.id] || []
+                            const given = ds.filter((d: any) => d.status === 'administered').length
+                            const skipped = ds.filter((d: any) => d.status === 'skipped').length
+                            const allDone = ds.length > 0 && ds.every((d: any) => d.status === 'administered' || d.status === 'skipped')
+                            const displaySessStatus = allDone ? 'completed' : s.status
+                            return (
+                              <div key={s.id} className={`rounded-xl border p-3 text-xs space-y-1 ${displaySessStatus === 'ended' ? 'bg-red-50/30 border-red-100' : displaySessStatus === 'completed' ? 'bg-blue-50/30 border-blue-100' : 'bg-slate-50 border-slate-100'}`}>
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${displaySessStatus === 'ended' ? 'bg-red-100 text-red-700' : displaySessStatus === 'completed' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>{displaySessStatus}</span>
+                                    {s.dosage && <span className="text-slate-600">{s.dosage}</span>}
+                                    {s.route && <span className="text-slate-400">{s.route}</span>}
+                                  </div>
+                                  <span className="text-[10px] text-slate-400">{new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric' })}</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400">Started by <strong>{s.staff_name || '—'}</strong></p>
+                                {s.ended_by_name && <p className="text-[10px] text-red-500">Ended by <strong>{s.ended_by_name}</strong>{s.end_reason ? ` — ${s.end_reason}` : ''}</p>}
+                                <p className="text-[10px] text-slate-500">{given} given{skipped > 0 ? `, ${skipped} skipped` : ''}{ds.length > 0 ? ` / ${ds.length} doses` : ''}</p>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Patient</p>
+                      <p className="text-sm font-semibold text-slate-800">{patient?.full_name || '—'}</p>
+                      {patient?.hospital_number && <p className="text-[10px] text-slate-400 font-mono">{patient.hospital_number}</p>}
+                    </div>
+                  </>
+                )
+              })()}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end flex-shrink-0">
+              <button onClick={() => setParentInfoModal(null)} className="px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Close</button>
             </div>
           </div>
         </div>
@@ -2319,66 +3237,211 @@ export default function PatientChart() {
         </div>
       )}
 
+      {/* Child Course Detail Modal */}
+      {childInfoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setChildInfoModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <Info size={16} className="text-primary" />
+                <h2 className="text-base font-semibold text-slate-800">{childInfoModal.treatmentName}</h2>
+              </div>
+              <button onClick={() => setChildInfoModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6 space-y-5">
+              {(() => {
+                const s = childInfoModal.session
+                const doses = doseMap[s.id] || []
+                const given = doses.filter((d: any) => d.status === 'administered')
+                const skipped = doses.filter((d: any) => d.status === 'skipped')
+                const pending = doses.filter((d: any) => d.status !== 'administered' && d.status !== 'skipped')
+                const allDone = doses.length > 0 && doses.every((d: any) => d.status === 'administered' || d.status === 'skipped')
+                const displayStatus = allDone ? 'completed' : s.status
+                return (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Status</p>
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${displayStatus === 'ended' ? 'bg-red-100 text-red-700' : displayStatus === 'completed' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {displayStatus === 'ended' ? 'Ended' : displayStatus === 'completed' ? 'Completed' : 'Active'}
+                        </span>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Doses</p>
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="text-emerald-600 font-medium">{given.length} ✓</span>
+                          <span className="text-slate-300">|</span>
+                          <span className="text-rose-600 font-medium">{skipped.length} ✗</span>
+                          {pending.length > 0 && <><span className="text-slate-300">|</span><span className="text-slate-500">{pending.length} pending</span></>}
+                        </div>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Dosage</p>
+                        <p className="text-sm font-semibold text-slate-800">{s.dosage || '—'}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Route</p>
+                        <p className="text-sm font-semibold text-slate-800">{s.route || '—'}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Frequency</p>
+                        <p className="text-sm font-semibold text-slate-800">{s.frequency || '—'}</p>
+                      </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Times</p>
+                        <p className="text-sm font-semibold text-slate-800">{s.times ? s.times.split(',').map((t: string) => to12Hour(t.trim())).join(', ') : '—'}</p>
+                      </div>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-1.5">
+                      <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-1">Timeline</p>
+                      <p className="text-xs text-slate-700">Started <strong>{new Date(s.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</strong> by <strong>{s.staff_name || '—'}</strong></p>
+                      {s.ended_by_name && (
+                        <p className="text-xs text-slate-700">
+                          {displayStatus === 'ended' ? 'Ended' : 'Completed'} <strong>{s.end_date ? new Date(s.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}</strong> by <strong>{s.ended_by_name}</strong>
+                        </p>
+                      )}
+                      {s.end_reason && (
+                        <div className="mt-1 bg-red-50 rounded-lg p-2.5 border border-red-100">
+                          <p className="text-[10px] text-slate-500 mb-0.5">Reason for ending</p>
+                          <p className="text-xs font-medium text-red-700">{s.end_reason}</p>
+                        </div>
+                      )}
+                    </div>
+                    {doses.length > 0 && (
+                      <div>
+                        <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Dose Details</p>
+                        <div className="space-y-1.5">
+                          {doses.map((d: any) => (
+                            <div key={d.id} className={`rounded-xl border p-3 text-xs flex items-center justify-between ${d.status === 'administered' ? 'bg-emerald-50 border-emerald-200' : d.status === 'skipped' ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200'}`}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-700">{to12Hour(d.scheduled_time?.slice(0, 5))}</span>
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium ${d.status === 'administered' ? 'bg-emerald-100 text-emerald-700' : d.status === 'skipped' ? 'bg-rose-100 text-rose-700' : 'bg-slate-200 text-slate-500'}`}>
+                                  {d.status === 'administered' ? 'Given ✓' : d.status === 'skipped' ? 'Skipped ✗' : 'Pending'}
+                                </span>
+                              </div>
+                              <div className="text-right text-[10px] text-slate-400">
+                                {d.administered_by_name && <p>by <strong>{d.administered_by_name}</strong></p>}
+                                {d.administered_at && <p>{new Date(d.administered_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )
+              })()}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end flex-shrink-0">
+              <button onClick={() => setChildInfoModal(null)} className="px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Dose / Treatment Detail Modal */}
       {doseDetail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setDoseDetail(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            {doseDetail.type === 'treatment' ? (
-              <>
-                <div className="text-center px-6 pt-6 pb-4">
-                  <div className={`mx-auto w-16 h-16 rounded-2xl flex items-center justify-center mb-4 ${doseDetail.data.status === 'active' ? 'bg-emerald-100' : 'bg-slate-100'}`}>
-                    <Pill size={32} className={doseDetail.data.status === 'active' ? 'text-emerald-500' : 'text-slate-500'} />
-                  </div>
-                  <h2 className="text-lg font-semibold text-slate-800">{doseDetail.data.treatment}</h2>
-                  <p className="text-sm text-slate-500 mt-1">{doseDetail.data.status === 'active' ? 'Active Treatment' : 'Expired Treatment'}</p>
-                </div>
-                <div className="px-6 pb-4 space-y-3">
-                  <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="text-slate-500">Status</span><span className={`font-medium ${doseDetail.data.status === 'active' ? 'text-emerald-600' : 'text-slate-600'}`}>{doseDetail.data.status === 'active' ? 'Active' : 'Expired'}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Dosage</span><span className="font-medium text-slate-700">{doseDetail.data.dosage || '—'}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Route</span><span className="font-medium text-slate-700">{doseDetail.data.route || '—'}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Frequency</span><span className="font-medium text-slate-700">{doseDetail.data.frequency || '—'}</span></div>
-                    <div className="pt-2 border-t border-slate-200">
-                      <span className="text-slate-500 text-xs">Started</span>
-                      <p className="font-medium text-slate-700 mt-0.5">{new Date(doseDetail.data.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })} by {doseDetail.data.staff_name || '—'}</p>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="overflow-y-auto flex-1">
+              {doseDetail.type === 'treatment' ? (
+                <>
+                  <div className="text-center px-6 pt-6 pb-4">
+                    <div className={`mx-auto w-16 h-16 rounded-2xl flex items-center justify-center mb-4 ${doseDetail.data.status === 'active' ? 'bg-emerald-100' : doseDetail.data.status === 'ended' ? 'bg-red-100' : 'bg-slate-100'}`}>
+                      <Pill size={32} className={doseDetail.data.status === 'active' ? 'text-emerald-500' : doseDetail.data.status === 'ended' ? 'text-red-500' : 'text-slate-500'} />
                     </div>
-                    {doseDetail.data.status === 'expired' && (
+                    <h2 className="text-lg font-semibold text-slate-800">{doseDetail.data.treatment}</h2>
+                    <p className="text-sm text-slate-500 mt-1">{doseDetail.data.status === 'active' ? 'Active Treatment' : doseDetail.data.status === 'ended' ? 'Ended Treatment' : 'Expired Treatment'}</p>
+                  </div>
+                  <div className="px-6 pb-4 space-y-3">
+                    <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
+                      <div className="flex justify-between"><span className="text-slate-500">Status</span><span className={`font-medium ${doseDetail.data.status === 'active' ? 'text-emerald-600' : doseDetail.data.status === 'ended' ? 'text-red-600' : 'text-slate-600'}`}>{doseDetail.data.status === 'active' ? 'Active' : doseDetail.data.status === 'ended' ? 'Ended' : 'Expired'}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Dosage</span><span className="font-medium text-slate-700">{doseDetail.data.dosage || '—'}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Route</span><span className="font-medium text-slate-700">{doseDetail.data.route || '—'}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Frequency</span><span className="font-medium text-slate-700">{doseDetail.data.frequency || '—'}</span></div>
                       <div className="pt-2 border-t border-slate-200">
-                        <span className="text-slate-500 text-xs">Ended</span>
-                        <p className="font-medium text-slate-700 mt-0.5">{doseDetail.data.end_date ? new Date(doseDetail.data.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'} by {doseDetail.data.ended_by_name || '—'}</p>
+                        <span className="text-slate-500 text-xs">Started</span>
+                        <p className="font-medium text-slate-700 mt-0.5">{new Date(doseDetail.data.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })} by {doseDetail.data.staff_name || '—'}</p>
                       </div>
-                    )}
+                      {(() => {
+                        const sessDoses = doseMap[doseDetail.data.id] || []
+                        const doses = sessDoses.length > 0 ? sessDoses : (doseDetail.data.treatment_id ? (doseMap[doseDetail.data.id] || []) : [])
+                        if (doses.length === 0) return null
+                        const givenDoses = doses.filter((d: any) => d.status === 'administered')
+                        const skippedDoses = doses.filter((d: any) => d.status === 'skipped')
+                        return (
+                          <div className="pt-2 border-t border-slate-200 space-y-2">
+                            <span className="text-slate-500 text-xs">Dose Times</span>
+                            <div className="flex flex-wrap gap-1.5 mt-1">
+                              {doses.map((d: any) => (
+                                d.status === 'administered' ? (
+                                  <span key={d.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-emerald-100 text-emerald-700">
+                                    {to12Hour(d.scheduled_time?.slice(0, 5))} ✓
+                                  </span>
+                                ) : d.status === 'skipped' ? (
+                                  <span key={d.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-rose-50 text-rose-600 border border-rose-200 line-through decoration-rose-400">
+                                    {to12Hour(d.scheduled_time?.slice(0, 5))} Skipped
+                                  </span>
+                                ) : (
+                                  <span key={d.id} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-rose-100 text-rose-700">
+                                    {to12Hour(d.scheduled_time?.slice(0, 5))} ✗
+                                  </span>
+                                )
+                              ))}
+                            </div>
+                            {givenDoses.length > 0 && (
+                              <p className="text-xs text-emerald-600">{givenDoses.length} given</p>
+                            )}
+                            {skippedDoses.length > 0 && (
+                              <p className="text-xs text-rose-600">{skippedDoses.length} skipped</p>
+                            )}
+                          </div>
+                        )
+                      })()}
+                      {(doseDetail.data.status === 'ended' || doseDetail.data.status === 'expired') && (
+                        <div className="pt-2 border-t border-slate-200">
+                          <span className="text-slate-500 text-xs">{doseDetail.data.status === 'ended' ? 'Ended' : 'Expired'}</span>
+                          <p className="font-medium text-slate-700 mt-0.5">{doseDetail.data.end_date ? new Date(doseDetail.data.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'} by {doseDetail.data.ended_by_name || '—'}</p>
+                          {doseDetail.data.end_reason && (
+                            <div className="mt-2 bg-red-50 rounded-lg p-3 border border-red-100">
+                              <span className="text-xs text-slate-500 block mb-0.5">Reason for ending</span>
+                              <p className="text-sm font-medium text-red-700">{doseDetail.data.end_reason}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="text-center px-6 pt-6 pb-4">
-                  <div className={`mx-auto w-16 h-16 rounded-2xl flex items-center justify-center mb-4 ${doseDetail.status === 'administered' ? 'bg-emerald-100' : 'bg-rose-100'}`}>
-                    {doseDetail.status === 'administered' ? <CheckCircle size={32} className="text-emerald-500" /> : <XCircle size={32} className="text-rose-500" />}
+                </>
+              ) : (
+                <>
+                  <div className="text-center px-6 pt-6 pb-4">
+                    <div className={`mx-auto w-16 h-16 rounded-2xl flex items-center justify-center mb-4 ${doseDetail.status === 'administered' ? 'bg-emerald-100' : 'bg-rose-100'}`}>
+                      {doseDetail.status === 'administered' ? <CheckCircle size={32} className="text-emerald-500" /> : <XCircle size={32} className="text-rose-500" />}
+                    </div>
+                    <h2 className="text-lg font-semibold text-slate-800">{doseDetail.treatment_name}</h2>
+                    <p className="text-sm text-slate-500 mt-1">
+                      {doseDetail.status === 'administered' ? 'Dose administered' : 'Dose skipped'} at <strong>{to12Hour(doseDetail.scheduled_time?.slice(0, 5))}</strong>
+                    </p>
                   </div>
-                  <h2 className="text-lg font-semibold text-slate-800">{doseDetail.treatment_name}</h2>
-                  <p className="text-sm text-slate-500 mt-1">
-                    {doseDetail.status === 'administered' ? 'Dose administered' : 'Dose skipped'} at <strong>{doseDetail.scheduled_time?.slice(0, 5)}</strong>
-                  </p>
-                </div>
-                <div className="px-6 pb-4 space-y-3">
-                  <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="text-slate-500">Status</span><span className={`font-medium ${doseDetail.status === 'administered' ? 'text-emerald-600' : 'text-rose-600'}`}>{doseDetail.status === 'administered' ? 'Given' : 'Skipped'}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Scheduled Time</span><span className="font-medium text-slate-700">{doseDetail.scheduled_time?.slice(0, 5)}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Recorded At</span><span className="font-medium text-slate-700">{doseDetail.administered_at ? new Date(doseDetail.administered_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'}</span></div>
-                    <div className="flex justify-between"><span className="text-slate-500">Recorded By</span><span className="font-medium text-slate-700">{doseDetail.administered_by_name || '—'}</span></div>
-                    {doseDetail.status === 'skipped' && doseDetail.notes && (
-                      <div className="pt-2 border-t border-slate-200">
-                        <span className="text-slate-500 text-xs">Reason</span>
-                        <p className="font-medium text-slate-700 mt-0.5">{doseDetail.notes}</p>
-                      </div>
-                    )}
+                  <div className="px-6 pb-4 space-y-3">
+                    <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm">
+                      <div className="flex justify-between"><span className="text-slate-500">Status</span><span className={`font-medium ${doseDetail.status === 'administered' ? 'text-emerald-600' : 'text-rose-600'}`}>{doseDetail.status === 'administered' ? 'Given' : 'Skipped'}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Scheduled Time</span><span className="font-medium text-slate-700">{to12Hour(doseDetail.scheduled_time?.slice(0, 5))}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Recorded At</span><span className="font-medium text-slate-700">{doseDetail.administered_at ? new Date(doseDetail.administered_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Recorded By</span><span className="font-medium text-slate-700">{doseDetail.administered_by_name || '—'}</span></div>
+                      {doseDetail.status === 'skipped' && doseDetail.notes && (
+                        <div className="pt-2 border-t border-slate-200">
+                          <span className="text-slate-500 text-xs">Reason</span>
+                          <p className="font-medium text-slate-700 mt-0.5">{doseDetail.notes}</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              </>
-            )}
-            <div className="px-6 pb-4">
+                </>
+              )}
+            </div>
+            <div className="px-6 pb-4 flex-shrink-0">
               <button onClick={() => setDoseDetail(null)} className="w-full py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Done</button>
             </div>
           </div>

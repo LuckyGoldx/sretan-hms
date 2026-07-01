@@ -1,0 +1,1 @@
+ALTER TABLE treatments ADD COLUMN IF NOT EXISTS end_reason TEXT;

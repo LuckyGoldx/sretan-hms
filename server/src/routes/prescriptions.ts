@@ -14,7 +14,11 @@ router.get('/api/prescriptions', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const { encounter_id, status, doctor_id } = req.query;
-    let query = 'SELECT p.* FROM prescriptions p WHERE p.tenant_id = $1';
+    let query = `SELECT p.*, s.name as doctor_name
+                  FROM prescriptions p
+                  LEFT JOIN encounters e ON e.id = p.encounter_id
+                  LEFT JOIN staff_users s ON s.id = e.staff_id
+                  WHERE p.tenant_id = $1`;
     const params: any[] = [tenantId];
     let paramIndex = 2;
 
@@ -31,7 +35,7 @@ router.get('/api/prescriptions', async (req: Request, res: Response) => {
     }
 
     if (doctor_id) {
-      query += ` AND p.encounter_id IN (SELECT id FROM encounters WHERE staff_id = $${paramIndex} AND tenant_id = $1)`;
+      query += ` AND e.staff_id = $${paramIndex}`;
       params.push(doctor_id);
       paramIndex++;
     }

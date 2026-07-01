@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import api from '../hooks/useAxios'
+import DoctorComment from './DoctorComment'
 import {
   FlaskConical, Search, Loader2, CheckCircle, XCircle, AlertTriangle, Plus, X, FileText, Clock, Copy
 } from 'lucide-react'
@@ -136,6 +137,7 @@ export default function LabWorklist() {
           reference_range_low: a.refLow || null,
           reference_range_high: a.refHigh || null,
           is_abnormal: isAbnormal || false,
+          entered_by: currentUser?.id || null,
         })
       }
       setAnalytes([{ name: '', value: '', refLow: '', refHigh: '' }])
@@ -273,6 +275,7 @@ export default function LabWorklist() {
                     {o.doctor_name && <span>Requested by: {o.doctor_name}</span>}
                     {o.referred_by && !o.doctor_name && <span>Referred by: {o.referred_by}</span>}
                   </p>
+                  {o.doctor_comment && <DoctorComment comment={o.doctor_comment} />}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 ml-3">
                   {o.status === 'ordered' && (
@@ -313,6 +316,7 @@ export default function LabWorklist() {
               <p className="text-sm text-slate-500">Patient: <strong>{selectedOrder.patient_name || 'Walk-in Patient'}</strong>
                 {selectedOrder.lab_number && <span className="text-slate-400 font-mono ml-2">#{selectedOrder.lab_number}</span>}
               </p>
+              {selectedOrder.doctor_comment && <DoctorComment comment={selectedOrder.doctor_comment} />}
               {analytes.map((a, idx) => (
                 <div key={idx} className="p-4 rounded-xl bg-slate-50 border border-slate-100 space-y-3">
                   <div className="flex items-center justify-between">

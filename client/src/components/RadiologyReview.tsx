@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import DoctorComment from './DoctorComment'
 import {
   Scan, Loader2, FileText, X, CheckCircle, XCircle, ArrowLeft, Search, Clock,
 } from 'lucide-react'
@@ -88,6 +89,7 @@ export default function RadiologyReview() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-slate-800">{item.patient_name || '—'}</p>
                   <p className="text-xs text-slate-400">Ordered by: {item.doctor_name || '—'}</p>
+                  {item.doctor_comment && <DoctorComment comment={item.doctor_comment} />}
                   {item.reported_by_name && <p className="text-[10px] text-slate-400">Reported by: {item.reported_by_name} · {new Date(item.reported_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 ml-3">
@@ -120,6 +122,7 @@ export default function RadiologyReview() {
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-100"><p className="text-xs text-slate-500 mb-1">Patient</p><p className="text-sm font-semibold">{detail.patient_name || '—'}</p></div>
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-100"><p className="text-xs text-slate-500 mb-1">Ordered By</p><p className="text-sm font-semibold">{detail.doctor_name || '—'}</p></div>
               </div>
+              {detail.doctor_comment && <DoctorComment comment={detail.doctor_comment} />}
               {detail.reported_by_name && (
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                   <p className="text-xs text-slate-500 mb-1">Reported By</p>

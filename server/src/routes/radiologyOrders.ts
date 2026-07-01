@@ -67,7 +67,7 @@ router.post('/api/radiology-orders', async (req: Request, res: Response) => {
   try {
     await clockGuard(pool, 'radiology_orders');
     const tenantId = getTenantId();
-    const { encounter_id, imaging_type, doctor_name, patient_name, payment_id } = req.body;
+    const { encounter_id, imaging_type, doctor_name, patient_name, payment_id, doctor_comment } = req.body;
 
     if (!imaging_type) {
       res.status(400).json({ error: true, message: 'imaging_type is required' });
@@ -77,9 +77,9 @@ router.post('/api/radiology-orders', async (req: Request, res: Response) => {
     const id = uuidv4();
     const imgNum = await autoImagingNumber(pool, tenantId);
     const result = await pool.query(
-      `INSERT INTO radiology_orders (id, tenant_id, imaging_number, encounter_id, imaging_type, doctor_name, patient_name, payment_id, is_paid)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [id, tenantId, imgNum, encounter_id || null, imaging_type, doctor_name || null, patient_name || null, payment_id || null, payment_id ? true : false]
+      `INSERT INTO radiology_orders (id, tenant_id, imaging_number, encounter_id, imaging_type, doctor_name, patient_name, payment_id, is_paid, doctor_comment)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [id, tenantId, imgNum, encounter_id || null, imaging_type, doctor_name || null, patient_name || null, payment_id || null, payment_id ? true : false, doctor_comment || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }

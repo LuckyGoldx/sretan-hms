@@ -836,6 +836,296 @@ Access: `http://localhost:5173/login`
 
 ---
 
+## Session 2026-06-26 to 2026-06-30 — Finance Module, Radiology Rewrite, Doctor Results, Review Workflows
+
+**Session Date:** June 26–30, 2026
+
+### 1. Sidebar Restructuring (Admin)
+
+- **Grouped sidebar**: Menu items grouped by module/category for Admin role: Dashboard, Clinical, Laboratory, Pharmacy, Radiology, Records, Finance, Administration
+- **Collapsible categories**: Each category shows as an expandable/collapsible section with chevron icon
+- **Non-admin roles**: Keep the original flat sidebar list (their limited items don't need grouping)
+- Route renames: `/inventory` → `/pharmacy-inventory`, `/expiry` → `/pharmacy-expiry`, `/paypoint/new` → `/paypoint/pending`, `/paypoint/otc` → `/paypoint/dashboard`
+
+### 2. Inventory Enhancements
+
+- **Full CRUD**: Edit, Delete, Inactivate/Activate toggle on pharmacy and lab inventory
+- **Sort columns**: Added sortable Sell Price, Cost Price, Supplier, Type (amount_type) columns
+- **Clickable low stock alert**: Amber banner is now a toggle button that filters to show only low-stock items
+- **Seed data**: 20 pharmacy drugs + 20 lab items + 20 radiology items + 20 general/services inventory items — all with prices > ₦0
+- **Category scoping**: Pharmacy dispensing, OTC sales, doctor prescriptions auto-complete all filter by `category='pharmacy'`. Lab inventory deduction filters by `category='lab'`.
+
+### 3. Paypoint/Finance Module — Comprehensive Overhaul
+
+#### URL-Based Routing
+- `/paypoint/pending` — All Pending (default, restored from user request)
+- `/paypoint/patients` — Pending Patients (patients with unpaid bills)
+- `/paypoint/dashboard` — OTC Dashboard (bill registered patients OR walk-in)
+- `/paypoint/billing` — Billing (search patient → browse catalog → charge)
+- `/paypoint/history` — Payment History
+
+#### All Pending Tab (`/paypoint/pending`)
+- Fetches from `/api/payments/all-pending-items` — all unpaid items across all modules
+- Patient name + hospital # + timestamp in one cell
+- Service badges (folder_activation/prescription/lab/radiology/admission)
+- **Add to Cart** buttons per row (not checkboxes)
+- Desktop cart sidebar + **mobile floating cart button with popup modal**
+- Payment methods grid (Cash/Card/Transfer/POS)
+- Cart enforces single-patient rule (only same hospital_number items can be added together)
+- Error modal when mixing patients (styled, with Clear Cart + Got it buttons)
+
+#### OTC Dashboard (`/paypoint/dashboard`) — PaypointDashboard.tsx
+- **Two modes**: Registered Patient (search by name/hospital #/phone) or Walk-in Customer
+- Patient search with debounced dropdown
+- Full inventory catalog browser from all categories
+- Item click increments quantity (not duplicate)
+- Multiple image upload with thumbnails, preview, delete, full-screen viewer
+- Image compression via sharp (1920px, JPEG q80)
+- Cart with payment, receipt modal
+- Auto-reset after payment (clears patient/customer selection to prevent duplicate billing)
+
+#### Billing (`/paypoint/billing`) — BillingPage.tsx
+- Paginated patient list (20/page) with search by name, hospital #, or phone
+- Select patient → browse services from all categories → add to cart → charge
+- Mobile floating cart popup
+
+#### Payment History (`/paypoint/history` and `/paypoint/history`)
+- Stats cards (Total Payments, Revenue, Today)
+- Date filter dropdown: All Time, Today, Yesterday, This Week, This Month, This Year, Custom Date, Custom Range
+- Search by receipt, patient, or staff
+- Clickable rows → detail modal with items, method, staff, date
+- Both `/paypoint/history` (PaypointCheckout.tsx) and `/finance/payment-history` (FinancePaymentHistory.tsx)
+
+### 4. Finance Module — Independent from Paypoint
+
+| Route | Component | Description |
+|-------|-----------|-------------|
+| `/finance/dashboard` | FinanceDashboard | Revenue analytics, 7-day trend bars, payment method breakdown, service revenue, quick stats |
+| `/finance/billing` | FinancePatientBilling | Patient billing records — search, pagination, stats cards (total spent, payment count), payment history table, detail modal |
+| `/finance/payment-history` | FinancePaymentHistory | All payments with date filters, search, detail modal |
+| `/finance` | Redirect → `/finance/dashboard` | |
+
+#### Finance Dashboard Analytics
+- Stats: Today revenue, This Week (with % vs last week + arrow indicator), Total Revenue, Avg per Transaction
+- 7-day Revenue Trend bar chart (highlighted today)
+- Monthly Revenue (6 months) bar chart
+- Daily Transaction Count (7 days)
+- Payment Method Breakdown (Cash/Card/Transfer/POS) with horizontal progress bars
+- Revenue by Service — scrollable list with bars
+- Monthly Comparison (this month vs last month)
+- Year to Date revenue with avg daily/weekly
+- Top Patients by revenue leaderboard
+- Quick Stats panel
+
+#### Patient Billing Records (`/finance/billing`)
+- Patient list with search by name/hospital #/phone (paginated 20/page)
+- Click patient → comprehensive billing report:
+  - Total Spent, Total Payments, First Payment, Last Payment
+  - Payment Method Breakdown (Cash/Card/Transfer amounts + %)
+  - Payment History table with clickable rows
+  - Detail modal with items, method, staff, printed receipt
+
+#### Finance Role
+- New `Finance` role added to VALID_ROLES and sidebar guards
+- Finance staff see: Finance Dashboard, Patient Billing, Payment History
+- Login: `finance@sretan.com` / `finance123`
+
+### 5. Laboratory Module — Review Workflow Update
+
+#### Status Flow (Updated)
+```
+ordered → collected (sample collected) → processing (results entered) → review (pending approval) → completed (approved)
+                                                                          → review (rejected) → edit results
+```
+
+#### Lab Reject Flow
+- **Server**: `PUT /api/lab-results/:id/reject` now sets `lab_results.status = 'review'` and `lab_orders.status = 'review'`
+- **Worklist**: Shows "Review" items with amber "Edit Results" button
+- **Editing**: Opens the same result entry modal, pre-populates existing values
+- **Re-approval**: After editing, status goes back to `review` → needs re-approval
+- **Status filter**: Added "Review" option to worklist filter dropdown
+- **Status badge**: Shows "Rejected - Review" (rose color) for review items
+
+#### Results Tabs (`/lab/results`)
+- **Pending Approval** — draft results with approve/reject
+- **Completed** — all completed results for registered patients with `encounter_id`
+- **Not Collected** — walk-in results (`!encounter_id`) without collection
+- **Collected** — results with `results_collected_at` set
+
+### 6. Radiology Module — Full Lab-Like Workflow
+
+#### New Pages
+
+| Route | Component | Description |
+|-------|-----------|-------------|
+| `/radiology` | RadiologyDashboard | Stats cards (Ordered/Processing/In Review/Completed), quick action cards |
+| `/radiology/worklist` | RadiologyModule | Worklist + report editor (keep existing editor) |
+| `/radiology/results` | RadiologyResults | Completed results with tabs (Completed/Not Collected/Collected) |
+| `/radiology/review` | RadiologyReview | Pending approval queue (approve/reject) |
+| `/radiology/orders` | RadiologyOrders | Unpaid radiology orders |
+| `/radiology/history` | RadiologyHistory | All orders with date filters and search |
+
+#### Radiology Status Flow
+```
+ordered → review (report entered by radiologist) → completed (approved) / rejected (back to worklist)
+```
+
+**Worklist (`/radiology/worklist`):**
+- Shows only `ordered` + `rejected` items
+- Only paid items shown (`is_paid=true`)
+- "Enter Result" button per item → opens popup modal with report editor
+- Editor has: formatting toolbar (mock), template phrases, report textarea, image upload dropzone
+- **Multiple image upload**: Grid of thumbnails, delete per image, full-screen preview
+- Submit sets status = 'review' (pending approval)
+- After submit/reject, item disappears from worklist
+
+**Review (`/radiology/review`):**
+- Lists all items with `status = 'review'`
+- Each card: patient, imaging type, ordering doctor, radiologist, timestamp
+- **Approve** (green) → status = 'completed', sets `approved_by`
+- **Reject** (red) → status = 'rejected', item reappears in worklist for editing
+- Detail modal with full report + image
+
+**Results (`/radiology/results`):**
+- **Completed** tab (all completed)
+- **Not Collected** tab (walk-in only, "Mark as Collected" button)
+- **Collected** tab (results with collection date)
+- Search, pagination, detail modal with image + radiologist info
+
+#### Server Changes (`radiologyOrders.ts`)
+- Stats endpoint includes `review` count
+- PUT endpoint: on report submit → `status = 'review'`; on approve → `status = 'completed'`, `approved_by`; on reject → `status = 'rejected'`
+- Payment guard applies to `review`/`completed`/`processing` statuses
+- `reported_at` set on first submit, `approved_at` set on approve
+- `approved_by` column added to `radiology_orders` (migration 015)
+- Radiology SELECT includes `approved_by_name`, `reported_by_name`, `hospital_number`, `patient_id`
+
+#### Radiology Dashboard
+- 5 stats cards: Ordered, Processing, In Review, Completed, Total
+- Quick actions: Worklist, Review, Results, History
+
+#### Sidebar (Radiology — 7 items)
+Dashboard, Worklist, Results, Review, Orders, History, Inventory, Expiry
+
+### 7. Doctor Results Page (`/doctor/results`)
+
+Comprehensive results page for doctors showing ALL lab + radiology orders they've ordered.
+
+**Features:**
+- Fetches from `/lab-orders?doctor_id=X` and `/radiology-orders?doctor_id=X`
+- Stats: Total Lab, Total Radiology, Ordered, Collected, Processing, In Review, Completed
+- **Type filter**: All / Lab / Radiology (with icons)
+- **Date filter dropdown**: All Time, Today, Yesterday, This Week, This Month, This Year, Custom Date, Custom Range
+- **Status filter**: dropdown with all status options
+- **Sort**: Newest / Oldest
+- **Search**: patient name, test name, order number, hospital #
+- **Pagination**: 20 per page
+
+**Unread tracking:**
+- Read IDs stored in `localStorage` as `doctor_read_results`
+- Completed unread items get a **blue left border**
+- Mark as read on: click card, close modal, backdrop click, X button
+- **Sidebar badge**: Blue count badge on Results link — combines lab + radiology unread counts
+- Count updates instantly via `CustomEvent('doctorResultsRead')` + 30s periodic sync
+- Initial count computed from API minus localStorage read IDs
+
+**Status display:**
+- Lab: `rejected` → "In Review", radiology: `processing/review/rejected` → "In Review"
+- Completed items show "View" link
+
+**Detail modal:**
+- Lab: shows analyte results with reference ranges, abnormal flags (red highlighting)
+- Radiology: shows full report text + attached image
+- **Three staff tracking sections:**
+  - **Entered By** (sky) — lab scientist who entered the approved result (`lab_results.entered_by` from completed results)
+  - **Reported By** (indigo) — radiologist who wrote the report (radiology only)
+  - **Approved By** (purple) — person who finalized/approved the result
+- Each section has name + date/timestamp
+- Patient info, status, date ordered, priority, specimen type
+
+### 8. Radiology Results in Patient Chart
+
+- Completed radiology shows **report text inline** (truncated, scrollable)
+- **"View Full Report"** button opens comprehensive modal:
+  - Patient name + imaging type
+  - Ordered by doctor + date ordered
+  - Radiologist / Reported By (name + timestamp)
+  - Full report text
+  - **Attached image** with click-to-fullscreen + zoom In/Out
+- "In Review" status shown for review/rejected items (not "Rejected" — doctors never see that word)
+- Encounter timeline modal also shows report text + radiologist info
+
+### 9. Server Uploads & Image Compression
+
+- **Upload endpoint**: `POST /api/upload` using multer with disk storage → `server/uploads/`
+- **Image compression**: sharp library resizes to max 1920px and compresses JPEG quality 80 (mozjpeg)
+- In-place processing via `toBuffer()` — original file untouched if compression fails
+- **Static serving**: `express.static(uploadsDir)` at `/uploads/` path
+- **Vite proxy**: `/uploads` proxied to backend in `vite.config.ts`
+- **Multiple image paths**: Stored as comma-separated in `image_path` field
+
+### 10. New Roles & Staff Logins
+
+| Role | Email | Password | Access |
+|------|-------|----------|--------|
+| **Finance** | `finance@sretan.com` | `finance123` | Finance Dashboard, Patient Billing, Payment History |
+| **Radiology** | `radiology@sretan.com` | `radiology123` | Radiology Dashboard, Worklist, Results, Review, Orders, History, Inventory, Expiry |
+
+### 11. RadiologyRole Added
+- `Radiology` added to `VALID_ROLES` in `staff.ts`
+- Sidebar links and route guards include `Radiology` role
+- DashboardRouter redirects Paypoint → `/paypoint/dashboard`
+
+### 12. All-New Migration Files
+
+| File | Purpose |
+|------|---------|
+| `013_lab_results_collected_by.sql` | Added `results_collected_by` to `lab_orders` |
+| `014_radiology_enhance.sql` | Added `imaging_number`, `doctor_name`, `patient_name`, `is_paid`, `reported_by`, `reported_at`, `payment_id` to `radiology_orders` |
+| `015_radiology_review.sql` | Added `approved_by`, `approved_at`, `results_collected_at`, `results_collected_by` to `radiology_orders` |
+| `016_lab_results_entered_by.sql` | Added `entered_by` to `lab_results` |
+
+### 13. New Server Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/upload` | POST | File upload with sharp compression |
+| `/api/radiology-orders/stats` | GET | Radiology order counts by status |
+| `/api/payments/all-pending-items` | GET | All unpaid items across all patients with prices |
+| `/api/payments/patient-billing/:patientId` | GET | Patient billing summary with stats + payment history |
+| `/api/lab-results/:orderId` | GET | Now supports optional `?status=` filter |
+
+### 14. New Client Components
+
+| Component | Route | Purpose |
+|-----------|-------|---------|
+| `PaypointPending` | `/paypoint/pending` | All pending items table with cart |
+| `PaypointPatients` | `/paypoint/patients` | Patients with pending bills list |
+| `PaypointDashboard` | `/paypoint/dashboard` | OTC/billing dashboard (renamed from OtcSales) |
+| `BillingPage` | `/paypoint/billing` | Patient billing with catalog |
+| `PaypointCheckout` | `/paypoint/history` | Payment history (stripped down) |
+| `FinanceDashboard` | `/finance/dashboard` | Revenue analytics with charts |
+| `FinancePatientBilling` | `/finance/billing` | Patient billing records |
+| `FinancePaymentHistory` | `/finance/payment-history` | Payment history with date filters |
+| `RadiologyDashboard` | `/radiology` | Stats dashboard |
+| `RadiologyResults` | `/radiology/results` | Results with Not Collected/Collected tabs |
+| `RadiologyReview` | `/radiology/review` | Approve/reject reports |
+| `RadiologyOrders` | `/radiology/orders` | Unpaid orders |
+| `RadiologyHistory` | `/radiology/history` | History with date filters |
+| `DoctorResults` | `/doctor/results` | Comprehensive doctor results page |
+
+### 15. Known Issues / TODOs
+
+1. **Radiology doctor_read_at**: Unread tracking for radiology uses localStorage only (no server-side `doctor_read_at` on radiology_orders yet)
+2. **entered_by backfill**: Existing lab results have `entered_by = NULL` (column added via migration 016). New results will populate it.
+3. **approved_at backfill**: Radiology orders approved before the fix have `approved_at = NULL`. New approvals will set it.
+4. **Image upload fallback**: If compression fails, original file is preserved — this is intentional
+5. **Multiple image upload for lab**: Lab results only support single report entry, not images (lab is text-based)
+6. **Paypoint vs Finance isolation**: Finance role sees Finance module only; Paypoint role sees paypoint/OTC pages only. No overlap by design.
+7. **Radiology results in patient chart**: Uses `?status=completed` filter — only approved results visible to clinicians
+
+---
+
 ## Session 2026-06-22 — Lab Module Restructuring & Voice-to-Text
 
 **Session ID:** `sess-lab-voice-20260622`

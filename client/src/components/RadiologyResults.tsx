@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import DoctorComment from './DoctorComment'
 import {
   Scan, Loader2, FileText, X, Search, Clock, ArrowLeft, CheckCircle, FileImage, Printer,
 } from 'lucide-react'
@@ -150,6 +151,7 @@ export default function RadiologyResults() {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-slate-800">{o.patient_name || 'Walk-in Patient'}</p>
                   <p className="text-xs text-slate-400">Ordered by: {o.doctor_name || '—'}</p>
+                  {o.doctor_comment && <DoctorComment comment={o.doctor_comment} />}
                   {o.reported_by_name && <p className="text-[10px] text-sky-600">Reported by: {o.reported_by_name} &middot; {new Date(o.reported_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0 ml-3">
@@ -194,6 +196,7 @@ export default function RadiologyResults() {
                   <p className="text-[10px] text-slate-400 mt-0.5">{new Date(detail.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
               </div>
+              {detail.doctor_comment && <DoctorComment comment={detail.doctor_comment} />}
               {detail.reported_by_name && (
                 <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
                   <div className="flex items-center gap-2 mb-1">

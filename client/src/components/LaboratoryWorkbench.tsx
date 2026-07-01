@@ -171,6 +171,7 @@ export default function LaboratoryWorkbench() {
         await api.post('/lab-results', {
           lab_order_id: selectedOrder.id, analyte_name: a.name, value: a.value,
           reference_range_low: a.refLow || null, reference_range_high: a.refHigh || null, is_abnormal: isAbnormal || false,
+          entered_by: currentUser?.id || null,
         })
       }
       setAnalytes([{ name: '', value: '', refLow: '', refHigh: '' }])

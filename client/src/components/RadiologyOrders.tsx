@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import DoctorComment from './DoctorComment'
 import { Scan, Loader2, ArrowLeft, Clock } from 'lucide-react'
 
 export default function RadiologyOrders() {
@@ -47,6 +48,7 @@ export default function RadiologyOrders() {
                   <p className="text-sm font-semibold text-slate-800 truncate">{o.imaging_type}</p>
                   <p className="text-xs text-slate-500 mt-0.5">{o.patient_name || 'Walk-in Patient'}</p>
                   {o.imaging_number && <p className="text-xs text-slate-400 font-mono mt-0.5">#{o.imaging_number}</p>}
+                  {o.doctor_comment && <DoctorComment comment={o.doctor_comment} />}
                 </div>
                 <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-rose-100 text-rose-700 flex-shrink-0">Awaiting Payment</span>
               </div>

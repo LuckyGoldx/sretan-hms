@@ -3,14 +3,16 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, ScrollText, ClipboardList, Pill, Microscope, Scan, Search, Clock, X, Plus,
   ChevronDown, CheckCircle, XCircle, AlertTriangle, Loader2, Syringe, FlaskConical, Activity, Mic,
+  FileText, FileImage,
 } from 'lucide-react'
 import api from '../hooks/useAxios'
+import DoctorComment from './DoctorComment'
 import type { Patient, Encounter } from '../types/index'
 
 interface SoapForm { subjective: string; objective: string; assessment: string; plan: string; notes: string }
 interface ToastState { show: boolean; message: string; type: 'success' | 'error' }
-interface LabOrderForm { test_name: string }
-interface RadiologyForm { imaging_type: string }
+interface LabOrderForm { test_name: string; doctor_comment: string }
+interface RadiologyForm { imaging_type: string; doctor_comment: string }
 interface PrescriptionForm { drug_name: string; dosage: string; quantity: string; instructions: string }
 type ModalType = 'lab' | 'radiology' | null
 
@@ -37,8 +39,31 @@ const icd11Codes = [
   { code: 'V00-Y99', label: 'External causes of morbidity & mortality' },
   { code: 'Z00-Z99', label: 'Factors influencing health status & contact with health services' },
 ]
-const imagingTypes = ['X-Ray', 'Ultrasound', 'CT', 'MRI']
+const PER_PAGE = 15
+const fallbackImagingTypes = ['X-Ray', 'Ultrasound', 'CT', 'MRI']
 const emptySoap: SoapForm = { subjective: '', objective: '', assessment: '', plan: '', notes: '' }
+
+function Pagination({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (n: number) => void }) {
+  if (totalPages <= 1) return null
+  const pages: number[] = []
+  const maxVisible = 5
+  if (totalPages <= maxVisible) { for (let i = 1; i <= totalPages; i++) pages.push(i) }
+  else if (page <= 3) { for (let i = 1; i <= maxVisible; i++) pages.push(i) }
+  else if (page >= totalPages - 2) { for (let i = totalPages - maxVisible + 1; i <= totalPages; i++) pages.push(i) }
+  else { for (let i = page - 2; i <= page + 2; i++) pages.push(i) }
+  return (
+    <div className="flex items-center justify-center gap-2 pt-3 pb-1">
+      <button onClick={() => onChange(Math.max(1, page - 1))} disabled={page <= 1}
+        className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Previous</button>
+      {pages.map((p) => (
+        <button key={p} onClick={() => onChange(p)}
+          className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${p === page ? 'bg-primary text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{p}</button>
+      ))}
+      <button onClick={() => onChange(Math.min(totalPages, page + 1))} disabled={page >= totalPages}
+        className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Next</button>
+    </div>
+  )
+}
 
 type TabId = 'soap' | 'orders' | 'prescribe' | 'icd'
 
@@ -124,8 +149,8 @@ export default function DoctorConsultation() {
   const [soapSubmitting, setSoapSubmitting] = useState(false)
   const [toast, setToast] = useState<ToastState>({ show: false, message: '', type: 'success' })
   const [activeModal, setActiveModal] = useState<ModalType>(null)
-  const [labForm, setLabForm] = useState<LabOrderForm>({ test_name: '' })
-  const [radiologyForm, setRadiologyForm] = useState<RadiologyForm>({ imaging_type: '' })
+  const [labForm, setLabForm] = useState<LabOrderForm>({ test_name: '', doctor_comment: '' })
+  const [radiologyForm, setRadiologyForm] = useState<RadiologyForm>({ imaging_type: '', doctor_comment: '' })
   const [prescription, setPrescription] = useState<PrescriptionForm>({ drug_name: '', dosage: '', quantity: '', instructions: '' })
   const [activeEncounterId, setActiveEncounterId] = useState<string | null>(null)
   const [inventoryDrugs, setInventoryDrugs] = useState<string[]>([])
@@ -136,13 +161,26 @@ export default function DoctorConsultation() {
   const [icdOpen, setIcdOpen] = useState(false)
   const [labSubmitting, setLabSubmitting] = useState(false)
   const [labTestCatalog, setLabTestCatalog] = useState<any[]>([])
+  const [labInventoryItems, setLabInventoryItems] = useState<any[]>([])
+  const [radiologyInventoryItems, setRadiologyInventoryItems] = useState<any[]>([])
   const [labTestSearch, setLabTestSearch] = useState('')
   const [showLabTestDropdown, setShowLabTestDropdown] = useState(false)
+  const [radiologySearch, setRadiologySearch] = useState('')
+  const [showRadiologyDropdown, setShowRadiologyDropdown] = useState(false)
   const [radiologySubmitting, setRadiologySubmitting] = useState(false)
   const [prescriptionSubmitting, setPrescriptionSubmitting] = useState(false)
   const [timelineModal, setTimelineModal] = useState<TimelineModalData | null>(null)
   const [vitals, setVitals] = useState<any | null>(null)
   const [labResultsMap, setLabResultsMap] = useState<Record<string, any[]>>({})
+  const [allLabOrders, setAllLabOrders] = useState<any[]>([])
+  const [allRadOrders, setAllRadOrders] = useState<any[]>([])
+  const [allPrescriptions, setAllPrescriptions] = useState<any[]>([])
+  const [soapPage, setSoapPage] = useState(1)
+  const [ordersPage, setOrdersPage] = useState(1)
+  const [rxPage, setRxPage] = useState(1)
+  const [rxDetailModal, setRxDetailModal] = useState<any | null>(null)
+  const [radiologyDetailModal, setRadiologyDetailModal] = useState<any | null>(null)
+  const [radModalImage, setRadModalImage] = useState<string | null>(null)
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => { setToast({ show: true, message, type }) }, [])
   const dismissToast = useCallback(() => { setToast((prev) => ({ ...prev, show: false })) }, [])
@@ -159,6 +197,8 @@ export default function DoctorConsultation() {
 
   useEffect(() => {
     api.get<any[]>('/lab-test-catalog').then((res) => setLabTestCatalog(res.data || [])).catch(() => {})
+    api.get<any[]>('/inventory?category=lab').then((res) => setLabInventoryItems(res.data || [])).catch(() => {})
+    api.get<any[]>('/inventory?category=radiology').then((res) => setRadiologyInventoryItems(res.data || [])).catch(() => {})
   }, [])
 
   useEffect(() => {
@@ -192,6 +232,20 @@ export default function DoctorConsultation() {
             const vRes = await api.get(`/vitals/${firstEnc.id}`)
             if (vRes.data && vRes.data.id) setVitals(vRes.data)
           } catch {}
+          const allLab: any[] = []; const allRad: any[] = []; const allRx: any[] = []
+          for (const enc of encs) {
+            const [labRes, radRes, rxRes] = await Promise.all([
+              api.get(`/lab-orders?encounter_id=${enc.id}`).catch(() => ({ data: [] })),
+              api.get(`/radiology-orders?encounter_id=${enc.id}`).catch(() => ({ data: [] })),
+              api.get(`/prescriptions?encounter_id=${enc.id}`).catch(() => ({ data: [] })),
+            ])
+            allLab.push(...(labRes.data || []))
+            allRad.push(...(radRes.data || []))
+            allRx.push(...(rxRes.data || []))
+          }
+          setAllLabOrders(allLab)
+          setAllRadOrders(allRad)
+          setAllPrescriptions(allRx)
         }
       } catch { showToast('Failed to load patient data', 'error') } finally { setLoading(false) }
     }
@@ -240,8 +294,8 @@ export default function DoctorConsultation() {
     setLabSubmitting(true)
     try {
       const encId = await ensureEncounter()
-      await api.post('/lab-orders', { encounter_id: encId, test_name: labForm.test_name.trim(), lab_number: patient?.hospital_number || undefined })
-      showToast('Lab order submitted', 'success'); setLabForm({ test_name: '' }); setActiveModal(null)
+      await api.post('/lab-orders', { encounter_id: encId, test_name: labForm.test_name.trim(), lab_number: patient?.hospital_number || undefined, doctor_comment: labForm.doctor_comment.trim() || undefined })
+      showToast('Lab order submitted', 'success'); setLabForm({ test_name: '', doctor_comment: '' }); setActiveModal(null)
     } catch { showToast('Failed to submit lab order', 'error') } finally { setLabSubmitting(false) }
   }
 
@@ -252,8 +306,8 @@ export default function DoctorConsultation() {
       const encId = await ensureEncounter()
       const doctorName = (() => { try { const u = JSON.parse(localStorage.getItem('sretan_user') || '{}'); return u.name || '' } catch {} return '' })()
       const patName = patient?.full_name || ''
-      await api.post('/radiology-orders', { encounter_id: encId, imaging_type: radiologyForm.imaging_type, doctor_name: doctorName, patient_name: patName })
-      showToast('Radiology order submitted', 'success'); setRadiologyForm({ imaging_type: '' }); setActiveModal(null)
+      await api.post('/radiology-orders', { encounter_id: encId, imaging_type: radiologyForm.imaging_type, doctor_name: doctorName, patient_name: patName, doctor_comment: radiologyForm.doctor_comment.trim() || undefined })
+      showToast('Radiology order submitted', 'success'); setRadiologyForm({ imaging_type: '', doctor_comment: '' }); setActiveModal(null)
     } catch { showToast('Failed to submit radiology order', 'error') } finally { setRadiologySubmitting(false) }
   }
 
@@ -267,6 +321,23 @@ export default function DoctorConsultation() {
       setPrescription({ drug_name: '', dosage: '', quantity: '', instructions: '' })
     } catch { showToast('Failed to create prescription', 'error') } finally { setPrescriptionSubmitting(false) }
   }
+
+  const mergedLabTests = (() => {
+    const catalogNames = new Set(labTestCatalog.map((t: any) => t.name.toLowerCase()))
+    const inventoryNames = labInventoryItems.filter((i: any) => i.stock_count > 0).map((i: any) => i.drug_name).filter(Boolean)
+    const extraNames = inventoryNames.filter((n: string) => !catalogNames.has(n.toLowerCase()))
+    const result = [
+      ...labTestCatalog.map((t: any) => ({ name: t.name, category: t.category || 'catalog', source: 'catalog' })),
+      ...extraNames.map((n: string) => ({ name: n, category: 'lab', source: 'inventory' })),
+    ]
+    return result
+  })()
+
+  const radiologyImagingTypes = (() => {
+    const fromInventory = radiologyInventoryItems.filter((i: any) => i.stock_count > 0).map((i: any) => i.drug_name).filter(Boolean)
+    const uniqueFromInventory = [...new Set(fromInventory)]
+    return uniqueFromInventory.length > 0 ? [...new Set([...fallbackImagingTypes, ...uniqueFromInventory])] : fallbackImagingTypes
+  })()
 
   const filteredIcd = icdSearch ? icd11Codes.filter((c) => c.code.toLowerCase().includes(icdSearch.toLowerCase()) || c.label.toLowerCase().includes(icdSearch.toLowerCase())) : icd11Codes
   const sortedEncounters = [...encounters].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
@@ -483,42 +554,276 @@ export default function DoctorConsultation() {
         </div>
       )}
 
-      {/* Historical Timeline at bottom */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Clock className="w-4 h-4 text-primary" />
-          <h2 className="text-sm font-semibold text-slate-700">Historical Timeline ({sortedEncounters.length})</h2>
+      {/* Historical Timeline */}
+      {activeTab === 'soap' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Clock className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-semibold text-slate-700">Historical Timeline ({sortedEncounters.length})</h2>
+          </div>
+          {sortedEncounters.length === 0 ? (
+            <p className="text-sm text-slate-400">No prior encounters found.</p>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {(sortedEncounters.slice((soapPage - 1) * PER_PAGE, soapPage * PER_PAGE)).map((enc, idx) => {
+                const staffName = enc.staff_id ? staffCache[enc.staff_id] : null
+                const realIdx = sortedEncounters.indexOf(enc)
+                return (
+                  <button key={enc.id} type="button" onClick={() => openTimelineModal(enc)}
+                    className={`w-full text-left relative flex items-start gap-4 p-3.5 rounded-xl border transition-all hover:shadow-md ${
+                      realIdx === 0 ? 'border-blue-200 bg-blue-50/40' : 'border-slate-100 bg-slate-50/40'
+                    }`}>
+                    <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5"><Clock className="w-4 h-4 text-primary" /></div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">{enc.encounter_type}</span>
+                        <span className="text-xs text-slate-400">{new Date(enc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        {realIdx === 0 && <span className="text-[10px] font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">Current</span>}
+                      </div>
+                      {enc.chief_complaint && <p className="text-sm text-slate-600 mt-1 line-clamp-2">{enc.chief_complaint}</p>}
+                      <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-400">
+                        {staffName ? <span>By: <strong>{staffName}</strong></span> : null}
+                      </div>
+                    </div>
+                    <ChevronDown className="w-4 h-4 text-slate-300 flex-shrink-0 mt-2" />
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          <Pagination page={soapPage} totalPages={Math.max(1, Math.ceil(sortedEncounters.length / PER_PAGE))} onChange={setSoapPage} />
         </div>
-        {sortedEncounters.length === 0 ? (
-          <p className="text-sm text-slate-400">No prior encounters found.</p>
-        ) : (
-          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-            {sortedEncounters.map((enc, idx) => {
-              const staffName = enc.staff_id ? staffCache[enc.staff_id] : null
-              return (
-                <button key={enc.id} type="button" onClick={() => openTimelineModal(enc)}
-                  className={`w-full text-left relative flex items-start gap-4 p-3.5 rounded-xl border transition-all hover:shadow-md ${
-                    idx === 0 ? 'border-blue-200 bg-blue-50/40' : 'border-slate-100 bg-slate-50/40'
-                  }`}>
-                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5"><Clock className="w-4 h-4 text-primary" /></div>
+      )}
+
+      {activeTab === 'orders' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Clock className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-semibold text-slate-700">Order History ({allLabOrders.length + allRadOrders.length})</h2>
+          </div>
+          {(allLabOrders.length + allRadOrders.length) === 0 ? (
+            <p className="text-sm text-slate-400">No prior lab or radiology orders.</p>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {[...allLabOrders.map((o: any) => ({ ...o, _type: 'lab' })), ...allRadOrders.map((o: any) => ({ ...o, _type: 'radiology' }))]
+                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                .slice((ordersPage - 1) * PER_PAGE, ordersPage * PER_PAGE)
+                .map((ord: any) => (
+                <div key={ord.id}
+                  className="flex items-start gap-4 p-3.5 rounded-xl border border-slate-100 bg-slate-50/40 hover:shadow-md transition-all cursor-pointer"
+                  onClick={() => {
+                    if (ord._type === 'lab') {
+                      api.get(`/lab-results/${ord.id}?status=completed`).then((r) => {
+                        const results: Record<string, any[]> = {}
+                        if (r.data?.length) results[ord.id] = r.data
+                        setLabResultsMap(results)
+                        setTimelineModal({ encounter: ord as any, doctorName: ord.doctor_name || '', prescriptions: [], labOrders: [ord], radiologyOrders: [] })
+                      }).catch(() => setTimelineModal({ encounter: ord as any, doctorName: ord.doctor_name || '', prescriptions: [], labOrders: [ord], radiologyOrders: [] }))
+                    } else {
+                      setRadiologyDetailModal(ord)
+                    }
+                  }}>
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    {ord._type === 'lab' ? <FlaskConical className="w-4 h-4 text-primary" /> : <Scan className="w-4 h-4 text-indigo-500" />}
+                  </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">{enc.encounter_type}</span>
-                      <span className="text-xs text-slate-400">{new Date(enc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                      {idx === 0 && <span className="text-[10px] font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">Current</span>}
+                      <span className="text-sm font-semibold text-slate-800">{ord._type === 'lab' ? ord.test_name : ord.imaging_type}</span>
+                      <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${
+                        ord.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                      }`}>{ord.status}</span>
                     </div>
-                    {enc.chief_complaint && <p className="text-sm text-slate-600 mt-1 line-clamp-2">{enc.chief_complaint}</p>}
-                    <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-400">
-                      {staffName ? <span>By: <strong>{staffName}</strong></span> : null}
+                    <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                      <span>{ord._type === 'lab' ? 'Lab' : 'Radiology'}</span>
+                      <span>{new Date(ord.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                      {ord.doctor_name && <span>by <strong>{ord.doctor_name}</strong></span>}
+                    </div>
+                    {ord.doctor_comment && <DoctorComment comment={ord.doctor_comment} />}
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-slate-300 flex-shrink-0 mt-2" />
+                </div>
+              ))}
+            </div>
+          )}
+          <Pagination page={ordersPage} totalPages={Math.max(1, Math.ceil((allLabOrders.length + allRadOrders.length) / PER_PAGE))} onChange={setOrdersPage} />
+        </div>
+      )}
+
+      {activeTab === 'prescribe' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Clock className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-semibold text-slate-700">Prescription History ({allPrescriptions.length})</h2>
+          </div>
+          {allPrescriptions.length === 0 ? (
+            <p className="text-sm text-slate-400">No prior prescriptions.</p>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+              {[...allPrescriptions].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice((rxPage - 1) * PER_PAGE, rxPage * PER_PAGE).map((rx: any) => (
+                <div key={rx.id} onClick={() => setRxDetailModal(rx)}
+                  className="cursor-pointer flex items-start gap-4 p-3.5 rounded-xl border border-slate-100 bg-slate-50/40 hover:shadow-md transition-all">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5"><Pill className="w-4 h-4 text-primary" /></div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-slate-800">{rx.drug_name}</span>
+                      {rx.dosage && <span className="text-xs text-slate-500">{rx.dosage}</span>}
+                      {rx.quantity ? <span className="text-xs text-slate-400">Qty: {rx.quantity}</span> : null}
+                      {rx.status === 'dispensed' ? (
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-emerald-100 text-emerald-700">Dispensed</span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-amber-100 text-amber-700">Not Dispensed</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500 mt-0.5">
+                      {new Date(rx.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      {rx.instructions && <p className="text-xs text-slate-400 mt-0.5 italic">"{rx.instructions}"</p>}
                     </div>
                   </div>
                   <ChevronDown className="w-4 h-4 text-slate-300 flex-shrink-0 mt-2" />
-                </button>
-              )
-            })}
+                </div>
+              ))}
+            </div>
+          )}
+          <Pagination page={rxPage} totalPages={Math.max(1, Math.ceil(allPrescriptions.length / PER_PAGE))} onChange={setRxPage} />
+        </div>
+      )}
+
+      {/* Prescription Detail Modal */}
+      {rxDetailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setRxDetailModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2"><Pill className="w-4 h-4 text-primary" /> Prescription Details</h3>
+              <button onClick={() => setRxDetailModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X className="w-4 h-4 text-slate-400" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div><span className="text-slate-500">Drug:</span> <span className="font-medium text-slate-800">{rxDetailModal.drug_name}</span></div>
+                <div><span className="text-slate-500">Status:</span>
+                  {rxDetailModal.status === 'dispensed' ? (
+                    <span className="ml-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-emerald-100 text-emerald-700">Dispensed</span>
+                  ) : (
+                    <span className="ml-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-amber-100 text-amber-700">Not Dispensed</span>
+                  )}
+                </div>
+                {rxDetailModal.dosage && <div><span className="text-slate-500">Dosage:</span> <span className="font-medium text-slate-800">{rxDetailModal.dosage}</span></div>}
+                {rxDetailModal.quantity && <div><span className="text-slate-500">Quantity:</span> <span className="font-medium text-slate-800">{rxDetailModal.quantity}</span></div>}
+                <div><span className="text-slate-500">Prescribed:</span> <span className="font-medium text-slate-800">{new Date(rxDetailModal.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></div>
+                <div><span className="text-slate-500">Payment:</span>
+                  {rxDetailModal.is_paid ? (
+                    <span className="ml-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-emerald-100 text-emerald-700">Paid</span>
+                  ) : (
+                    <span className="ml-1 px-2 py-0.5 rounded-lg text-[10px] font-medium bg-rose-100 text-rose-700">Unpaid</span>
+                  )}
+                </div>
+              </div>
+              {rxDetailModal.doctor_name && (
+                <div className="bg-slate-50 rounded-xl p-3 text-sm">
+                  <span className="text-slate-500">Prescribed by:</span> <span className="font-medium text-slate-700 ml-1">{rxDetailModal.doctor_name}</span>
+                </div>
+              )}
+              {rxDetailModal.instructions && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Instructions</p>
+                  <div className="bg-slate-50 rounded-xl p-3 text-sm text-slate-700 italic">"{rxDetailModal.instructions}"</div>
+                </div>
+              )}
+            </div>
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end">
+              <button onClick={() => setRxDetailModal(null)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Close</button>
+            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Radiology Detail Modal */}
+      {radiologyDetailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setRadiologyDetailModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <Scan size={22} className="text-indigo-500" />
+                <div>
+                  <h2 className="text-lg font-semibold text-slate-800">{radiologyDetailModal.imaging_type}</h2>
+                  {radiologyDetailModal.imaging_number && <p className="text-xs text-slate-400 font-mono">#{radiologyDetailModal.imaging_number}</p>}
+                </div>
+              </div>
+              <button onClick={() => setRadiologyDetailModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6 space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                  <p className="text-xs text-slate-500 mb-1">Patient</p>
+                  <p className="text-sm font-semibold">{patient?.full_name || radiologyDetailModal.patient_name || '—'}</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                  <p className="text-xs text-slate-500 mb-1">Ordered By</p>
+                  <p className="text-sm font-semibold">{radiologyDetailModal.doctor_name || '—'}</p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">{new Date(radiologyDetailModal.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                  <p className="text-xs text-slate-500 mb-1">Status</p>
+                  <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium ${radiologyDetailModal.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : radiologyDetailModal.status === 'review' || radiologyDetailModal.status === 'rejected' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {radiologyDetailModal.status === 'completed' ? <CheckCircle size={12} /> : null}
+                    {radiologyDetailModal.status === 'review' || radiologyDetailModal.status === 'rejected' ? 'In Review' : radiologyDetailModal.status?.charAt(0).toUpperCase() + radiologyDetailModal.status?.slice(1)}
+                  </span>
+                </div>
+                {radiologyDetailModal.imaging_number && (
+                  <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                    <p className="text-xs text-slate-500 mb-1">Imaging #</p>
+                    <p className="text-sm font-semibold font-mono">{radiologyDetailModal.imaging_number}</p>
+                  </div>
+                )}
+              </div>
+
+              {radiologyDetailModal.doctor_comment && <DoctorComment comment={radiologyDetailModal.doctor_comment} />}
+
+              {radiologyDetailModal.reported_by_name && (
+                <div className="bg-indigo-50 rounded-xl p-4 border border-indigo-100">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Scan size={14} className="text-indigo-600" />
+                    <p className="text-xs text-slate-500">Radiologist / Reported By</p>
+                  </div>
+                  <p className="text-sm font-semibold text-slate-800">{radiologyDetailModal.reported_by_name}</p>
+                  {radiologyDetailModal.reported_at && <p className="text-xs text-slate-500 mt-0.5">Reported on: {new Date(radiologyDetailModal.reported_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>}
+                </div>
+              )}
+
+              <div>
+                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5"><FileText size={12} /> Radiology Report</h4>
+                <div className="bg-white rounded-xl border border-slate-100 p-4 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed min-h-[100px]">{radiologyDetailModal.report_text || 'No report available'}</div>
+              </div>
+
+              {radiologyDetailModal.image_path && (
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5"><FileImage size={12} /> Attached Image</h4>
+                  <div className="bg-slate-50 rounded-xl border border-slate-100 p-3 flex items-center justify-center cursor-pointer hover:bg-slate-100 transition-colors" onClick={() => setRadModalImage(radiologyDetailModal.image_path)}>
+                    <img src={radiologyDetailModal.image_path} alt="Radiology image"
+                      className="max-w-full max-h-80 rounded-lg object-contain"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.innerHTML = '<p class="text-sm text-slate-400 py-4">Image not available</p>' }} />
+                  </div>
+                  <p className="text-[10px] text-slate-400 mt-1.5 text-center">Click image to view full screen</p>
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end flex-shrink-0">
+              <button onClick={() => setRadiologyDetailModal(null)} className="px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Radiology Image Fullscreen */}
+      {radModalImage && (
+        <div className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center" onClick={() => setRadModalImage(null)}>
+          <div className="absolute top-4 right-4 z-10">
+            <button onClick={() => setRadModalImage(null)} className="w-10 h-10 rounded-xl bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
+              <X size={22} className="text-white" />
+            </button>
+          </div>
+          <img src={radModalImage} alt="Radiology" className="max-w-[95vw] max-h-[95vh] object-contain" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
 
       {/* Order Modals (lab / radiology) */}
       {activeModal && (
@@ -536,22 +841,30 @@ export default function DoctorConsultation() {
                   <label className="block text-xs font-medium text-slate-500 mb-1.5">Test Name</label>
                   <div className="relative">
                     <input type="text" placeholder="Search lab tests..." value={labTestSearch || labForm.test_name}
-                      onChange={(e) => { setLabTestSearch(e.target.value); setLabForm({ test_name: '' }); setShowLabTestDropdown(true) }}
+                      onChange={(e) => { setLabTestSearch(e.target.value); setLabForm({ test_name: '', doctor_comment: labForm.doctor_comment }); setShowLabTestDropdown(true) }}
                       onFocus={() => setShowLabTestDropdown(true)}
                       onBlur={() => setTimeout(() => setShowLabTestDropdown(false), 200)}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
                     {showLabTestDropdown && (
                       <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
-                        {labTestCatalog.filter((t: any) => t.name.toLowerCase().includes((labTestSearch || labForm.test_name).toLowerCase())).slice(0, 10).map((t: any) => (
-                          <button key={t.id} type="button" onMouseDown={() => { setLabForm({ test_name: t.name }); setLabTestSearch(''); setShowLabTestDropdown(false) }}
+                        {mergedLabTests.filter((t: any) => t.name.toLowerCase().includes((labTestSearch || labForm.test_name).toLowerCase())).slice(0, 10).map((t: any, i: number) => (
+                          <button key={`${t.name}-${i}`} type="button" onMouseDown={() => { setLabForm({ test_name: t.name, doctor_comment: labForm.doctor_comment }); setLabTestSearch(''); setShowLabTestDropdown(false) }}
                             className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors">{t.name} <span className="text-slate-400 text-xs">{t.category}</span></button>
                         ))}
-                        {labTestCatalog.filter((t: any) => t.name.toLowerCase().includes((labTestSearch || labForm.test_name).toLowerCase())).length === 0 && (
+                        {mergedLabTests.filter((t: any) => t.name.toLowerCase().includes((labTestSearch || labForm.test_name).toLowerCase())).length === 0 && (
                           <div className="px-4 py-2.5 text-sm text-slate-400">No matching tests</div>
                         )}
                       </div>
                     )}
                   </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1.5">Doctor's Comment</label>
+                  <textarea placeholder="Optional: Add clinical notes or specific instructions for the lab..."
+                    value={labForm.doctor_comment}
+                    onChange={(e) => setLabForm({ ...labForm, doctor_comment: e.target.value })}
+                    rows={3}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
                 </div>
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => setActiveModal(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">Cancel</button>
@@ -565,11 +878,32 @@ export default function DoctorConsultation() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1.5">Imaging Type</label>
-                  <select value={radiologyForm.imaging_type} onChange={(e) => setRadiologyForm({ imaging_type: e.target.value })}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow appearance-none">
-                    <option value="">-- Select imaging type --</option>
-                    {imagingTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-                  </select>
+                  <div className="relative">
+                    <input type="text" placeholder="Search imaging types..." value={radiologySearch || radiologyForm.imaging_type}
+                      onChange={(e) => { setRadiologySearch(e.target.value); setRadiologyForm({ ...radiologyForm, imaging_type: '' }); setShowRadiologyDropdown(true) }}
+                      onFocus={() => setShowRadiologyDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowRadiologyDropdown(false), 200)}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
+                    {showRadiologyDropdown && (
+                      <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
+                        {radiologyImagingTypes.filter((t) => t.toLowerCase().includes((radiologySearch || radiologyForm.imaging_type).toLowerCase())).slice(0, 10).map((type) => (
+                          <button key={type} type="button" onMouseDown={() => { setRadiologyForm({ ...radiologyForm, imaging_type: type }); setRadiologySearch(''); setShowRadiologyDropdown(false) }}
+                            className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors">{type}</button>
+                        ))}
+                        {radiologyImagingTypes.filter((t) => t.toLowerCase().includes((radiologySearch || radiologyForm.imaging_type).toLowerCase())).length === 0 && (
+                          <div className="px-4 py-2.5 text-sm text-slate-400">No matching imaging types</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1.5">Doctor's Comment</label>
+                  <textarea placeholder="Optional: Add clinical notes or specific instructions for the radiologist..."
+                    value={radiologyForm.doctor_comment}
+                    onChange={(e) => setRadiologyForm({ ...radiologyForm, doctor_comment: e.target.value })}
+                    rows={3}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
                 </div>
                 <div className="flex gap-3 pt-2">
                   <button onClick={() => setActiveModal(null)} className="flex-1 py-2.5 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">Cancel</button>
@@ -687,6 +1021,7 @@ export default function DoctorConsultation() {
                               lab.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
                             }`}>{lab.status}</span>
                           </div>
+                          {lab.doctor_comment && <DoctorComment comment={lab.doctor_comment} />}
                           {results.length > 0 && (
                             <div className="space-y-1">
                               {results.map((r: any) => (
@@ -721,6 +1056,7 @@ export default function DoctorConsultation() {
                             rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
                           }`}>{rad.status}</span>
                         </div>
+                        {rad.doctor_comment && <DoctorComment comment={rad.doctor_comment} />}
                         {rad.report_text && (
                           <div className="text-xs text-slate-600 whitespace-pre-wrap bg-white rounded-lg p-2.5 border border-slate-100">{rad.report_text}</div>
                         )}
