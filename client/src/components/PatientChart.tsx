@@ -62,11 +62,21 @@ function to12Hour(time: string): string {
   return `${hour12}:${m} ${period}`
 }
 
-function VoiceInput({ value, onChange }: { value: string; onChange: (val: string) => void }) {
+function VoiceInput({ value, onChange, textareaId }: { value: string; onChange: (val: string) => void; textareaId?: string }) {
   const [listening, setListening] = useState(false)
   const recognitionRef = useRef<any>(null)
   const preSpeechValue = useRef('')
+  const prevLen = useRef(0)
   const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+
+  useEffect(() => {
+    if (listening && value.length > prevLen.current && textareaId) {
+      const el = document.getElementById(textareaId)
+      if (el) el.scrollTop = el.scrollHeight
+    }
+    prevLen.current = value.length
+  }, [value, listening, textareaId])
+
   function toggle() {
     if (listening) { recognitionRef.current?.stop(); setListening(false); return }
     if (!SpeechRecognition) { alert('Voice input is not supported in your browser. Try Chrome.'); return }
@@ -1435,17 +1445,17 @@ export default function PatientChart() {
               <div className="p-5">
                 <div className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-7 gap-2 sm:gap-3 text-center">
                   {[
-                    { label: 'BP', value: v.systolic_bp && v.diastolic_bp ? `${v.systolic_bp}/${v.diastolic_bp}` : '—', tip: 'Blood pressure (systolic/diastolic mmHg).' },
-                    { label: 'Pulse', value: v.pulse ? `${v.pulse}` : '—', tip: v.pulse ? `Heart rate: ${v.pulse} bpm.` : 'Heart rate in beats per minute.' },
-                    { label: 'Temp', value: v.temperature ? `${v.temperature}°C` : '—', tip: v.temperature ? `Body temperature: ${v.temperature}°C.` : 'Body temperature in Celsius.' },
-                    { label: 'RR', value: v.respiration_rate ? `${v.respiration_rate}` : '—', tip: v.respiration_rate ? `Respiratory rate: ${v.respiration_rate} breaths/min.` : 'Respiratory rate in breaths per minute.' },
-                    { label: 'SpO₂', value: v.spo2 ? `${v.spo2}%` : '—', tip: v.spo2 ? `Oxygen saturation: ${v.spo2}%.` : 'Oxygen saturation percentage.' },
-                    { label: 'Weight', value: v.weight ? `${v.weight}kg` : '—', tip: v.weight ? `Weight: ${v.weight} kg.` : 'Weight in kilograms.' },
-                    { label: 'Height', value: v.height ? `${v.height}cm` : '—', tip: v.height ? `Height: ${v.height} cm.` : 'Height in centimetres.' },
-                    { label: 'FHR', value: v.fetal_heart_rate ? `${v.fetal_heart_rate}bpm` : '—', tip: v.fetal_heart_rate ? `Fetal heart rate: ${v.fetal_heart_rate} bpm.` : 'Fetal heart rate in beats per minute.' },
-                    { label: 'FH Sound', value: v.fetal_heart_sound || '—', tip: v.fetal_heart_sound ? `Fetal heart sounds: ${v.fetal_heart_sound}.` : 'Quality of fetal heart sounds.' },
-                    { label: 'Triage', value: v.triage_priority ? ({ red: 'EMERGENCY', yellow: 'URGENT', green: 'ROUTINE' })[v.triage_priority as 'red' | 'yellow' | 'green'] || v.triage_priority : '—', tip: v.triage_priority ? `Triage category: ${{ red: 'Emergency', yellow: 'Urgent', green: 'Routine' }[v.triage_priority as 'red' | 'yellow' | 'green'] || v.triage_priority}.` : 'Triage priority category.' },
-                  ].map((f) => (
+                    v.systolic_bp && v.diastolic_bp ? { label: 'BP', value: `${v.systolic_bp}/${v.diastolic_bp}`, tip: 'Blood pressure (systolic/diastolic mmHg).' } : null,
+                    v.pulse ? { label: 'Pulse', value: `${v.pulse}`, tip: `Heart rate: ${v.pulse} bpm.` } : null,
+                    v.temperature ? { label: 'Temp', value: `${v.temperature}°C`, tip: `Body temperature: ${v.temperature}°C.` } : null,
+                    v.respiration_rate ? { label: 'RR', value: `${v.respiration_rate}`, tip: `Respiratory rate: ${v.respiration_rate} breaths/min.` } : null,
+                    v.spo2 ? { label: 'SpO₂', value: `${v.spo2}%`, tip: `Oxygen saturation: ${v.spo2}%.` } : null,
+                    v.weight ? { label: 'Weight', value: `${v.weight}kg`, tip: `Weight: ${v.weight} kg.` } : null,
+                    v.height ? { label: 'Height', value: `${v.height}cm`, tip: `Height: ${v.height} cm.` } : null,
+                    v.fetal_heart_rate ? { label: 'FHR', value: `${v.fetal_heart_rate}bpm`, tip: `Fetal heart rate: ${v.fetal_heart_rate} bpm.` } : null,
+                    v.fetal_heart_sound ? { label: 'FH Sound', value: v.fetal_heart_sound, tip: `Fetal heart sounds: ${v.fetal_heart_sound}.` } : null,
+                    v.triage_priority ? { label: 'Triage', value: ({ red: 'EMERGENCY', yellow: 'URGENT', green: 'ROUTINE' })[v.triage_priority as 'red' | 'yellow' | 'green'] || v.triage_priority, tip: `Triage category: ${{ red: 'Emergency', yellow: 'Urgent', green: 'Routine' }[v.triage_priority as 'red' | 'yellow' | 'green'] || v.triage_priority}.` } : null,
+                  ].filter(Boolean).map((f: any) => (
                     <Hint key={f.label} text={f.tip}>
                     <div className="bg-slate-50 rounded-xl p-2.5">
                       <p className="text-[10px] text-slate-400 font-medium uppercase">{f.label}</p>
@@ -1459,9 +1469,8 @@ export default function PatientChart() {
                     <Hint text="Additional observations recorded with these vitals.">
                     <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider mb-1">Nursing Notes</p>
                     </Hint>
-                    <Hint text={v.nursing_notes.slice(0, 200)}>
-                    <p className="text-sm text-slate-600 whitespace-pre-wrap">{v.nursing_notes}</p>
-                    </Hint>
+                    <p className="text-sm text-slate-600 whitespace-pre-wrap">{v.nursing_notes.length > 250 ? v.nursing_notes.slice(0, 250) + '...' : v.nursing_notes}</p>
+                    {v.nursing_notes.length > 250 && <span className="text-xs text-primary font-medium mt-1 inline-block">View more →</span>}
                   </div>
                 )}
               </div>
@@ -2655,9 +2664,9 @@ export default function PatientChart() {
               </select>
               <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-2">
                 Note
-                <VoiceInput value={noteContent} onChange={(val) => setNoteContent(val)} />
+                <VoiceInput value={noteContent} onChange={(val) => setNoteContent(val)} textareaId="nurse-note-ta" />
               </label>
-              <textarea rows={5} placeholder="Type your clinical note..." value={noteContent}
+              <textarea id="nurse-note-ta" rows={5} placeholder="Type your clinical note..." value={noteContent}
                 onChange={(e) => setNoteContent(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
             </div>
@@ -2700,9 +2709,9 @@ export default function PatientChart() {
               </select>
               <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-2">
                 Note
-                <VoiceInput value={doctorNoteContent} onChange={(val) => setDoctorNoteContent(val)} />
+                <VoiceInput value={doctorNoteContent} onChange={(val) => setDoctorNoteContent(val)} textareaId="doctor-note-ta" />
               </label>
-              <textarea rows={6} placeholder="Write your clinical note..." value={doctorNoteContent}
+              <textarea id="doctor-note-ta" rows={6} placeholder="Write your clinical note..." value={doctorNoteContent}
                 onChange={(e) => setDoctorNoteContent(e.target.value)}
                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
             </div>
@@ -3132,10 +3141,10 @@ export default function PatientChart() {
                 <Hint text="Additional observations, chief complaint, or clinical notes.">
                 <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-2">
                   Nursing Notes
-                  <VoiceInput value={vitalsForm.nursing_notes} onChange={(val) => setVitalsForm((p) => ({ ...p, nursing_notes: val }))} />
+                  <VoiceInput value={vitalsForm.nursing_notes} onChange={(val) => setVitalsForm((p) => ({ ...p, nursing_notes: val }))} textareaId="vitals-notes-ta" />
                 </label>
                 </Hint>
-                <textarea rows={3} placeholder="Observations, chief complaint..." value={vitalsForm.nursing_notes}
+                <textarea id="vitals-notes-ta" rows={3} placeholder="Observations, chief complaint..." value={vitalsForm.nursing_notes}
                   onChange={(e) => setVitalsForm((p) => ({ ...p, nursing_notes: e.target.value }))}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
               </div>
