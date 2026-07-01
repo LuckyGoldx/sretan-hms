@@ -115,8 +115,10 @@ router.put('/api/vitals/:id', async (req: Request, res: Response) => {
       nursing_notes: vital.nursing_notes,
     });
 
+    const editorRes = await pool.query('SELECT name FROM staff_users WHERE id = $1', [edited_by]);
+    const editorName = editorRes.rows[0]?.name || 'Unknown';
     const newLogEntry = JSON.stringify({
-      edited_by, edited_at: new Date().toISOString(),
+      edited_by, edited_by_name: editorName, edited_at: new Date().toISOString(),
       previous: oldSnapshot,
     });
 

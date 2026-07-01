@@ -637,10 +637,7 @@ export default function PatientChart() {
     { id: 'doctor_clinical_notes', label: (doctorNotes.length + soapEncounters.length) > 0 ? `Doctors Cli. Notes (${doctorNotes.length + soapEncounters.length})` : 'Doctors Cli. Notes', icon: Stethoscope },
   ]
 
-  const visibleSections = sections.filter((s) => {
-    if (isNurse) return !['prescriptions', 'radiology', 'doctor_clinical_notes'].includes(s.id)
-    return true
-  })
+  const visibleSections = sections
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 overflow-x-hidden">
@@ -1445,12 +1442,15 @@ export default function PatientChart() {
                   </div>
                 )}
                 {v.edited_by_name && v.edited_at && (
-                  <Hint text={`Click to view edit history.`}>
-                  <button onClick={() => setVitalsEditHistoryModal(v)}
-                    className="text-[9px] text-amber-600 ml-auto hover:underline cursor-pointer">
-                    Edited by {v.edited_by_name} {new Date(v.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                  </button>
-                  </Hint>
+                  <div className="flex flex-col items-end ml-auto">
+                    <Hint text={`Click to view edit history.`}>
+                    <button onClick={() => setVitalsEditHistoryModal(v)}
+                      className="text-[9px] text-amber-600 hover:underline cursor-pointer text-right leading-tight">
+                      <div>Edited by {v.edited_by_name}</div>
+                      <div>{new Date(v.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+                    </button>
+                    </Hint>
+                  </div>
                 )}
               </div>
               <div className="p-5">
@@ -3212,7 +3212,7 @@ export default function PatientChart() {
               <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                 <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Latest Edit</p>
                 <p className="text-sm font-medium text-amber-700">{vitalsEditHistoryModal.edited_by_name}</p>
-                <p className="text-xs text-slate-500">{new Date(vitalsEditHistoryModal.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{new Date(vitalsEditHistoryModal.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
               </div>
               {vitalsEditHistoryModal.edit_log && Array.isArray(vitalsEditHistoryModal.edit_log) && vitalsEditHistoryModal.edit_log.length > 0 && (
                 <div>
@@ -3220,10 +3220,8 @@ export default function PatientChart() {
                   <div className="space-y-2">
                     {[...vitalsEditHistoryModal.edit_log].reverse().map((entry: any, i: number) => (
                       <div key={i} className="bg-slate-50 rounded-xl p-3 border border-slate-100 text-xs space-y-1">
-                        <div className="flex items-center justify-between text-slate-500">
-                          <span className="font-medium">{entry.edited_by_name || 'Unknown'}</span>
-                          <span>{new Date(entry.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
-                        </div>
+                        <p className="font-medium text-slate-600">{entry.edited_by_name || 'Unknown'}</p>
+                        <p className="text-slate-400 text-[10px]">{new Date(entry.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
                         {entry.previous && (
                           <div className="text-slate-600 space-y-0.5 mt-1.5 pt-1.5 border-t border-slate-200">
                             {Object.entries(JSON.parse(typeof entry.previous === 'string' ? entry.previous : '{}')).filter(([, v]) => v).map(([k, v]) => (
