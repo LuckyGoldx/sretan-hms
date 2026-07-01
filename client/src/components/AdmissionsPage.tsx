@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
   ArrowLeft, Home, Loader2, Users, Clock, LogOut, Stethoscope, Search, X, CheckCircle, AlertTriangle, FileText, Bed,
-  ChevronUp, ChevronDown, Heart, Plus, Trash2
+  ChevronUp, ChevronDown, Heart, Plus, Trash2, Activity
 } from 'lucide-react'
 
 const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
@@ -32,8 +32,9 @@ export default function AdmissionsPage() {
   const [showNewBedInput, setShowNewBedInput] = useState(false)
   const [newBedNumber, setNewBedNumber] = useState('')
   const [vitalsPatient, setVitalsPatient] = useState<any | null>(null)
-  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
+  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
+  const [showVitalsPreview, setShowVitalsPreview] = useState(false)
   const [sortField, setSortField] = useState<SortField>('admitted_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [wardFilter, setWardFilter] = useState('')
@@ -299,7 +300,7 @@ export default function AdmissionsPage() {
                     <div className="flex items-center gap-2 flex-shrink-0 ml-4">
                       {isNurse ? (
                         <>
-                        <button onClick={() => { setVitalsPatient(a); setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' }) }}
+                        <button onClick={() => { setVitalsPatient(a); setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' }) }}
                           className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary/90 transition-colors flex items-center gap-1"><Heart size={12} /> Vitals</button>
                         <button onClick={() => navigate(`/patient/${a.patient_id}`)}
                           className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
@@ -497,7 +498,10 @@ export default function AdmissionsPage() {
                   { label: 'Temperature', key: 'temperature', placeholder: '36.5 C' },
                   { label: 'Resp. Rate', key: 'respiration_rate', placeholder: '16' },
                   { label: 'Weight', key: 'weight', placeholder: '70 kg' },
-                  { label: 'SpO2', key: 'spo2', placeholder: '98 %' },
+                  { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
+                  { label: 'Height', key: 'height', placeholder: '175 cm' },
+                  { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
+                  { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'Normal' },
                 ].map((f) => (
                   <div key={f.key}>
                     <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
@@ -506,6 +510,21 @@ export default function AdmissionsPage() {
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                   </div>
                 ))}
+                <div className="col-span-2 md:col-span-3">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Triage Priority</label>
+                  <div className="flex gap-2">
+                    {(['red', 'yellow', 'green'] as const).map((p) => (
+                      <button key={p} onClick={() => setVitalsForm((prev) => ({ ...prev, triage_priority: p }))}
+                        className={`flex-1 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all ${
+                          vitalsForm.triage_priority === p
+                            ? p === 'red' ? 'bg-red-500 text-white' : p === 'yellow' ? 'bg-yellow-500 text-white' : 'bg-green-500 text-white'
+                            : 'bg-slate-100 text-slate-500'
+                        }`}>
+                        {p === 'red' ? 'Emergency' : p === 'yellow' ? 'Urgent' : 'Routine'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="col-span-2 md:col-span-3">
                   <label className="block text-xs font-medium text-slate-500 mb-1">Nursing Notes</label>
                   <textarea rows={3} placeholder="Observations..." value={vitalsForm.nursing_notes}
@@ -516,8 +535,64 @@ export default function AdmissionsPage() {
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
               <button onClick={() => setVitalsPatient(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={() => setShowVitalsPreview(true)} disabled={vitalsSubmitting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
+                {vitalsSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Heart size={14} />}
+                {vitalsSubmitting ? 'Saving...' : 'Preview & Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vitals Preview Modal */}
+      {showVitalsPreview && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!vitalsSubmitting) setShowVitalsPreview(false) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Activity size={18} className="text-primary" /> Preview Vitals</h2>
+              <button onClick={() => setShowVitalsPreview(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  vitalsForm.systolic_bp ? { label: 'Systolic BP', value: `${vitalsForm.systolic_bp} mmHg` } : null,
+                  vitalsForm.diastolic_bp ? { label: 'Diastolic BP', value: `${vitalsForm.diastolic_bp} mmHg` } : null,
+                  vitalsForm.pulse ? { label: 'Pulse', value: `${vitalsForm.pulse} bpm` } : null,
+                  vitalsForm.temperature ? { label: 'Temperature', value: `${vitalsForm.temperature} °C` } : null,
+                  vitalsForm.respiration_rate ? { label: 'Resp. Rate', value: `${vitalsForm.respiration_rate}` } : null,
+                  vitalsForm.weight ? { label: 'Weight', value: `${vitalsForm.weight} kg` } : null,
+                  vitalsForm.spo2 ? { label: 'SpO₂', value: `${vitalsForm.spo2} %` } : null,
+                  vitalsForm.height ? { label: 'Height', value: `${vitalsForm.height} cm` } : null,
+                  vitalsForm.fetal_heart_rate ? { label: 'FHR', value: `${vitalsForm.fetal_heart_rate} bpm` } : null,
+                  vitalsForm.fetal_heart_sound ? { label: 'FH Sound', value: vitalsForm.fetal_heart_sound } : null,
+                ].filter(Boolean).map((f: any) => (
+                  <div key={f.label} className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-[10px] text-slate-400 font-medium uppercase">{f.label}</p>
+                    <p className="text-sm font-bold text-slate-800 mt-0.5">{f.value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-slate-50 rounded-xl p-3">
+                <p className="text-[10px] text-slate-400 font-medium uppercase mb-1">Triage</p>
+                <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-bold ${
+                  vitalsForm.triage_priority === 'red' ? 'bg-red-100 text-red-700' :
+                  vitalsForm.triage_priority === 'yellow' ? 'bg-amber-100 text-amber-700' :
+                  'bg-green-100 text-green-700'
+                }`}>{vitalsForm.triage_priority === 'red' ? 'EMERGENCY' : vitalsForm.triage_priority === 'yellow' ? 'URGENT' : 'ROUTINE'}</span>
+              </div>
+              {vitalsForm.nursing_notes && (
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] text-slate-400 font-medium uppercase mb-1">Nursing Notes</p>
+                  <p className="text-sm text-slate-600 whitespace-pre-wrap">{vitalsForm.nursing_notes}</p>
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
+              <button onClick={() => setShowVitalsPreview(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Edit</button>
               <button onClick={async () => {
                 if (!vitalsPatient) return
+                setShowVitalsPreview(false)
                 setVitalsSubmitting(true)
                 try {
                   const encRes = await api.post('/encounters', {
@@ -533,14 +608,20 @@ export default function AdmissionsPage() {
                     respiration_rate: vitalsForm.respiration_rate ? parseInt(vitalsForm.respiration_rate) : null,
                     weight: vitalsForm.weight ? parseFloat(vitalsForm.weight) : null,
                     spo2: vitalsForm.spo2 ? parseInt(vitalsForm.spo2) : null,
+                    height: vitalsForm.height ? parseFloat(vitalsForm.height) : null,
+                    fetal_heart_rate: vitalsForm.fetal_heart_rate ? parseInt(vitalsForm.fetal_heart_rate) : null,
+                    fetal_heart_sound: vitalsForm.fetal_heart_sound || null,
+                    recorded_by: currentUserId,
+                    triage_priority: vitalsForm.triage_priority,
                     nursing_notes: vitalsForm.nursing_notes,
                   })
                   setVitalsPatient(null)
-                  setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
+                  setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
                 } catch {} finally { setVitalsSubmitting(false) }
               }} disabled={vitalsSubmitting}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
-                {vitalsSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Heart size={14} />} Save Vitals
+                {vitalsSubmitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                {vitalsSubmitting ? 'Saving...' : 'Confirm & Save'}
               </button>
             </div>
           </div>

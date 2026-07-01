@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Users, Clock, Activity, UserCheck, Stethoscope, LogOut, RefreshCw, FileText, Plus, X, Loader2, Bed, Home, Heart, ArrowLeft, Mic } from 'lucide-react'
+import { Search, Users, Clock, Activity, UserCheck, Stethoscope, LogOut, RefreshCw, FileText, Plus, X, Loader2, Bed, Home, Heart, ArrowLeft, Mic, CheckCircle } from 'lucide-react'
 import api from '../hooks/useAxios'
 import type { Patient } from '../types/index'
 
@@ -122,6 +122,7 @@ export default function MyPatients() {
   const [vitalsPatient, setVitalsPatient] = useState<any | null>(null)
   const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
+  const [showVitalsPreview, setShowVitalsPreview] = useState(false)
 
   const doctorId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
   const currentRole: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role } catch {} return null })()
@@ -522,10 +523,65 @@ export default function MyPatients() {
             </div>
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
               <button onClick={() => setVitalsPatient(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-              <button onClick={handleVitalsSubmit} disabled={vitalsSubmitting}
+              <button onClick={() => setShowVitalsPreview(true)} disabled={vitalsSubmitting}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
                 {vitalsSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Heart size={14} />}
-                {vitalsSubmitting ? 'Saving...' : 'Save Vitals'}
+                {vitalsSubmitting ? 'Saving...' : 'Preview & Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Vitals Preview Modal */}
+      {showVitalsPreview && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!vitalsSubmitting) setShowVitalsPreview(false) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Activity size={18} className="text-primary" /> Preview Vitals</h2>
+              <button onClick={() => setShowVitalsPreview(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  vitalsForm.systolic_bp ? { label: 'Systolic BP', value: `${vitalsForm.systolic_bp} mmHg` } : null,
+                  vitalsForm.diastolic_bp ? { label: 'Diastolic BP', value: `${vitalsForm.diastolic_bp} mmHg` } : null,
+                  vitalsForm.pulse ? { label: 'Pulse', value: `${vitalsForm.pulse} bpm` } : null,
+                  vitalsForm.temperature ? { label: 'Temperature', value: `${vitalsForm.temperature} °C` } : null,
+                  vitalsForm.respiration_rate ? { label: 'Resp. Rate', value: `${vitalsForm.respiration_rate}` } : null,
+                  vitalsForm.weight ? { label: 'Weight', value: `${vitalsForm.weight} kg` } : null,
+                  vitalsForm.spo2 ? { label: 'SpO₂', value: `${vitalsForm.spo2} %` } : null,
+                  vitalsForm.height ? { label: 'Height', value: `${vitalsForm.height} cm` } : null,
+                  vitalsForm.fetal_heart_rate ? { label: 'FHR', value: `${vitalsForm.fetal_heart_rate} bpm` } : null,
+                  vitalsForm.fetal_heart_sound ? { label: 'FH Sound', value: vitalsForm.fetal_heart_sound } : null,
+                ].filter(Boolean).map((f: any) => (
+                  <div key={f.label} className="bg-slate-50 rounded-xl p-3">
+                    <p className="text-[10px] text-slate-400 font-medium uppercase">{f.label}</p>
+                    <p className="text-sm font-bold text-slate-800 mt-0.5">{f.value}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-slate-50 rounded-xl p-3">
+                <p className="text-[10px] text-slate-400 font-medium uppercase mb-1">Triage</p>
+                <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-bold ${
+                  vitalsForm.triage_priority === 'red' ? 'bg-red-100 text-red-700' :
+                  vitalsForm.triage_priority === 'yellow' ? 'bg-amber-100 text-amber-700' :
+                  'bg-green-100 text-green-700'
+                }`}>{vitalsForm.triage_priority === 'red' ? 'EMERGENCY' : vitalsForm.triage_priority === 'yellow' ? 'URGENT' : 'ROUTINE'}</span>
+              </div>
+              {vitalsForm.nursing_notes && (
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] text-slate-400 font-medium uppercase mb-1">Nursing Notes</p>
+                  <p className="text-sm text-slate-600 whitespace-pre-wrap">{vitalsForm.nursing_notes}</p>
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
+              <button onClick={() => setShowVitalsPreview(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Edit</button>
+              <button onClick={async () => { setShowVitalsPreview(false); await handleVitalsSubmit() }} disabled={vitalsSubmitting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
+                {vitalsSubmitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                {vitalsSubmitting ? 'Saving...' : 'Confirm & Save'}
               </button>
             </div>
           </div>

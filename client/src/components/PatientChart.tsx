@@ -155,6 +155,7 @@ export default function PatientChart() {
   const [showVitalsPreview, setShowVitalsPreview] = useState(false)
   const [editingVital, setEditingVital] = useState<any | null>(null)
   const [vitalsNotesModal, setVitalsNotesModal] = useState<string | null>(null)
+  const [vitalsEditHistoryModal, setVitalsEditHistoryModal] = useState<any | null>(null)
   const [rxPage, setRxPage] = useState(1)
   const [encPage, setEncPage] = useState(1)
   const [labPage, setLabPage] = useState(1)
@@ -1444,8 +1445,11 @@ export default function PatientChart() {
                   </div>
                 )}
                 {v.edited_by_name && v.edited_at && (
-                  <Hint text={`This vital record was edited by ${v.edited_by_name}.`}>
-                  <span className="text-[9px] text-amber-600 ml-auto">Edited by {v.edited_by_name}</span>
+                  <Hint text={`Click to view edit history.`}>
+                  <button onClick={() => setVitalsEditHistoryModal(v)}
+                    className="text-[9px] text-amber-600 ml-auto hover:underline cursor-pointer">
+                    Edited by {v.edited_by_name} {new Date(v.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  </button>
                   </Hint>
                 )}
               </div>
@@ -3196,6 +3200,50 @@ export default function PatientChart() {
         </div>
       )}
 
+      {/* Vitals Edit History Modal */}
+      {vitalsEditHistoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setVitalsEditHistoryModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Activity size={16} className="text-primary" /> Edit History</h2>
+              <button onClick={() => setVitalsEditHistoryModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6 space-y-4">
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Latest Edit</p>
+                <p className="text-sm font-medium text-amber-700">{vitalsEditHistoryModal.edited_by_name}</p>
+                <p className="text-xs text-slate-500">{new Date(vitalsEditHistoryModal.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
+              </div>
+              {vitalsEditHistoryModal.edit_log && Array.isArray(vitalsEditHistoryModal.edit_log) && vitalsEditHistoryModal.edit_log.length > 0 && (
+                <div>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-2">Previous Versions</p>
+                  <div className="space-y-2">
+                    {[...vitalsEditHistoryModal.edit_log].reverse().map((entry: any, i: number) => (
+                      <div key={i} className="bg-slate-50 rounded-xl p-3 border border-slate-100 text-xs space-y-1">
+                        <div className="flex items-center justify-between text-slate-500">
+                          <span className="font-medium">{entry.edited_by_name || 'Unknown'}</span>
+                          <span>{new Date(entry.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                        </div>
+                        {entry.previous && (
+                          <div className="text-slate-600 space-y-0.5 mt-1.5 pt-1.5 border-t border-slate-200">
+                            {Object.entries(JSON.parse(typeof entry.previous === 'string' ? entry.previous : '{}')).filter(([, v]) => v).map(([k, v]) => (
+                              <p key={k} className="capitalize"><span className="text-slate-400">{k.replace(/_/g, ' ')}:</span> <strong>{String(v)}</strong></p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end flex-shrink-0">
+              <button onClick={() => setVitalsEditHistoryModal(null)} className="px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Vitals Preview Modal */}
       {showVitalsPreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!vitalsSubmitting) setShowVitalsPreview(false) }}>
@@ -3207,17 +3255,17 @@ export default function PatientChart() {
             <div className="overflow-y-auto flex-1 p-6 space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { label: 'Systolic BP', value: vitalsForm.systolic_bp ? `${vitalsForm.systolic_bp} mmHg` : '—' },
-                  { label: 'Diastolic BP', value: vitalsForm.diastolic_bp ? `${vitalsForm.diastolic_bp} mmHg` : '—' },
-                  { label: 'Pulse', value: vitalsForm.pulse ? `${vitalsForm.pulse} bpm` : '—' },
-                  { label: 'Temperature', value: vitalsForm.temperature ? `${vitalsForm.temperature} °C` : '—' },
-                  { label: 'Resp. Rate', value: vitalsForm.respiration_rate ? `${vitalsForm.respiration_rate}` : '—' },
-                  { label: 'Weight', value: vitalsForm.weight ? `${vitalsForm.weight} kg` : '—' },
-                  { label: 'SpO₂', value: vitalsForm.spo2 ? `${vitalsForm.spo2} %` : '—' },
-                  { label: 'Height', value: vitalsForm.height ? `${vitalsForm.height} cm` : '—' },
-                  { label: 'FHR', value: vitalsForm.fetal_heart_rate ? `${vitalsForm.fetal_heart_rate} bpm` : '—' },
-                  { label: 'FH Sound', value: vitalsForm.fetal_heart_sound || '—' },
-                ].map((f) => (
+                  vitalsForm.systolic_bp ? { label: 'Systolic BP', value: `${vitalsForm.systolic_bp} mmHg` } : null,
+                  vitalsForm.diastolic_bp ? { label: 'Diastolic BP', value: `${vitalsForm.diastolic_bp} mmHg` } : null,
+                  vitalsForm.pulse ? { label: 'Pulse', value: `${vitalsForm.pulse} bpm` } : null,
+                  vitalsForm.temperature ? { label: 'Temperature', value: `${vitalsForm.temperature} °C` } : null,
+                  vitalsForm.respiration_rate ? { label: 'Resp. Rate', value: `${vitalsForm.respiration_rate}` } : null,
+                  vitalsForm.weight ? { label: 'Weight', value: `${vitalsForm.weight} kg` } : null,
+                  vitalsForm.spo2 ? { label: 'SpO₂', value: `${vitalsForm.spo2} %` } : null,
+                  vitalsForm.height ? { label: 'Height', value: `${vitalsForm.height} cm` } : null,
+                  vitalsForm.fetal_heart_rate ? { label: 'FHR', value: `${vitalsForm.fetal_heart_rate} bpm` } : null,
+                  vitalsForm.fetal_heart_sound ? { label: 'FH Sound', value: vitalsForm.fetal_heart_sound } : null,
+                ].filter(Boolean).map((f: any) => (
                   <div key={f.label} className="bg-slate-50 rounded-xl p-3">
                     <p className="text-[10px] text-slate-400 font-medium uppercase">{f.label}</p>
                     <p className="text-sm font-bold text-slate-800 mt-0.5">{f.value}</p>
