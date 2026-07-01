@@ -126,7 +126,7 @@ export default function PatientChart() {
   const [viewImage, setViewImage] = useState<string | null>(null)
   const [imageZoom, setImageZoom] = useState(false)
   const [showVitalsForm, setShowVitalsForm] = useState(false)
-  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', triage_priority: 'green', nursing_notes: '' })
+  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
   const [rxPage, setRxPage] = useState(1)
   const [encPage, setEncPage] = useState(1)
@@ -373,11 +373,12 @@ export default function PatientChart() {
         spo2: vitalsForm.spo2 ? parseInt(vitalsForm.spo2) : null,
         height: vitalsForm.height ? parseFloat(vitalsForm.height) : null,
         fetal_heart_rate: vitalsForm.fetal_heart_rate ? parseInt(vitalsForm.fetal_heart_rate) : null,
+        fetal_heart_sound: vitalsForm.fetal_heart_sound || null,
         triage_priority: vitalsForm.triage_priority,
         nursing_notes: vitalsForm.nursing_notes,
       })
       setShowVitalsForm(false)
-      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', triage_priority: 'green', nursing_notes: '' })
+      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
       const encRes2 = await api.get(`/encounters?patient_id=${patientId}`)
       const loadedEncs = encRes2.data || []
       const vits: any[] = []
@@ -1363,6 +1364,7 @@ export default function PatientChart() {
                     { label: 'Weight', value: v.weight ? `${v.weight}kg` : '—' },
                     { label: 'Height', value: v.height ? `${v.height}cm` : '—' },
                     { label: 'FHR', value: v.fetal_heart_rate ? `${v.fetal_heart_rate}bpm` : '—' },
+                    { label: 'FH Sound', value: v.fetal_heart_sound || '—' },
                     { label: 'Triage', value: v.triage_priority ? ({ red: 'EMERGENCY', yellow: 'URGENT', green: 'ROUTINE' })[v.triage_priority as 'red' | 'yellow' | 'green'] || v.triage_priority : '—' },
                   ].map((f) => (
                     <div key={f.label} className="bg-slate-50 rounded-xl p-2.5">
@@ -2993,34 +2995,42 @@ export default function PatientChart() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!vitalsSubmitting) setShowVitalsForm(false) }}>
           <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <Hint text="Record a new set of vital signs for the patient.">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Activity size={18} className="text-primary" /> Record Vitals</h2>
-              <button onClick={() => setShowVitalsForm(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+              </Hint>
+              <Hint text="Close this form without saving."><button onClick={() => setShowVitalsForm(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button></Hint>
             </div>
             <div className="p-6 space-y-4 overflow-y-auto">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 {[
-                  { label: 'Systolic BP', key: 'systolic_bp', placeholder: '120' },
-                  { label: 'Diastolic BP', key: 'diastolic_bp', placeholder: '80' },
-                  { label: 'Pulse', key: 'pulse', placeholder: '72 bpm' },
-                  { label: 'Temperature', key: 'temperature', placeholder: '36.5 °C' },
-                  { label: 'Resp. Rate', key: 'respiration_rate', placeholder: '16' },
-                  { label: 'Weight', key: 'weight', placeholder: '70 kg' },
-                  { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
-                  { label: 'Height', key: 'height', placeholder: '175 cm' },
-                  { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
+                  { label: 'Systolic BP', key: 'systolic_bp', placeholder: '120', tip: 'Upper blood pressure reading during heart contraction.' },
+                  { label: 'Diastolic BP', key: 'diastolic_bp', placeholder: '80', tip: 'Lower blood pressure reading during heart relaxation.' },
+                  { label: 'Pulse', key: 'pulse', placeholder: '72 bpm', tip: 'Heart rate in beats per minute.' },
+                  { label: 'Temperature', key: 'temperature', placeholder: '36.5 °C', tip: 'Body temperature in degrees Celsius.' },
+                  { label: 'Resp. Rate', key: 'respiration_rate', placeholder: '16', tip: 'Breaths per minute.' },
+                  { label: 'Weight', key: 'weight', placeholder: '70 kg', tip: 'Patient weight in kilograms.' },
+                  { label: 'SpO₂', key: 'spo2', placeholder: '98 %', tip: 'Blood oxygen saturation percentage.' },
+                  { label: 'Height', key: 'height', placeholder: '175 cm', tip: 'Patient height in centimetres.' },
+                  { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm', tip: 'Fetal heart rate in beats per minute.' },
+                  { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'e.g. Normal, Muffled', tip: 'Quality of fetal heart sounds (e.g. Normal, Muffled, Absent).' },
                 ].map((f) => (
-                  <div key={f.key}>
+                  <Hint key={f.key} text={f.tip}>
+                  <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
-                    <input type="number" step="any" placeholder={f.placeholder} value={(vitalsForm as any)[f.key]}
+                    <input type={f.key === 'fetal_heart_sound' ? 'text' : 'number'} step="any" placeholder={f.placeholder} value={(vitalsForm as any)[f.key]}
                       onChange={(e) => setVitalsForm((p) => ({ ...p, [f.key]: e.target.value }))}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                   </div>
+                  </Hint>
                 ))}
                 <div className="col-span-2 md:col-span-3">
+                  <Hint text="Assign a triage category based on clinical urgency.">
                   <label className="block text-xs font-medium text-slate-500 mb-1">Triage Priority</label>
+                  </Hint>
                   <div className="flex gap-2">
                     {(['red', 'yellow', 'green'] as const).map((p) => (
-                      <button key={p} onClick={() => setVitalsForm((prev) => ({ ...prev, triage_priority: p }))}
+                      <Hint key={p} text={p === 'red' ? 'Emergency — immediate life-saving intervention needed.' : p === 'yellow' ? 'Urgent — requires early assessment and treatment.' : 'Routine — non-urgent, can wait.'}>
+                      <button onClick={() => setVitalsForm((prev) => ({ ...prev, triage_priority: p }))}
                         className={`flex-1 py-3 rounded-xl text-sm font-bold uppercase tracking-wider transition-all ${
                           vitalsForm.triage_priority === p
                             ? p === 'red' ? 'bg-red-500 text-white' : p === 'yellow' ? 'bg-yellow-500 text-white' : 'bg-green-500 text-white'
@@ -3028,27 +3038,32 @@ export default function PatientChart() {
                         }`}>
                         {p === 'red' ? 'Emergency' : p === 'yellow' ? 'Urgent' : 'Routine'}
                       </button>
+                      </Hint>
                     ))}
                   </div>
                 </div>
               </div>
               <div>
+                <Hint text="Additional observations, chief complaint, or clinical notes.">
                 <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-2">
                   Nursing Notes
                   <VoiceInput value={vitalsForm.nursing_notes} onChange={(val) => setVitalsForm((p) => ({ ...p, nursing_notes: val }))} />
                 </label>
+                </Hint>
                 <textarea rows={3} placeholder="Observations, chief complaint..." value={vitalsForm.nursing_notes}
                   onChange={(e) => setVitalsForm((p) => ({ ...p, nursing_notes: e.target.value }))}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
-              <button onClick={() => setShowVitalsForm(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <Hint text="Discard all changes and close."><button onClick={() => setShowVitalsForm(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button></Hint>
+              <Hint text="Save the recorded vital signs to the patient's chart.">
               <button onClick={handleVitalsSubmit} disabled={vitalsSubmitting}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
                 {vitalsSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />}
                 {vitalsSubmitting ? 'Saving...' : 'Save Vitals'}
               </button>
+              </Hint>
             </div>
           </div>
         </div>

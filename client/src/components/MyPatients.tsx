@@ -120,7 +120,7 @@ export default function MyPatients() {
   const [selectedWard, setSelectedWard] = useState('')
   const [admitting, setAdmitting] = useState(false)
   const [vitalsPatient, setVitalsPatient] = useState<any | null>(null)
-  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', triage_priority: 'green', nursing_notes: '' })
+  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
 
   const doctorId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
@@ -216,11 +216,12 @@ export default function MyPatients() {
         spo2: vitalsForm.spo2 ? parseInt(vitalsForm.spo2) : null,
         height: vitalsForm.height ? parseFloat(vitalsForm.height) : null,
         fetal_heart_rate: vitalsForm.fetal_heart_rate ? parseInt(vitalsForm.fetal_heart_rate) : null,
+        fetal_heart_sound: vitalsForm.fetal_heart_sound || null,
         triage_priority: vitalsForm.triage_priority,
         nursing_notes: vitalsForm.nursing_notes,
       })
       setVitalsPatient(null)
-      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', triage_priority: 'green', nursing_notes: '' })
+      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
       setError('')
     } catch (err: any) { setError(err?.response?.data?.message || 'Failed to save vitals') } finally { setVitalsSubmitting(false) }
   }
@@ -374,7 +375,7 @@ export default function MyPatients() {
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   {isNurse ? (
                     <>
-                    <button onClick={() => { setVitalsPatient(patient); setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', triage_priority: 'green', nursing_notes: '' }) }}
+                    <button onClick={() => { setVitalsPatient(patient); setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' }) }}
                       className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:scale-[1.01] transition-all duration-200 shadow-sm">
                       <Heart className="w-3.5 h-3.5" /> Vitals
                     </button>
@@ -483,10 +484,11 @@ export default function MyPatients() {
                   { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
                   { label: 'Height', key: 'height', placeholder: '175 cm' },
                   { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
+                  { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'Normal' },
                 ].map((f) => (
                   <div key={f.key}>
                     <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
-                    <input type="number" step="any" placeholder={f.placeholder} value={(vitalsForm as any)[f.key]}
+                    <input type={f.key === 'fetal_heart_sound' ? 'text' : 'number'} step="any" placeholder={f.placeholder} value={(vitalsForm as any)[f.key]}
                       onChange={(e) => setVitalsForm((p) => ({ ...p, [f.key]: e.target.value }))}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                   </div>

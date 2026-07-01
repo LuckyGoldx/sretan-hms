@@ -1,0 +1,1 @@
+ALTER TABLE vitals ADD COLUMN IF NOT EXISTS fetal_heart_sound VARCHAR(50);

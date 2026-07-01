@@ -14,13 +14,14 @@ interface VitalsForm {
   spo2: string
   height: string
   fetal_heart_rate: string
+  fetal_heart_sound: string
   triage_priority: 'red' | 'yellow' | 'green'
   nursing_notes: string
 }
 
 const emptyForm: VitalsForm = {
   systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '',
-  weight: '', spo2: '', height: '', fetal_heart_rate: '', triage_priority: 'green', nursing_notes: '',
+  weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '',
 }
 
 const priorityColors: Record<string, string> = {
@@ -114,6 +115,7 @@ export default function TriageStation() {
         spo2: form.spo2 ? parseInt(form.spo2) : null,
         height: form.height ? parseFloat(form.height) : null,
         fetal_heart_rate: form.fetal_heart_rate ? parseInt(form.fetal_heart_rate) : null,
+        fetal_heart_sound: form.fetal_heart_sound || null,
         triage_priority: form.triage_priority,
         nursing_notes: form.nursing_notes,
       })
@@ -236,10 +238,11 @@ export default function TriageStation() {
                 { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
                 { label: 'Height', key: 'height', placeholder: '175 cm' },
                 { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
+                { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'Normal' },
               ].map((f) => (
                 <div key={f.key}>
                   <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
-                  <input type="number" step="any" placeholder={f.placeholder} value={(form as any)[f.key]}
+                   <input type={f.key === 'fetal_heart_sound' ? 'text' : 'number'} step="any" placeholder={f.placeholder} value={(form as any)[f.key]}
                     onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
                     className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 </div>
