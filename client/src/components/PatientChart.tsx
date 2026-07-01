@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 
 const PER_PAGE = 15
+const VITALS_PER_PAGE = 20
 const TREATMENT_PER_PAGE = 25
 
 function usePagination<T>(items: T[], page: number): { items: T[]; totalPages: number } {
@@ -420,6 +421,8 @@ export default function PatientChart() {
         nursing_notes: vitalsForm.nursing_notes,
       })
       setShowVitalsForm(false)
+      setShowVitalsPreview(false)
+      setActiveSection('vitals')
       setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
       const encRes2 = await api.get(`/encounters?patient_id=${patientId}`)
       const loadedEncs = encRes2.data || []
@@ -1372,15 +1375,15 @@ export default function PatientChart() {
           </div>
           {vitalsList.length === 0 ? (
             <Hint text="No vital signs have been recorded for this patient yet."><div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center text-sm text-slate-400">No vitals recorded</div></Hint>
-          ) : usePagination(vitalsList, vitPage).items.map((v: any, idx: number) => (
+          ) : vitalsList.slice((vitPage - 1) * VITALS_PER_PAGE, vitPage * VITALS_PER_PAGE).map((v: any, idx: number) => (
             <div key={v.id || idx} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
               <div className="flex items-center gap-2 flex-wrap px-5 py-3 bg-slate-50 border-b border-slate-100">
                 <div className="flex items-center gap-2 flex-wrap min-w-0">
                   <Hint text="Vitals recorded on this date/time."><Activity size={15} className="text-primary flex-shrink-0" /></Hint>
-                  <Hint text={`Vital signs recorded on ${new Date(v.encounter_date || v.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}.`}>
+                  <Hint text={`Vital signs recorded on ${new Date(v.encounter_date || v.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}.`}>
                   <span className="text-sm font-semibold text-slate-700 uppercase">
-                    Vitals — {new Date(v.encounter_date || v.created_at).toLocaleDateString('en-GB', {
-                      day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+                    Vitals — {new Date(v.encounter_date || v.created_at).toLocaleDateString('en-US', {
+                      month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
                     })}
                   </span>
                   </Hint>
@@ -1464,7 +1467,7 @@ export default function PatientChart() {
               </div>
             </div>
           ))}
-          <Pagination page={vitPage} totalPages={usePagination(vitalsList, vitPage).totalPages} onChange={setVitPage} />
+          <Pagination page={vitPage} totalPages={Math.max(1, Math.ceil(vitalsList.length / VITALS_PER_PAGE))} onChange={setVitPage} />
         </div>
       )}
 
@@ -1491,8 +1494,8 @@ export default function PatientChart() {
                     {n.staff_name && <span>by <strong>{n.staff_name}</strong></span>}
                     {isAdmin && n.view_count > 0 && <span className="ml-1 text-slate-400">· {n.view_count} view{n.view_count !== 1 ? 's' : ''}</span>}
                   </div>
-                  <p className="text-sm text-slate-700">{n.content.length > 120 ? n.content.slice(0, 120) + '...' : n.content}</p>
-                  {n.content.length > 120 && <span className="text-xs text-primary font-medium mt-1 inline-block">View more →</span>}
+                  <p className="text-sm text-slate-700">{n.content.length > 250 ? n.content.slice(0, 250) + '...' : n.content}</p>
+                  {n.content.length > 250 && <span className="text-xs text-primary font-medium mt-1 inline-block">View more →</span>}
                 </div>
               ))}
               <Pagination page={notePage} totalPages={usePagination(nurseOnlyNotes, notePage).totalPages} onChange={setNotePage} />
@@ -1527,8 +1530,8 @@ export default function PatientChart() {
                         {n.staff_name && <span>by <strong>{n.staff_name}</strong></span>}
                         {isAdmin && n.view_count > 0 && <span className="ml-1 text-slate-400">· {n.view_count} view{n.view_count !== 1 ? 's' : ''}</span>}
                       </div>
-                      <p className="text-sm text-slate-700">{n.content.length > 120 ? n.content.slice(0, 120) + '...' : n.content}</p>
-                      {n.content.length > 120 && <span className="text-xs text-primary font-medium mt-1 inline-block">View more →</span>}
+                      <p className="text-sm text-slate-700">{n.content.length > 250 ? n.content.slice(0, 250) + '...' : n.content}</p>
+                      {n.content.length > 250 && <span className="text-xs text-primary font-medium mt-1 inline-block">View more →</span>}
                     </div>
                   ))}
                 </div>
