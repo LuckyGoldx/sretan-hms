@@ -1211,3 +1211,105 @@ Removed `fluid_intake` and `fluid_output` fields from:
 ---
 
 *End of Session Summary — June 22, 2026*
+
+---
+
+## Session — June 26–July 1, 2026
+
+### 1. Doctor Comments on Lab/Radiology Orders
+
+- **Migration**: `017_doctor_comment.sql` — added `doctor_comment TEXT` column to `lab_orders` and `radiology_orders`
+- **Server**: `lab.ts` POST accepts `doctor_comment`; `radiologyOrders.ts` POST accepts `doctor_comment`
+- **DoctorConsultation.tsx**: Added "Doctor's Comment" textarea to both lab order and radiology order modals; lab dropdown now merges `lab_test_catalog` with inventory items (`category=lab`, `stock_count>0`) deduplicated; radiology dropdown dynamically populated from radiology inventory items
+- **DoctorComment.tsx**: Reusable component that shows first 50 characters with "View more" button → stylish popup modal with full comment
+- **Display across all views**: LabWorklist, LabOrders, RadiologyModule, RadiologyOrders, RadiologyReview, RadiologyResults, RadiologyHistory, PatientChart — all now render `DoctorComment` component instead of raw text
+- **Lab result endpoint** enhanced: `GET /api/lab-results/:orderId` now joins `staff_users` to return `entered_by_name` and `approved_by_name`
+- **Lab result modal** (PatientChart): Enhanced to show ordered date+time, scientist who entered results (name + timestamp), approver info
+- **Paypoint/finance components**: doctor_comment excluded by design — never displayed in paypoint views
+
+### 2. Pagination (15 per page)
+
+- Added to all three Historical Timeline sections in `DoctorConsultation.tsx`: SOAP tab (encounter cards), Orders tab (lab/radiology), Prescribe tab (prescriptions)
+- Responsive `Pagination` component with Previous/Next, up to 5 visible page numbers, disabled states at boundaries
+
+### 3. Historical Timeline Tab Filtering
+
+- **SOAP tab**: maintains encounter-based timeline (unchanged)
+- **Orders tab**: shows only lab + radiology orders for the patient, sorted newest first
+- **Prescribe tab**: shows only prescriptions for the patient, sorted newest first
+- All data pre-fetched on mount in batch (no extra API calls on tab switch)
+- Clicking prescription opens comprehensive detail modal (drug, dosage, status, payment, doctor, instructions)
+- Clicking radiology order opens comprehensive radiology report modal with image viewer
+- Prescription history shows **Dispensed** (green) / **Not Dispensed** (amber) instead of unpaid badge
+- Server `GET /api/prescriptions` now joins encounters+staff_users to return `doctor_name`
+
+### 4. Treatment Sheet — Session Model (Courses)
+
+**Migration**: `019_treatment_sessions.sql`
+- Created `treatment_sessions` table (tenant_id, treatment_id, staff_id, dosage, route, frequency, times, notes, status, start_date, end_date, ended_by, end_reason, change_log JSONB)
+- Added `session_id` column to `treatment_doses`
+- Backfilled: every existing treatment got a default session with doses linked
+
+**Server** (`nurseModule.ts`):
+- `POST /api/treatments` always creates a new standalone treatment entry (client decides course vs new treatment)
+- `GET /api/treatment-sessions?treatment_id=X` — list sessions for a treatment
+- `POST /api/treatment-sessions` — creates new session, auto-ends previous active session
+- `PUT /api/treatment-sessions/:id` — update session (status, dosage, route, end_reason)
+- `GET /api/treatment-doses` — supports `session_id` filter
+
+**Client** (`PatientChart.tsx`):
+- **Treatment Sheet**: drugs grouped by name with expandable sessions (newest first)
+- **Active/All filter tabs**: default Active for nurses (auto-switches when treatments load), All for others
+- **+ New Course**: visible when parent treatment is `active`; pre-fills dosage from latest course
+- **End Treatment (drug-level)**: choice modal — "Mark as Completed" if all children complete, "End Treatment" with reason if any active child
+- **End (course-level)**: ends single session with mandatory reason
+- **Parent ended → children**: only non-completed children get ended; completed children preserved
+- **Dose Inheritance**: +New Course copies last known dosage from previous course (editable)
+- **Stylish empty states**: centered icon + message + action buttons for no treatments/no active
+- **Treatment Summary**: now operates on **course-level** data (flattened sessions) — rows are courses not treatments, columns reflect course dosage/route/status/nurse
+- **Sort**: groups sorted by active parent first, then by latest session activity
+- **Parent info modal (i)**: comprehensive drug summary — created by, ended by, reason, dose stats, course history
+- **Child info modal**: clickable status badge + info icon → comprehensive course details (dose breakdown, nurse timestamps, reason)
+
+### 5. Dose Admin UI Improvements
+
+- Dose slots show **DONE** (bold caps, emerald), **SKIPPED** (bold caps, rose), or **Pending**
+- Nurse name displayed at `text-[10px] text-slate-600 font-medium` for readability
+- 12-hour time format on all dose slot displays
+- Child demarcation: `divide-y-2 divide-slate-100` for visible 2px separation between courses
+- Times removed from inline display (shown only in about modal)
+- Marking as given or skipped blocked when parent treatment is `ended` or `completed`
+
+### 6. Matching & Choice Modal Improvements
+
+- **Fuzzy drug matching**: `Save Treatment` now matches by exact name, `name + dosage`, or `entered name` starting existing treatment name (with `entered.length > 3` guard)
+- Uses existing treatment's actual name (not user's typed input) for group key
+- If parent was ended, "Add to Existing Courses" reactivates parent to `active` status
+- **Choice Modal**: When all children complete → only "Mark as Completed" (no End Treatment); when active children exist → only "End Treatment"
+
+### 7. Tooltip Hint System
+
+- `Hint` component: dark rounded tooltip on hover (fixed position, no layout impact)
+- Applied to every interactive/display element in treatment sheet: drug name, course count, active/completed/ended badges, info icons, +New Course, End Treatment, chevron, course status/dosage/route/frequency, End button, timestamps, reason, dose slots, filter tabs, Add Treatment button
+- Applied to **Treatment Summary**: search input, date filter buttons, stats cards, table headers, all data cells
+- Applied to **Fluid Balance**: New Session buttons, session date/entries/staff/net, Intake/Output/Net cards, all action buttons, intake entry cards (amount, fluid type, route breakdown, timestamps), output entry cards (amount, output types, timestamps), "more entries" text, empty states
+
+### 8. Other Changes
+
+- **Child info modal**: Times now displayed in 12-hour format (e.g., `6:00 AM, 2:00 PM`)
+- **Parent end reason**: only stored on parent record, not propagated to children
+- **Server filenames fixed**: All `/api/` prefixed API calls in PatientChart.tsx corrected (axios baseURL already includes `/api` → double-prefix was causing 404 on all session/dose operations)
+- **TypeScript**: added `RadiologyOrder.doctor_comment` field, `Info` and `ClipboardList` icon imports
+- **Add Treatment form**: all fields (name, dosage, route, frequency, times) required except notes; red asterisk indicators added
+
+### 9. Database Migrations
+
+| File | Purpose |
+|------|---------|
+| `017_doctor_comment.sql` | Add `doctor_comment` to `lab_orders`/`radiology_orders` |
+| `018_treatments_end_reason.sql` | Add `end_reason` to `treatments` |
+| `019_treatment_sessions.sql` | Create `treatment_sessions` table, add `session_id` to `treatment_doses`, backfill |
+
+---
+
+*End of Session Summary — July 1, 2026*
