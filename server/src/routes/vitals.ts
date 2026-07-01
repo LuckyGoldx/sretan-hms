@@ -18,7 +18,7 @@ router.post('/api/vitals', async (req: Request, res: Response) => {
     const {
       encounter_id, systolic_bp, diastolic_bp, pulse, temperature,
       respiration_rate, weight, spo2, triage_priority, nursing_notes,
-      fluid_intake, fluid_output
+      fluid_intake, fluid_output, height, fetal_heart_rate
     } = req.body;
 
     if (!encounter_id) {
@@ -29,12 +29,14 @@ router.post('/api/vitals', async (req: Request, res: Response) => {
     const id = uuidv4();
     const result = await pool.query(
       `INSERT INTO vitals (id, tenant_id, encounter_id, systolic_bp, diastolic_bp, pulse, temperature,
-        respiration_rate, weight, spo2, triage_priority, nursing_notes, fluid_intake, fluid_output)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        respiration_rate, weight, spo2, triage_priority, nursing_notes, fluid_intake, fluid_output,
+        height, fetal_heart_rate)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING *`,
       [id, tenantId, encounter_id, systolic_bp || null, diastolic_bp || null, pulse || null,
        temperature || null, respiration_rate || null, weight || null, spo2 || null,
-       triage_priority || null, nursing_notes || null, fluid_intake || null, fluid_output || null]
+       triage_priority || null, nursing_notes || null, fluid_intake || null, fluid_output || null,
+       height || null, fetal_heart_rate || null]
     );
 
     await pool.query(

@@ -12,13 +12,15 @@ interface VitalsForm {
   respiration_rate: string
   weight: string
   spo2: string
+  height: string
+  fetal_heart_rate: string
   triage_priority: 'red' | 'yellow' | 'green'
   nursing_notes: string
 }
 
 const emptyForm: VitalsForm = {
   systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '',
-  weight: '', spo2: '', triage_priority: 'green', nursing_notes: '',
+  weight: '', spo2: '', height: '', fetal_heart_rate: '', triage_priority: 'green', nursing_notes: '',
 }
 
 const priorityColors: Record<string, string> = {
@@ -110,6 +112,8 @@ export default function TriageStation() {
         respiration_rate: form.respiration_rate ? parseInt(form.respiration_rate) : null,
         weight: form.weight ? parseFloat(form.weight) : null,
         spo2: form.spo2 ? parseInt(form.spo2) : null,
+        height: form.height ? parseFloat(form.height) : null,
+        fetal_heart_rate: form.fetal_heart_rate ? parseInt(form.fetal_heart_rate) : null,
         triage_priority: form.triage_priority,
         nursing_notes: form.nursing_notes,
       })
@@ -230,6 +234,8 @@ export default function TriageStation() {
                 { label: 'Resp. Rate', key: 'respiration_rate', placeholder: '16' },
                 { label: 'Weight', key: 'weight', placeholder: '70 kg' },
                 { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
+                { label: 'Height', key: 'height', placeholder: '175 cm' },
+                { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
               ].map((f) => (
                 <div key={f.key}>
                   <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>

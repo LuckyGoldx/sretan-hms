@@ -126,7 +126,7 @@ export default function PatientChart() {
   const [viewImage, setViewImage] = useState<string | null>(null)
   const [imageZoom, setImageZoom] = useState(false)
   const [showVitalsForm, setShowVitalsForm] = useState(false)
-  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
+  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
   const [rxPage, setRxPage] = useState(1)
   const [encPage, setEncPage] = useState(1)
@@ -170,6 +170,8 @@ export default function PatientChart() {
   const [drugEndChoice, setDrugEndChoice] = useState<{ treatmentId: string; name: string } | null>(null)
   const [parentInfoModal, setParentInfoModal] = useState<any | null>(null)
   const [childInfoModal, setChildInfoModal] = useState<{ session: any; treatmentName: string } | null>(null)
+  const [noteDetailModal, setNoteDetailModal] = useState<any | null>(null)
+  const [doctorNoteDetailModal, setDoctorNoteDetailModal] = useState<any | null>(null)
   const [summarySearch, setSummarySearch] = useState('')
   const [summaryDateFilter, setSummaryDateFilter] = useState('all')
   const [summaryDateFrom, setSummaryDateFrom] = useState('')
@@ -329,6 +331,7 @@ export default function PatientChart() {
   const currentUser: { id: string; name: string; role: string } | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u) } catch {} return null })()
   const isNurse = currentUser?.role === 'Nurse'
   const isDoctor = currentUser?.role === 'Doctor'
+  const isAdmin = currentUser?.role === 'Admin'
 
   async function fetchDoctorNameWithCache(staffId: string): Promise<string> {
     if (staffCache[staffId]) return staffCache[staffId]
@@ -368,11 +371,13 @@ export default function PatientChart() {
         respiration_rate: vitalsForm.respiration_rate ? parseInt(vitalsForm.respiration_rate) : null,
         weight: vitalsForm.weight ? parseFloat(vitalsForm.weight) : null,
         spo2: vitalsForm.spo2 ? parseInt(vitalsForm.spo2) : null,
+        height: vitalsForm.height ? parseFloat(vitalsForm.height) : null,
+        fetal_heart_rate: vitalsForm.fetal_heart_rate ? parseInt(vitalsForm.fetal_heart_rate) : null,
         triage_priority: vitalsForm.triage_priority,
         nursing_notes: vitalsForm.nursing_notes,
       })
       setShowVitalsForm(false)
-      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
+      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', triage_priority: 'green', nursing_notes: '' })
       const encRes2 = await api.get(`/encounters?patient_id=${patientId}`)
       const loadedEncs = encRes2.data || []
       const vits: any[] = []
@@ -1356,6 +1361,8 @@ export default function PatientChart() {
                     { label: 'RR', value: v.respiration_rate ? `${v.respiration_rate}` : '—' },
                     { label: 'SpO₂', value: v.spo2 ? `${v.spo2}%` : '—' },
                     { label: 'Weight', value: v.weight ? `${v.weight}kg` : '—' },
+                    { label: 'Height', value: v.height ? `${v.height}cm` : '—' },
+                    { label: 'FHR', value: v.fetal_heart_rate ? `${v.fetal_heart_rate}bpm` : '—' },
                     { label: 'Triage', value: v.triage_priority ? ({ red: 'EMERGENCY', yellow: 'URGENT', green: 'ROUTINE' })[v.triage_priority as 'red' | 'yellow' | 'green'] || v.triage_priority : '—' },
                   ].map((f) => (
                     <div key={f.label} className="bg-slate-50 rounded-xl p-2.5">
@@ -1387,18 +1394,21 @@ export default function PatientChart() {
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform"><Plus size={14} /> Add Note</button>
             )}
           </div>
-           {nurseOnlyNotes.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">No clinical notes recorded</p> : (
+            {nurseOnlyNotes.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">No clinical notes recorded</p> : (
             <div className="space-y-3">
               {usePagination(nurseOnlyNotes, notePage).items.map((n: any) => (
-                <div key={n.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                <div key={n.id} onClick={() => { setNoteDetailModal(n); api.post(`/nurse-notes/${n.id}/view`, { viewed_by: currentUser?.id }).catch(() => {}) }}
+                  className="p-4 rounded-xl bg-slate-50 border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors">
                   <div className="flex items-center gap-1 flex-wrap mb-2 text-xs text-slate-400">
                     <div className="flex items-center gap-2">
                       {n.note_type && <span className="px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium uppercase">{n.note_type}</span>}
                       <span>{new Date(n.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
                     {n.staff_name && <span>by <strong>{n.staff_name}</strong></span>}
+                    {isAdmin && n.view_count > 0 && <span className="ml-1 text-slate-400">· {n.view_count} view{n.view_count !== 1 ? 's' : ''}</span>}
                   </div>
-                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{n.content}</p>
+                  <p className="text-sm text-slate-700">{n.content.length > 120 ? n.content.slice(0, 120) + '...' : n.content}</p>
+                  {n.content.length > 120 && <span className="text-xs text-primary font-medium mt-1 inline-block">View more →</span>}
                 </div>
               ))}
               <Pagination page={notePage} totalPages={usePagination(nurseOnlyNotes, notePage).totalPages} onChange={setNotePage} />
@@ -1426,12 +1436,15 @@ export default function PatientChart() {
                 <div className="space-y-3 mb-4">
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Written Notes</p>
                   {usePagination(doctorNotes, notePage).items.map((n: any) => (
-                    <div key={n.id} className="p-4 rounded-xl bg-slate-50 border border-slate-100">
+                    <div key={n.id} onClick={() => { setDoctorNoteDetailModal(n); api.post(`/nurse-notes/${n.id}/view`, { viewed_by: currentUser?.id }).catch(() => {}) }}
+                      className="p-4 rounded-xl bg-slate-50 border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors">
                       <div className="flex items-center gap-1 flex-wrap mb-2 text-xs text-slate-400">
                         <span>{new Date(n.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
                         {n.staff_name && <span>by <strong>{n.staff_name}</strong></span>}
+                        {isAdmin && n.view_count > 0 && <span className="ml-1 text-slate-400">· {n.view_count} view{n.view_count !== 1 ? 's' : ''}</span>}
                       </div>
-                      <p className="text-sm text-slate-700 whitespace-pre-wrap">{n.content}</p>
+                      <p className="text-sm text-slate-700">{n.content.length > 120 ? n.content.slice(0, 120) + '...' : n.content}</p>
+                      {n.content.length > 120 && <span className="text-xs text-primary font-medium mt-1 inline-block">View more →</span>}
                     </div>
                   ))}
                 </div>
@@ -2993,6 +3006,8 @@ export default function PatientChart() {
                   { label: 'Resp. Rate', key: 'respiration_rate', placeholder: '16' },
                   { label: 'Weight', key: 'weight', placeholder: '70 kg' },
                   { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
+                  { label: 'Height', key: 'height', placeholder: '175 cm' },
+                  { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
                 ].map((f) => (
                   <div key={f.key}>
                     <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
@@ -3299,6 +3314,94 @@ export default function PatientChart() {
               </button>
               <button onClick={() => setSkipReason(null)}
                 className="w-full py-2.5 rounded-xl text-sm text-slate-500 hover:text-slate-700 transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Nurse Note Detail Modal */}
+      {noteDetailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setNoteDetailModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <FileText size={16} className="text-primary" />
+                <h2 className="text-base font-semibold text-slate-800">Clinical Note</h2>
+              </div>
+              <button onClick={() => setNoteDetailModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6 space-y-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                {noteDetailModal.note_type && <span className="px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium uppercase">{noteDetailModal.note_type}</span>}
+                <span>{new Date(noteDetailModal.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                {noteDetailModal.staff_name && <span>by <strong>{noteDetailModal.staff_name}</strong></span>}
+              </div>
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{noteDetailModal.content}</p>
+              </div>
+              {isAdmin && (
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                  <p className="text-xs font-semibold text-slate-500 mb-2">Views ({noteDetailModal.view_count || 0})</p>
+                  {noteDetailModal.viewers && noteDetailModal.viewers.length > 0 ? (
+                    <div className="space-y-1">
+                      {noteDetailModal.viewers.map((v: any, i: number) => (
+                        <div key={i} className="flex items-center gap-2 text-xs text-slate-600">
+                          <User size={12} className="text-slate-400" />
+                          <span className="font-medium">{v.name}</span>
+                          <span className="text-slate-400">{new Date(v.viewed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="text-xs text-slate-400 italic">No views yet</p>}
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end flex-shrink-0">
+              <button onClick={() => setNoteDetailModal(null)} className="px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Doctor Note Detail Modal */}
+      {doctorNoteDetailModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setDoctorNoteDetailModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <Stethoscope size={16} className="text-primary" />
+                <h2 className="text-base font-semibold text-slate-800">Doctor's Note</h2>
+              </div>
+              <button onClick={() => setDoctorNoteDetailModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6 space-y-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                {doctorNoteDetailModal.note_type && <span className="px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium uppercase">{doctorNoteDetailModal.note_type}</span>}
+                <span>{new Date(doctorNoteDetailModal.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                {doctorNoteDetailModal.staff_name && <span>by <strong>{doctorNoteDetailModal.staff_name}</strong></span>}
+              </div>
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{doctorNoteDetailModal.content}</p>
+              </div>
+              {isAdmin && (
+                <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                  <p className="text-xs font-semibold text-slate-500 mb-2">Views ({doctorNoteDetailModal.view_count || 0})</p>
+                  {doctorNoteDetailModal.viewers && doctorNoteDetailModal.viewers.length > 0 ? (
+                    <div className="space-y-1">
+                      {doctorNoteDetailModal.viewers.map((v: any, i: number) => (
+                        <div key={i} className="flex items-center gap-2 text-xs text-slate-600">
+                          <User size={12} className="text-slate-400" />
+                          <span className="font-medium">{v.name}</span>
+                          <span className="text-slate-400">{new Date(v.viewed_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="text-xs text-slate-400 italic">No views yet</p>}
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end flex-shrink-0">
+              <button onClick={() => setDoctorNoteDetailModal(null)} className="px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Close</button>
             </div>
           </div>
         </div>

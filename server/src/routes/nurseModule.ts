@@ -29,6 +29,43 @@ router.get('/api/nurse-notes', async (req: Request, res: Response) => {
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
+router.post('/api/nurse-notes/:id/view', async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { viewed_by } = req.body;
+    if (!viewed_by) { res.status(400).json({ error: true, message: 'viewed_by is required' }); return; }
+    await pool.query(
+      `INSERT INTO clinical_note_views (note_id, viewed_by) VALUES ($1, $2)
+       ON CONFLICT (note_id, viewed_by) DO NOTHING`,
+      [id, viewed_by]
+    );
+    res.json({ ok: true });
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+router.get('/api/nurse-notes', async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    const { patient_id, note_type } = req.query;
+    let query = `SELECT nn.*, s.name as staff_name,
+                  (SELECT COUNT(*) FROM clinical_note_views cnv WHERE cnv.note_id = nn.id) as view_count,
+                  (SELECT jsonb_agg(jsonb_build_object('name', su.name, 'viewed_at', cnv.viewed_at))
+                   FROM clinical_note_views cnv
+                   LEFT JOIN staff_users su ON su.id = cnv.viewed_by
+                   WHERE cnv.note_id = nn.id) as viewers
+                 FROM nurse_notes nn
+                 LEFT JOIN staff_users s ON s.id = nn.staff_id
+                 WHERE nn.tenant_id = $1`;
+    const params: any[] = [tenantId];
+    let idx = 2;
+    if (patient_id) { query += ` AND nn.patient_id = $${idx}`; params.push(patient_id); idx++; }
+    if (note_type) { query += ` AND nn.note_type = $${idx}`; params.push(note_type); idx++; }
+    query += ' ORDER BY nn.created_at DESC';
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
 router.post('/api/nurse-notes', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();

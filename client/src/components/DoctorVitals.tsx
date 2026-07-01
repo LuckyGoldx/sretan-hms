@@ -46,7 +46,7 @@ export default function DoctorVitals() {
   const [search, setSearch] = useState('')
   const [view, setView] = useState<'list' | 'patient'>('list')
   const [showRecordModal, setShowRecordModal] = useState(false)
-  const [recordForm, setRecordForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
+  const [recordForm, setRecordForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', triage_priority: 'green', nursing_notes: '' })
   const [recording, setRecording] = useState(false)
   const [recError, setRecError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
@@ -115,11 +115,13 @@ export default function DoctorVitals() {
         respiration_rate: recordForm.respiration_rate ? parseInt(recordForm.respiration_rate) : null,
         weight: recordForm.weight ? parseFloat(recordForm.weight) : null,
         spo2: recordForm.spo2 ? parseInt(recordForm.spo2) : null,
+        height: recordForm.height ? parseFloat(recordForm.height) : null,
+        fetal_heart_rate: recordForm.fetal_heart_rate ? parseInt(recordForm.fetal_heart_rate) : null,
         triage_priority: recordForm.triage_priority,
         nursing_notes: recordForm.nursing_notes,
       })
       setShowRecordModal(false)
-      setRecordForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' })
+      setRecordForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', triage_priority: 'green', nursing_notes: '' })
       setSuccessMsg('Vitals recorded successfully')
       await loadVitals(selectedPatient)
       setTimeout(() => setSuccessMsg(''), 3000)
@@ -194,7 +196,7 @@ export default function DoctorVitals() {
             <>
               <div className="flex items-center justify-between">
                 <p className="text-sm text-slate-500">{vitals.length} vitals record{vitals.length !== 1 ? 's' : ''}</p>
-                <button onClick={() => { setShowRecordModal(true); setRecordForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', triage_priority: 'green', nursing_notes: '' }) }}
+                <button onClick={() => { setShowRecordModal(true); setRecordForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', triage_priority: 'green', nursing_notes: '' }) }}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform">
                   <Heart size={14} /> Record Vitals
                 </button>
@@ -238,6 +240,8 @@ export default function DoctorVitals() {
                             { label: 'RR', value: v.respiration_rate ? `${v.respiration_rate}` : '—' },
                             { label: 'SpO₂', value: v.spo2 ? `${v.spo2}%` : '—' },
                             { label: 'Weight', value: v.weight ? `${v.weight}kg` : '—' },
+                            { label: 'Height', value: v.height ? `${v.height}cm` : '—' },
+                            { label: 'FHR', value: v.fetal_heart_rate ? `${v.fetal_heart_rate}bpm` : '—' },
                             { label: 'Triage', value: v.triage_priority ? ({ red: 'EMERGENCY', yellow: 'URGENT', green: 'ROUTINE' })[v.triage_priority as 'red' | 'yellow' | 'green'] || v.triage_priority : '—' },
                           ].map((f) => (
                             <div key={f.label} className="bg-slate-50 rounded-xl p-2.5">
@@ -277,6 +281,8 @@ export default function DoctorVitals() {
                       { label: 'Resp. Rate', key: 'respiration_rate', placeholder: '16' },
                       { label: 'Weight', key: 'weight', placeholder: '70 kg' },
                       { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
+                      { label: 'Height', key: 'height', placeholder: '175 cm' },
+                      { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
                     ].map((f) => (
                       <div key={f.key}>
                         <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
