@@ -154,6 +154,7 @@ export default function PatientChart() {
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
   const [showVitalsPreview, setShowVitalsPreview] = useState(false)
   const [editingVital, setEditingVital] = useState<any | null>(null)
+  const [vitalsNotesModal, setVitalsNotesModal] = useState<string | null>(null)
   const [rxPage, setRxPage] = useState(1)
   const [encPage, setEncPage] = useState(1)
   const [labPage, setLabPage] = useState(1)
@@ -1417,6 +1418,7 @@ export default function PatientChart() {
                 )}
                 {v.recorded_by === currentUser?.id && Date.now() - new Date(v.created_at).getTime() < 10 * 60 * 1000 && (
                   <div className="flex items-center gap-1 ml-auto">
+                    <Hint text="Edit these vitals (only available within 10 minutes of recording).">
                     <button onClick={() => { setEditingVital(v); setVitalsForm({
                       systolic_bp: String(v.systolic_bp || ''),
                       diastolic_bp: String(v.diastolic_bp || ''),
@@ -1432,14 +1434,19 @@ export default function PatientChart() {
                       nursing_notes: v.nursing_notes || '',
                     }); setShowVitalsForm(true) }}
                       className="px-2 py-0.5 rounded text-[9px] font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors">Edit</button>
+                    </Hint>
+                    <Hint text="Delete these vitals (only available within 10 minutes of recording).">
                     <button onClick={async () => {
                       if (!window.confirm('Delete this vitals record? This action cannot be undone.')) return
                       try { await api.delete(`/vitals/${v.id}`, { data: { deleted_by: currentUser?.id } }); setVitalsList((prev) => prev.filter((x: any) => x.id !== v.id)) } catch {}
                     }} className="px-2 py-0.5 rounded text-[9px] font-medium bg-rose-100 text-rose-700 hover:bg-rose-200 transition-colors">Delete</button>
+                    </Hint>
                   </div>
                 )}
                 {v.edited_by_name && v.edited_at && (
+                  <Hint text={`This vital record was edited by ${v.edited_by_name}.`}>
                   <span className="text-[9px] text-amber-600 ml-auto">Edited by {v.edited_by_name}</span>
+                  </Hint>
                 )}
               </div>
               <div className="p-5">
@@ -1469,8 +1476,14 @@ export default function PatientChart() {
                     <Hint text="Additional observations recorded with these vitals.">
                     <p className="text-[10px] text-slate-500 font-medium uppercase tracking-wider mb-1">Nursing Notes</p>
                     </Hint>
-                    <p className="text-sm text-slate-600 whitespace-pre-wrap">{v.nursing_notes.length > 250 ? v.nursing_notes.slice(0, 250) + '...' : v.nursing_notes}</p>
-                    {v.nursing_notes.length > 250 && <span className="text-xs text-primary font-medium mt-1 inline-block">View more →</span>}
+                    <p className="text-sm text-slate-600 whitespace-pre-wrap inline">
+                      {v.nursing_notes.length > 250 ? v.nursing_notes.slice(0, 250) : v.nursing_notes}
+                      {v.nursing_notes.length > 250 && (
+                        <Hint text="Click to view full nursing notes.">
+                        <button onClick={() => setVitalsNotesModal(v.nursing_notes)} className="text-xs text-primary font-medium ml-1 inline hover:underline">...View more</button>
+                        </Hint>
+                      )}
+                    </p>
                   </div>
                 )}
               </div>
@@ -3163,6 +3176,26 @@ export default function PatientChart() {
         </div>
       )}
 
+      {/* Vitals Nursing Notes Modal */}
+      {vitalsNotesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setVitalsNotesModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Activity size={16} className="text-primary" /> Nursing Notes</h2>
+              <button onClick={() => setVitalsNotesModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6">
+              <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{vitalsNotesModal}</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end flex-shrink-0">
+              <button onClick={() => setVitalsNotesModal(null)} className="px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Vitals Preview Modal */}
       {showVitalsPreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!vitalsSubmitting) setShowVitalsPreview(false) }}>
@@ -3207,7 +3240,9 @@ export default function PatientChart() {
               )}
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
+              <Hint text="Go back to the vitals form to make changes before saving.">
               <button onClick={() => setShowVitalsPreview(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Edit</button>
+              </Hint>
               <Hint text="Once saved, you can edit or delete these vitals within 10 minutes.">
               <button onClick={handleVitalsSubmit} disabled={vitalsSubmitting}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
