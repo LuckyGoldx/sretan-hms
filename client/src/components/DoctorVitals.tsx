@@ -46,6 +46,7 @@ export default function DoctorVitals() {
   const [search, setSearch] = useState('')
   const [view, setView] = useState<'list' | 'patient'>('list')
   const [showRecordModal, setShowRecordModal] = useState(false)
+  const [editingVital, setEditingVital] = useState<any | null>(null)
   const [recordForm, setRecordForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
   const [recording, setRecording] = useState(false)
   const [recError, setRecError] = useState('')
@@ -102,6 +103,30 @@ export default function DoctorVitals() {
     setRecording(true)
     setRecError('')
     try {
+      if (editingVital) {
+        await api.put(`/vitals/${editingVital.id}`, {
+          systolic_bp: recordForm.systolic_bp ? parseInt(recordForm.systolic_bp) : null,
+          diastolic_bp: recordForm.diastolic_bp ? parseInt(recordForm.diastolic_bp) : null,
+          pulse: recordForm.pulse ? parseInt(recordForm.pulse) : null,
+          temperature: recordForm.temperature ? parseFloat(recordForm.temperature) : null,
+          respiration_rate: recordForm.respiration_rate ? parseInt(recordForm.respiration_rate) : null,
+          weight: recordForm.weight ? parseFloat(recordForm.weight) : null,
+          spo2: recordForm.spo2 ? parseInt(recordForm.spo2) : null,
+          height: recordForm.height ? parseFloat(recordForm.height) : null,
+          fetal_heart_rate: recordForm.fetal_heart_rate ? parseInt(recordForm.fetal_heart_rate) : null,
+          fetal_heart_sound: recordForm.fetal_heart_sound || null,
+          triage_priority: recordForm.triage_priority,
+          nursing_notes: recordForm.nursing_notes,
+          edited_by: currentUser?.id,
+        })
+        setShowRecordModal(false)
+        setEditingVital(null)
+        setRecordForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
+        setSuccessMsg('Vitals updated successfully')
+        await loadVitals(selectedPatient)
+        setTimeout(() => setSuccessMsg(''), 3000)
+        return
+      }
       const encRes = await api.post('/encounters', {
         patient_id: selectedPatient.id, encounter_type: 'vitals', chief_complaint: recordForm.nursing_notes.slice(0, 200),
         staff_id: currentUser?.id,
@@ -118,6 +143,7 @@ export default function DoctorVitals() {
         height: recordForm.height ? parseFloat(recordForm.height) : null,
         fetal_heart_rate: recordForm.fetal_heart_rate ? parseInt(recordForm.fetal_heart_rate) : null,
         fetal_heart_sound: recordForm.fetal_heart_sound || null,
+        recorded_by: currentUser?.id,
         triage_priority: recordForm.triage_priority,
         nursing_notes: recordForm.nursing_notes,
       })
@@ -230,6 +256,32 @@ export default function DoctorVitals() {
                         </div>
                         {v.nurse_name && (
                           <span className="text-xs text-slate-500">by <strong>{v.nurse_name}</strong></span>
+                        )}
+                        {v.recorded_by === currentUser?.id && Date.now() - new Date(v.created_at).getTime() < 10 * 60 * 1000 && (
+                          <div className="flex items-center gap-1 ml-auto">
+                            <button onClick={() => { setEditingVital(v); setRecordForm({
+                              systolic_bp: String(v.systolic_bp || ''),
+                              diastolic_bp: String(v.diastolic_bp || ''),
+                              pulse: String(v.pulse || ''),
+                              temperature: String(v.temperature || ''),
+                              respiration_rate: String(v.respiration_rate || ''),
+                              weight: String(v.weight || ''),
+                              spo2: String(v.spo2 || ''),
+                              height: String(v.height || ''),
+                              fetal_heart_rate: String(v.fetal_heart_rate || ''),
+                              fetal_heart_sound: v.fetal_heart_sound || '',
+                              triage_priority: v.triage_priority || 'green',
+                              nursing_notes: v.nursing_notes || '',
+                            }); setShowRecordModal(true) }}
+                              className="px-2 py-0.5 rounded text-[9px] font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors">Edit</button>
+                            <button onClick={async () => {
+                              if (!window.confirm('Delete this vitals record? This action cannot be undone.')) return
+                              try { await api.delete(`/vitals/${v.id}`, { data: { deleted_by: currentUser?.id } }); setVitals((prev) => prev.filter((x: any) => x.id !== v.id)) } catch {}
+                            }} className="px-2 py-0.5 rounded text-[9px] font-medium bg-rose-100 text-rose-700 hover:bg-rose-200 transition-colors">Delete</button>
+                          </div>
+                        )}
+                        {v.edited_by_name && v.edited_at && (
+                          <span className="text-[9px] text-amber-600 ml-auto">Edited by {v.edited_by_name}</span>
                         )}
                       </div>
                       <div className="p-5">

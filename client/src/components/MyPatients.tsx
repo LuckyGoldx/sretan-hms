@@ -217,6 +217,7 @@ export default function MyPatients() {
         height: vitalsForm.height ? parseFloat(vitalsForm.height) : null,
         fetal_heart_rate: vitalsForm.fetal_heart_rate ? parseInt(vitalsForm.fetal_heart_rate) : null,
         fetal_heart_sound: vitalsForm.fetal_heart_sound || null,
+        recorded_by: currentUser?.id,
         triage_priority: vitalsForm.triage_priority,
         nursing_notes: vitalsForm.nursing_notes,
       })

@@ -116,6 +116,7 @@ export default function TriageStation() {
         height: form.height ? parseFloat(form.height) : null,
         fetal_heart_rate: form.fetal_heart_rate ? parseInt(form.fetal_heart_rate) : null,
         fetal_heart_sound: form.fetal_heart_sound || null,
+        recorded_by: currentUser?.id,
         triage_priority: form.triage_priority,
         nursing_notes: form.nursing_notes,
       })
