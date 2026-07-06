@@ -28,6 +28,7 @@ export default function MaternityPatientDetail() {
   const [radiologyInventory, setRadiologyInventory] = useState<any[]>([])
   const [pharmacyInventory, setPharmacyInventory] = useState<any[]>([])
   const [consultSubmitting, setConsultSubmitting] = useState(false)
+  const [activeEncounterId, setActiveEncounterId] = useState<string | null>(null)
   const [selectedEncounter, setSelectedEncounter] = useState<any>(null)
   const [encounterOrders, setEncounterOrders] = useState<{ lab: any[]; radiology: any[]; prescriptions: any[] }>({ lab: [], radiology: [], prescriptions: [] })
   const [activeConsultTab, setActiveConsultTab] = useState('soap')
@@ -102,23 +103,31 @@ export default function MaternityPatientDetail() {
       .then((r) => r.json()).then((d) => setPharmacyInventory(Array.isArray(d) ? d : [])).catch(() => {})
   }, [isDoctor])
 
+  async function ensureEncounter(): Promise<string> {
+    if (activeEncounterId) return activeEncounterId
+    const res = await fetch('/api/encounters', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+      body: JSON.stringify({ patient_id: record?.patient_id, encounter_type: 'maternity', staff_id: staffId }),
+    })
+    const enc = await res.json()
+    setActiveEncounterId(enc.id)
+    return enc.id
+  }
+
   async function handleSOAPSubmit() {
     if (!record?.patient_id) return
     setConsultSubmitting(true)
     try {
-      const encRes = await fetch('/api/encounters', {
-        method: 'POST',
+      const encId = await ensureEncounter()
+      await fetch(`/api/encounters/${encId}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
         body: JSON.stringify({
-          patient_id: record.patient_id,
-          encounter_type: 'maternity',
           chief_complaint: soap.subjective.slice(0, 200),
           soap_notes: soap,
-          staff_id: staffId,
         }),
       })
-      const enc = await encRes.json()
-      // Re-fetch encounters
       fetch(`/api/encounters?patient_id=${record.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
         .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
       setSoap({ subjective: '', objective: '', assessment: '', plan: '', notes: '' })
@@ -129,16 +138,11 @@ export default function MaternityPatientDetail() {
     if (!record?.patient_id || !labForm.test_name.trim()) return
     setConsultSubmitting(true)
     try {
-      const encRes = await fetch('/api/encounters', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-        body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
-      })
-      const enc = await encRes.json()
+      const encId = await ensureEncounter()
       await fetch('/api/lab-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-        body: JSON.stringify({ encounter_id: enc.id, test_name: labForm.test_name.trim(), doctor_comment: labForm.doctor_comment.trim() || undefined }),
+        body: JSON.stringify({ encounter_id: encId, test_name: labForm.test_name.trim(), doctor_comment: labForm.doctor_comment.trim() || undefined }),
       })
       setLabForm({ test_name: '', doctor_comment: '' })
       loadData()
@@ -149,16 +153,11 @@ export default function MaternityPatientDetail() {
     if (!record?.patient_id || !radiologyForm.imaging_type.trim()) return
     setConsultSubmitting(true)
     try {
-      const encRes = await fetch('/api/encounters', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-        body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
-      })
-      const enc = await encRes.json()
+      const encId = await ensureEncounter()
       await fetch('/api/radiology-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-        body: JSON.stringify({ encounter_id: enc.id, imaging_type: radiologyForm.imaging_type.trim(), doctor_name: staffName, patient_name: record.full_name, doctor_comment: radiologyForm.doctor_comment.trim() || undefined }),
+        body: JSON.stringify({ encounter_id: encId, imaging_type: radiologyForm.imaging_type.trim(), doctor_name: staffName, patient_name: record.full_name, doctor_comment: radiologyForm.doctor_comment.trim() || undefined }),
       })
       setRadiologyForm({ imaging_type: '', doctor_comment: '' })
       loadData()
@@ -169,16 +168,11 @@ export default function MaternityPatientDetail() {
     if (!record?.patient_id || !rxForm.drug_name.trim()) return
     setConsultSubmitting(true)
     try {
-      const encRes = await fetch('/api/encounters', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-        body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
-      })
-      const enc = await encRes.json()
+      const encId = await ensureEncounter()
       await fetch('/api/prescriptions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-        body: JSON.stringify({ encounter_id: enc.id, drug_name: rxForm.drug_name.trim(), dosage: rxForm.dosage, quantity: Number(rxForm.quantity) || 0, instructions: rxForm.instructions }),
+        body: JSON.stringify({ encounter_id: encId, drug_name: rxForm.drug_name.trim(), dosage: rxForm.dosage, quantity: Number(rxForm.quantity) || 0, instructions: rxForm.instructions }),
       })
       setRxForm({ drug_name: '', dosage: '', quantity: '', instructions: '' })
       loadData()
@@ -615,10 +609,7 @@ export default function MaternityPatientDetail() {
 
                     {/* No content fallback */}
                     {!hasDiagnoses && !hasSOAP && !selectedEncounter.notes && (
-                      <div className="text-center py-4">
-                        <p className="text-sm text-slate-400">No SOAP notes or diagnoses recorded for this encounter.</p>
-                        <p className="text-[10px] text-slate-300 mt-1">diagnoses raw: {JSON.stringify(selectedEncounter.diagnoses)} · type: {typeof selectedEncounter.diagnoses}</p>
-                      </div>
+                      <p className="text-sm text-slate-400 text-center py-4">No SOAP notes or diagnoses recorded for this encounter.</p>
                     )}
                   </>
                 )
@@ -720,25 +711,22 @@ export default function MaternityPatientDetail() {
               <button onClick={async () => {
                 const item = icdConfirmModal
                 setIcdConfirmModal(null)
-                if (!record?.patient_id) { alert('Missing patient ID'); return }
+                if (!record?.patient_id) return
                 try {
-                  const encRes = await fetch('/api/encounters', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-                    body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
-                  })
-                  if (!encRes.ok) { alert('Failed to create encounter: ' + (await encRes.text())); return }
-                  const enc = await encRes.json()
-                  if (!enc?.id) { alert('Encounter created but no ID returned'); return }
-                  const putRes = await fetch(`/api/encounters/${enc.id}`, {
-                    method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-                    body: JSON.stringify({ diagnoses: [{ code: item.code, label: item.label, diagnosed_at: new Date().toISOString() }] }),
-                  })
-                  if (!putRes.ok) { alert('Failed to save diagnoses: ' + (await putRes.text())); return }
+                  const encId = await ensureEncounter()
+                  const existing = await (await fetch(`/api/encounters/${encId}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })).json()
+                  const current = Array.isArray(existing.diagnoses) ? existing.diagnoses : []
+                  if (!current.some((d: any) => d.code === item.code)) {
+                    await fetch(`/api/encounters/${encId}`, {
+                      method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                      body: JSON.stringify({ diagnoses: [...current, { code: item.code, label: item.label, diagnosed_at: new Date().toISOString() }] }),
+                    })
+                  }
                   setIcdMessage(`Diagnosis added: ${item.code} — ${item.label}`)
                   setTimeout(() => setIcdMessage(''), 4000)
                   fetch(`/api/encounters?patient_id=${record.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
                     .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
-                } catch (err: any) { alert('Error: ' + (err?.message || err)) }
+                } catch {}
               }}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium hover:scale-[1.01] transition-transform">
                 <CheckCircle size={14} /> Confirm Diagnosis
