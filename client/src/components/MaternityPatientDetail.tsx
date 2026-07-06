@@ -29,6 +29,7 @@ export default function MaternityPatientDetail() {
   const [pharmacyInventory, setPharmacyInventory] = useState<any[]>([])
   const [consultSubmitting, setConsultSubmitting] = useState(false)
   const [selectedEncounter, setSelectedEncounter] = useState<any>(null)
+  const [encounterOrders, setEncounterOrders] = useState<{ lab: any[]; radiology: any[]; prescriptions: any[] }>({ lab: [], radiology: [], prescriptions: [] })
   const [activeConsultTab, setActiveConsultTab] = useState('soap')
   const [activeConsultModal, setActiveConsultModal] = useState<'lab' | 'radiology' | null>(null)
   const [showDrugSuggestions, setShowDrugSuggestions] = useState(false)
@@ -405,7 +406,24 @@ export default function MaternityPatientDetail() {
                 ) : (
                   <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                     {maternityEncounters.slice(0, 15).map((enc, idx) => (
-                      <button key={enc.id} onClick={() => setSelectedEncounter(enc)}
+                      <button key={enc.id} onClick={async () => {
+                        setSelectedEncounter(enc)
+                        try {
+                          const [labRes, radRes, rxRes] = await Promise.all([
+                            fetch(`/api/lab-orders?encounter_id=${enc.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+                            fetch(`/api/radiology-orders?encounter_id=${enc.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+                            fetch(`/api/prescriptions?encounter_id=${enc.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+                          ])
+                          const labData = await labRes.json()
+                          const radData = await radRes.json()
+                          const rxData = await rxRes.json()
+                          setEncounterOrders({
+                            lab: Array.isArray(labData) ? labData : labData?.rows || [],
+                            radiology: Array.isArray(radData) ? radData : radData?.rows || [],
+                            prescriptions: Array.isArray(rxData) ? rxData : rxData?.rows || [],
+                          })
+                        } catch { setEncounterOrders({ lab: [], radiology: [], prescriptions: [] }) }
+                      }}
                         className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border transition-all hover:shadow-md ${
                           idx === 0 ? 'border-blue-200 bg-blue-50/40' : 'border-slate-100 bg-slate-50/40'
                         }`}>
@@ -552,6 +570,23 @@ export default function MaternityPatientDetail() {
             </div>
             <div className="overflow-y-auto flex-1 p-6 space-y-4">
               <p className="text-xs text-slate-400">{new Date(selectedEncounter.created_at).toLocaleString()} {selectedEncounter.staff_name ? `by ${selectedEncounter.staff_name}` : ''}</p>
+
+              {/* ICD-11 Diagnoses */}
+              {selectedEncounter.diagnoses && Array.isArray(selectedEncounter.diagnoses) && selectedEncounter.diagnoses.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">ICD-11 Diagnoses</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedEncounter.diagnoses.map((d: any, i: number) => (
+                      <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-medium">
+                        <span className="font-mono text-[10px]">{d.code}</span>
+                        {d.label || d}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* SOAP Notes */}
               {selectedEncounter.soap_notes && (
                 <div className="space-y-2">
                   {(['subjective', 'objective', 'assessment', 'plan'] as const).map((f) => (
@@ -565,8 +600,57 @@ export default function MaternityPatientDetail() {
                 </div>
               )}
               {selectedEncounter.notes && <div><p className="text-xs font-semibold text-slate-500 uppercase">Notes</p><p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-2.5 mt-0.5">{selectedEncounter.notes}</p></div>}
-              {selectedEncounter.diagnoses && Array.isArray(selectedEncounter.diagnoses) && selectedEncounter.diagnoses.length > 0 && (
-                <div><p className="text-xs font-semibold text-slate-500 uppercase">Diagnoses</p><div className="flex flex-wrap gap-1.5 mt-1">{selectedEncounter.diagnoses.map((d: any, i: number) => <span key={i} className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-xs">{d.label || d}</span>)}</div></div>
+
+              {/* Lab Orders */}
+              {encounterOrders.lab.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Lab Orders ({encounterOrders.lab.length})</p>
+                  {encounterOrders.lab.map((o: any) => (
+                    <div key={o.id} className="flex items-center justify-between bg-slate-50 rounded-xl p-2.5 mb-1.5">
+                      <div>
+                        <span className="text-sm font-medium text-slate-800">{o.test_name}</span>
+                        {o.doctor_comment && <p className="text-xs text-slate-400 mt-0.5">{o.doctor_comment}</p>}
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${o.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{o.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Radiology Orders */}
+              {encounterOrders.radiology.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Radiology Orders ({encounterOrders.radiology.length})</p>
+                  {encounterOrders.radiology.map((o: any) => (
+                    <div key={o.id} className="flex items-center justify-between bg-slate-50 rounded-xl p-2.5 mb-1.5">
+                      <div>
+                        <span className="text-sm font-medium text-slate-800">{o.imaging_type}</span>
+                        {o.doctor_comment && <p className="text-xs text-slate-400 mt-0.5">{o.doctor_comment}</p>}
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${o.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{o.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Prescriptions */}
+              {encounterOrders.prescriptions.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Prescriptions ({encounterOrders.prescriptions.length})</p>
+                  {encounterOrders.prescriptions.map((o: any) => (
+                    <div key={o.id} className="flex items-center justify-between bg-slate-50 rounded-xl p-2.5 mb-1.5">
+                      <div>
+                        <span className="text-sm font-medium text-slate-800">{o.drug_name}</span>
+                        <div className="flex gap-2 text-xs text-slate-400 mt-0.5">
+                          {o.dosage && <span>{o.dosage}</span>}
+                          {o.quantity ? <span>Qty: {o.quantity}</span> : null}
+                        </div>
+                        {o.instructions && <p className="text-xs text-slate-400 italic">"{o.instructions}"</p>}
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${o.status === 'dispensed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{o.status || 'prescribed'}</span>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end flex-shrink-0">

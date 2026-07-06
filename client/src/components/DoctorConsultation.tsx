@@ -198,7 +198,7 @@ export default function DoctorConsultation() {
     const encResponse = await api.post('/encounters', { patient_id: patientId, encounter_type: encounterType, chief_complaint: '', staff_id: currentStaffId })
     setActiveEncounterId(encResponse.data.id)
     return encResponse.data.id
-  }, [activeEncounterId, patientId, currentStaffId])
+  }, [activeEncounterId, patientId, currentStaffId, encounterType])
 
   useEffect(() => {
     if (!patientId) return
