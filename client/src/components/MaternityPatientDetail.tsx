@@ -408,6 +408,7 @@ export default function MaternityPatientDetail() {
                     {maternityEncounters.slice(0, 15).map((enc, idx) => (
                       <button key={enc.id} onClick={async () => {
                         setSelectedEncounter(enc)
+                        setEncounterOrders({ lab: [], radiology: [], prescriptions: [] })
                         try {
                           const [labRes, radRes, rxRes] = await Promise.all([
                             fetch(`/api/lab-orders?encounter_id=${enc.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
@@ -571,35 +572,54 @@ export default function MaternityPatientDetail() {
             <div className="overflow-y-auto flex-1 p-6 space-y-4">
               <p className="text-xs text-slate-400">{new Date(selectedEncounter.created_at).toLocaleString()} {selectedEncounter.staff_name ? `by ${selectedEncounter.staff_name}` : ''}</p>
 
-              {/* ICD-11 Diagnoses */}
-              {selectedEncounter.diagnoses && Array.isArray(selectedEncounter.diagnoses) && selectedEncounter.diagnoses.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">ICD-11 Diagnoses</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {selectedEncounter.diagnoses.map((d: any, i: number) => (
-                      <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-medium">
-                        <span className="font-mono text-[10px]">{d.code}</span>
-                        {d.label || d}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {(() => {
+                const diagnoses = typeof selectedEncounter.diagnoses === 'string' ? (() => { try { return JSON.parse(selectedEncounter.diagnoses) } catch { return [] } })() : selectedEncounter.diagnoses
+                const soapNotes = typeof selectedEncounter.soap_notes === 'string' ? (() => { try { return JSON.parse(selectedEncounter.soap_notes) } catch { return null } })() : selectedEncounter.soap_notes
+                const hasDiagnoses = Array.isArray(diagnoses) && diagnoses.length > 0
+                const hasSOAP = soapNotes && (soapNotes.subjective || soapNotes.objective || soapNotes.assessment || soapNotes.plan)
 
-              {/* SOAP Notes */}
-              {selectedEncounter.soap_notes && (
-                <div className="space-y-2">
-                  {(['subjective', 'objective', 'assessment', 'plan'] as const).map((f) => (
-                    selectedEncounter.soap_notes[f] ? (
-                      <div key={f}>
-                        <p className="text-xs font-semibold text-slate-500 uppercase">{f}</p>
-                        <p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-2.5 mt-0.5">{selectedEncounter.soap_notes[f]}</p>
+                return (
+                  <>
+                    {/* ICD-11 Diagnoses */}
+                    {hasDiagnoses && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-500 uppercase mb-2">ICD-11 Diagnoses</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {diagnoses.map((d: any, i: number) => (
+                            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-medium">
+                              <span className="font-mono text-[10px]">{d.code}</span>
+                              {d.label || d}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    ) : null
-                  ))}
-                </div>
-              )}
-              {selectedEncounter.notes && <div><p className="text-xs font-semibold text-slate-500 uppercase">Notes</p><p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-2.5 mt-0.5">{selectedEncounter.notes}</p></div>}
+                    )}
+
+                    {/* SOAP Notes */}
+                    {hasSOAP && (
+                      <div className="space-y-2">
+                        {(['subjective', 'objective', 'assessment', 'plan'] as const).map((f) => (
+                          soapNotes[f] ? (
+                            <div key={f}>
+                              <p className="text-xs font-semibold text-slate-500 uppercase">{f}</p>
+                              <p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-2.5 mt-0.5">{soapNotes[f]}</p>
+                            </div>
+                          ) : null
+                        ))}
+                      </div>
+                    )}
+
+                    {selectedEncounter.notes && (
+                      <div className="mt-2"><p className="text-xs font-semibold text-slate-500 uppercase">Notes</p><p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-2.5 mt-0.5">{selectedEncounter.notes}</p></div>
+                    )}
+
+                    {/* No content fallback */}
+                    {!hasDiagnoses && !hasSOAP && !selectedEncounter.notes && (
+                      <p className="text-sm text-slate-400 text-center py-4">No SOAP notes or diagnoses recorded for this encounter.</p>
+                    )}
+                  </>
+                )
+              })()}
 
               {/* Lab Orders */}
               {encounterOrders.lab.length > 0 && (
