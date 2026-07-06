@@ -615,7 +615,10 @@ export default function MaternityPatientDetail() {
 
                     {/* No content fallback */}
                     {!hasDiagnoses && !hasSOAP && !selectedEncounter.notes && (
-                      <p className="text-sm text-slate-400 text-center py-4">No SOAP notes or diagnoses recorded for this encounter.</p>
+                      <div className="text-center py-4">
+                        <p className="text-sm text-slate-400">No SOAP notes or diagnoses recorded for this encounter.</p>
+                        <p className="text-[10px] text-slate-300 mt-1">diagnoses raw: {JSON.stringify(selectedEncounter.diagnoses)} · type: {typeof selectedEncounter.diagnoses}</p>
+                      </div>
                     )}
                   </>
                 )
@@ -717,22 +720,25 @@ export default function MaternityPatientDetail() {
               <button onClick={async () => {
                 const item = icdConfirmModal
                 setIcdConfirmModal(null)
-                if (!record?.patient_id) return
+                if (!record?.patient_id) { alert('Missing patient ID'); return }
                 try {
                   const encRes = await fetch('/api/encounters', {
                     method: 'POST', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
                     body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
                   })
+                  if (!encRes.ok) { alert('Failed to create encounter: ' + (await encRes.text())); return }
                   const enc = await encRes.json()
-                  await fetch(`/api/encounters/${enc.id}`, {
+                  if (!enc?.id) { alert('Encounter created but no ID returned'); return }
+                  const putRes = await fetch(`/api/encounters/${enc.id}`, {
                     method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
                     body: JSON.stringify({ diagnoses: [{ code: item.code, label: item.label, diagnosed_at: new Date().toISOString() }] }),
                   })
+                  if (!putRes.ok) { alert('Failed to save diagnoses: ' + (await putRes.text())); return }
                   setIcdMessage(`Diagnosis added: ${item.code} — ${item.label}`)
                   setTimeout(() => setIcdMessage(''), 4000)
                   fetch(`/api/encounters?patient_id=${record.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
                     .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
-                } catch {}
+                } catch (err: any) { alert('Error: ' + (err?.message || err)) }
               }}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium hover:scale-[1.01] transition-transform">
                 <CheckCircle size={14} /> Confirm Diagnosis

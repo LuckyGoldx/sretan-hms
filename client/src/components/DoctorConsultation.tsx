@@ -1127,10 +1127,11 @@ export default function DoctorConsultation() {
                 setSelectedIcd(item.code)
                 try {
                   const encId = await ensureEncounter()
-                  const existing = await api.get(`/encounters/${encId}`)
-                  const current = existing.data?.diagnoses || []
+                  const res = await api.get(`/encounters/${encId}`)
+                  const current = Array.isArray(res.data?.diagnoses) ? res.data.diagnoses : []
                   if (!current.some((d: any) => d.code === item.code)) {
-                    await api.put(`/encounters/${encId}`, { diagnoses: [...current, { code: item.code, label: item.label, diagnosed_at: new Date().toISOString() }] })
+                    const putRes = await api.put(`/encounters/${encId}`, { diagnoses: [...current, { code: item.code, label: item.label, diagnosed_at: new Date().toISOString() }] })
+                    if (!putRes.data?.id) { showToast('Failed to save diagnosis - no response', 'error'); return }
                   }
                   showToast(`Diagnosis added: ${item.code} — ${item.label}`, 'success')
                 } catch { showToast('Failed to save diagnosis', 'error') }
