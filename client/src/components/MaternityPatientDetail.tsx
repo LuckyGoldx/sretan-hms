@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Baby, ArrowLeft, Loader2, Activity, Calendar, Stethoscope, Heart, FileText, X, CheckCircle, Plus, PenLine, FlaskConical, ScanLine, Pill, Search, Clock, ChevronDown } from 'lucide-react'
-import { ICD11_CODES } from '../data/icd11Codes'
+import { ICD11_CODES, Icd11Code } from '../data/icd11Codes'
 const icd11Codes = ICD11_CODES
 
 export default function MaternityPatientDetail() {
@@ -37,6 +37,7 @@ export default function MaternityPatientDetail() {
   const [selectedIcdLabel, setSelectedIcdLabel] = useState('')
   const [icdMessage, setIcdMessage] = useState('')
   const [icdOpen, setIcdOpen] = useState(false)
+  const [icdConfirmModal, setIcdConfirmModal] = useState<{ code: string; label: string; chapter: string } | null>(null)
 
   const [showANCModal, setShowANCModal] = useState(false)
   const [ancForm, setAncForm] = useState<any>({})
@@ -515,25 +516,8 @@ export default function MaternityPatientDetail() {
                         </div>
                       </div>
                       <div className="overflow-y-auto max-h-44">
-                        {(icdSearch ? icd11Codes.filter((c) => c.code.toLowerCase().includes(icdSearch.toLowerCase()) || c.label.toLowerCase().includes(icdSearch.toLowerCase())) : icd11Codes).map((item) => (
-                          <button key={item.code} onClick={async () => {
-                            setSelectedIcd(item.code); setSelectedIcdLabel(item.label); setIcdOpen(false); setIcdSearch('')
-                            if (!record?.patient_id) return
-                            const encRes = await fetch('/api/encounters', {
-                              method: 'POST', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-                              body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
-                            })
-                            const enc = await encRes.json()
-                            await fetch(`/api/encounters/${enc.id}`, {
-                              method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-                              body: JSON.stringify({ diagnoses: [{ code: item.code, label: item.label, diagnosed_at: new Date().toISOString() }] }),
-                            }).then(() => {
-                              setIcdMessage(`Diagnosis added: ${item.code} — ${item.label}`)
-                              setTimeout(() => setIcdMessage(''), 4000)
-                              fetch(`/api/encounters?patient_id=${record.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
-                                .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
-                            })
-                          }}
+                        {((icdSearch ? icd11Codes.filter((c) => c.code.toLowerCase().includes(icdSearch.toLowerCase()) || c.label.toLowerCase().includes(icdSearch.toLowerCase())) : icd11Codes) as Icd11Code[]).map((item) => (
+                          <button key={item.code} onClick={() => { setIcdOpen(false); setIcdSearch(''); setIcdConfirmModal({ code: item.code, label: item.label, chapter: item.chapter }) }}
                             className={`w-full text-left px-4 py-2 text-sm hover:bg-blue-50 transition-colors ${selectedIcd === item.code ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-600'}`}>
                             <span className="font-mono text-xs text-primary">{item.code}</span><span className="ml-2">{item.label}</span>
                           </button>
@@ -597,6 +581,60 @@ export default function MaternityPatientDetail() {
           <PenLine size={40} className="text-slate-300 mb-3" />
           <p className="text-sm font-medium">Doctor access required</p>
           <p className="text-xs mt-1">Only doctors can perform maternity consultations</p>
+        </div>
+      )}
+
+      {/* ICD-11 Confirmation Modal */}
+      {icdConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setIcdConfirmModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center"><Search size={16} className="text-white" /></div>
+                <div>
+                  <p className="text-sm font-semibold text-white">Confirm ICD-11 Diagnosis</p>
+                  <p className="text-[11px] text-white/70">Review the diagnosis before saving</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-purple-50 rounded-xl p-4 border border-purple-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-700 font-mono text-xs font-bold">{icdConfirmModal.code}</span>
+                  {icdConfirmModal.chapter && <span className="text-[10px] text-purple-500 font-medium">{icdConfirmModal.chapter}</span>}
+                </div>
+                <p className="text-sm font-medium text-slate-800">{icdConfirmModal.label}</p>
+              </div>
+              <p className="text-xs text-slate-400">This diagnosis will be added to a new maternity encounter. It will appear in the patient's maternity record and can be referenced for treatment planning.</p>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+              <button onClick={() => setIcdConfirmModal(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100">Cancel</button>
+              <button onClick={async () => {
+                const item = icdConfirmModal
+                setIcdConfirmModal(null)
+                if (!record?.patient_id) return
+                try {
+                  const encRes = await fetch('/api/encounters', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                    body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
+                  })
+                  const enc = await encRes.json()
+                  await fetch(`/api/encounters/${enc.id}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                    body: JSON.stringify({ diagnoses: [{ code: item.code, label: item.label, diagnosed_at: new Date().toISOString() }] }),
+                  })
+                  setIcdMessage(`Diagnosis added: ${item.code} — ${item.label}`)
+                  setTimeout(() => setIcdMessage(''), 4000)
+                  fetch(`/api/encounters?patient_id=${record.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+                    .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
+                } catch {}
+              }}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium hover:scale-[1.01] transition-transform">
+                <CheckCircle size={14} /> Confirm Diagnosis
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

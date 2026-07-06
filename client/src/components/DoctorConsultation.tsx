@@ -164,6 +164,7 @@ export default function DoctorConsultation() {
   const [radModalImage, setRadModalImage] = useState<string | null>(null)
   const [maternityRecord, setMaternityRecord] = useState<any>(null)
   const [lastANCVisit, setLastANCVisit] = useState<any>(null)
+  const [icdConfirmModal, setIcdConfirmModal] = useState<{ code: string; label: string; chapter: string } | null>(null)
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => { setToast({ show: true, message, type }) }, [])
   const dismissToast = useCallback(() => { setToast((prev) => ({ ...prev, show: false })) }, [])
@@ -551,22 +552,14 @@ export default function DoctorConsultation() {
                     </div>
                   </div>
                   <div className="overflow-y-auto max-h-44">
-                    {filteredIcd.map((item) => (
-                      <button key={item.code} onClick={async () => {
-                        setSelectedIcd(item.code); setIcdOpen(false); setIcdSearch('')
-                        const encId = await ensureEncounter()
-                        try {
-                          const existing = await api.get(`/encounters/${encId}`)
-                          const current = existing.data?.diagnoses || []
-                          if (!current.some((d: any) => d.code === item.code)) {
-                            await api.put(`/encounters/${encId}`, { diagnoses: [...current, { code: item.code, label: item.label, diagnosed_at: new Date().toISOString() }] })
-                          }
-                        } catch {}
-                      }}
+                    {filteredIcd.map((item) => {
+                      const fullItem = ICD11_CODES.find((c) => c.code === item.code)
+                      return (
+                      <button key={item.code} onClick={() => { setIcdOpen(false); setIcdSearch(''); setIcdConfirmModal({ code: item.code, label: item.label, chapter: fullItem?.chapter || '' }) }}
                         className={`w-full text-left px-4 py-2 text-sm hover:bg-blue-50 transition-colors ${selectedIcd === item.code ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-600'}`}>
                         <span className="font-mono text-xs text-primary">{item.code}</span><span className="ml-2">{item.label}</span>
-                      </button>
-                    ))}
+                      </button>)
+                    })}
                     {filteredIcd.length === 0 && <p className="px-4 py-3 text-sm text-slate-400">No matching codes found</p>}
                   </div>
                 </div>
@@ -1097,6 +1090,54 @@ export default function DoctorConsultation() {
                timelineModal.radiologyOrders.length === 0 && (
                 <p className="text-sm text-slate-400 text-center py-4">No additional details recorded for this encounter.</p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ICD-11 Confirmation Modal */}
+      {icdConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setIcdConfirmModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-blue-500 to-primary px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center"><Search size={16} className="text-white" /></div>
+                <div>
+                  <p className="text-sm font-semibold text-white">Confirm ICD-11 Diagnosis</p>
+                  <p className="text-[11px] text-white/70">Review the diagnosis before saving</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 font-mono text-xs font-bold">{icdConfirmModal.code}</span>
+                  {icdConfirmModal.chapter && <span className="text-[10px] text-blue-500 font-medium">{icdConfirmModal.chapter}</span>}
+                </div>
+                <p className="text-sm font-medium text-slate-800">{icdConfirmModal.label}</p>
+              </div>
+              <p className="text-xs text-slate-400">This diagnosis will be added to the current encounter. It will appear in the patient's medical record and can be referenced for treatment planning, billing, and reporting.</p>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+              <button onClick={() => setIcdConfirmModal(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100">Cancel</button>
+              <button onClick={async () => {
+                const item = icdConfirmModal
+                setIcdConfirmModal(null)
+                setSelectedIcd(item.code)
+                try {
+                  const encId = await ensureEncounter()
+                  const existing = await api.get(`/encounters/${encId}`)
+                  const current = existing.data?.diagnoses || []
+                  if (!current.some((d: any) => d.code === item.code)) {
+                    await api.put(`/encounters/${encId}`, { diagnoses: [...current, { code: item.code, label: item.label, diagnosed_at: new Date().toISOString() }] })
+                  }
+                  showToast(`Diagnosis added: ${item.code} — ${item.label}`, 'success')
+                } catch { showToast('Failed to save diagnosis', 'error') }
+              }}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
+                <CheckCircle size={14} /> Confirm Diagnosis
+              </button>
             </div>
           </div>
         </div>
