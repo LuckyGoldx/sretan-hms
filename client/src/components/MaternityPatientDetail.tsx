@@ -1,0 +1,919 @@
+import { useState, useEffect } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { Baby, ArrowLeft, Loader2, Activity, Calendar, Stethoscope, Heart, FileText, X, CheckCircle, Plus, PenLine, FlaskConical, ScanLine, Pill, Search, Clock, ChevronDown } from 'lucide-react'
+import { ICD11_CODES } from '../data/icd11Codes'
+const icd11Codes = ICD11_CODES
+
+export default function MaternityPatientDetail() {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const [record, setRecord] = useState<any>(null)
+  const [visits, setVisits] = useState<any[]>([])
+  const [delivery, setDelivery] = useState<any>(null)
+  const [newborns, setNewborns] = useState<any[]>([])
+  const [postnatalVisits, setPostnatalVisits] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState('profile')
+  const [role, setRole] = useState('')
+  const [staffId, setStaffId] = useState('')
+  const [staffName, setStaffName] = useState('')
+
+  // Consultation state
+  const [maternityEncounters, setMaternityEncounters] = useState<any[]>([])
+  const [soap, setSoap] = useState({ subjective: '', objective: '', assessment: '', plan: '', notes: '' })
+  const [labForm, setLabForm] = useState({ test_name: '', doctor_comment: '' })
+  const [radiologyForm, setRadiologyForm] = useState({ imaging_type: '', doctor_comment: '' })
+  const [rxForm, setRxForm] = useState({ drug_name: '', dosage: '', quantity: '', instructions: '' })
+  const [labCatalog, setLabCatalog] = useState<any[]>([])
+  const [radiologyInventory, setRadiologyInventory] = useState<any[]>([])
+  const [pharmacyInventory, setPharmacyInventory] = useState<any[]>([])
+  const [consultSubmitting, setConsultSubmitting] = useState(false)
+  const [selectedEncounter, setSelectedEncounter] = useState<any>(null)
+  const [activeConsultTab, setActiveConsultTab] = useState('soap')
+  const [activeConsultModal, setActiveConsultModal] = useState<'lab' | 'radiology' | null>(null)
+  const [showDrugSuggestions, setShowDrugSuggestions] = useState(false)
+  const [icdSearch, setIcdSearch] = useState('')
+  const [selectedIcd, setSelectedIcd] = useState('')
+  const [selectedIcdLabel, setSelectedIcdLabel] = useState('')
+  const [icdMessage, setIcdMessage] = useState('')
+  const [icdOpen, setIcdOpen] = useState(false)
+
+  const [showANCModal, setShowANCModal] = useState(false)
+  const [ancForm, setAncForm] = useState<any>({})
+  const [ancSubmitting, setAncSubmitting] = useState(false)
+  const [showAdmitModal, setShowAdmitModal] = useState(false)
+  const [admitForm, setAdmitForm] = useState<any>({})
+  const [admitSubmitting, setAdmitSubmitting] = useState(false)
+
+  useEffect(() => {
+    try {
+      const u = localStorage.getItem('sretan_user')
+      if (u) { const p = JSON.parse(u); setRole(p.role || ''); setStaffId(p.id || ''); setStaffName(p.name || '') }
+    } catch {}
+  }, [])
+
+  async function loadData() {
+    if (!id) return
+    setLoading(true)
+    try {
+      const [recRes, visitsRes, delRes] = await Promise.all([
+        fetch(`/api/maternity-patients/${id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+        fetch(`/api/antenatal-visits?maternity_patient_id=${id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+        fetch(`/api/maternity-deliveries?maternity_patient_id=${id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+      ])
+      const rec = await recRes.json()
+      setRecord(rec)
+      const v = await visitsRes.json()
+      setVisits(Array.isArray(v) ? v : [])
+      const d = await delRes.json()
+      if (Array.isArray(d) && d.length > 0) {
+        setDelivery(d[0])
+        const delDetail = await fetch(`/api/maternity-deliveries/${d[0].id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+        const dd = await delDetail.json()
+        setNewborns(dd.newborns || [])
+        const pnRes = await fetch(`/api/postnatal-visits?delivery_id=${d[0].id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+        const pn = await pnRes.json()
+        setPostnatalVisits(Array.isArray(pn) ? pn : [])
+      }
+      // Load maternity encounters + catalog data
+      if (rec?.patient_id) {
+        fetch(`/api/encounters?patient_id=${rec.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+          .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
+      }
+    } catch {} finally { setLoading(false) }
+  }
+
+  useEffect(() => { loadData() }, [id])
+
+  const canEdit = role === 'Doctor' || role === 'Nurse' || role === 'Admin'
+  const isRecords = role === 'Records'
+  const isDoctor = role === 'Doctor'
+
+  // Load catalog data for consultation
+  useEffect(() => {
+    if (!isDoctor) return
+    fetch('/api/lab-test-catalog', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+      .then((r) => r.json()).then((d) => setLabCatalog(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch('/api/inventory?category=radiology', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+      .then((r) => r.json()).then((d) => setRadiologyInventory(Array.isArray(d) ? d : [])).catch(() => {})
+    fetch('/api/inventory?category=pharmacy', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+      .then((r) => r.json()).then((d) => setPharmacyInventory(Array.isArray(d) ? d : [])).catch(() => {})
+  }, [isDoctor])
+
+  async function handleSOAPSubmit() {
+    if (!record?.patient_id) return
+    setConsultSubmitting(true)
+    try {
+      const encRes = await fetch('/api/encounters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+        body: JSON.stringify({
+          patient_id: record.patient_id,
+          encounter_type: 'maternity',
+          chief_complaint: soap.subjective.slice(0, 200),
+          soap_notes: soap,
+          staff_id: staffId,
+        }),
+      })
+      const enc = await encRes.json()
+      // Re-fetch encounters
+      fetch(`/api/encounters?patient_id=${record.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+        .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
+      setSoap({ subjective: '', objective: '', assessment: '', plan: '', notes: '' })
+    } catch {} finally { setConsultSubmitting(false) }
+  }
+
+  async function handleLabOrder() {
+    if (!record?.patient_id || !labForm.test_name.trim()) return
+    setConsultSubmitting(true)
+    try {
+      const encRes = await fetch('/api/encounters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+        body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
+      })
+      const enc = await encRes.json()
+      await fetch('/api/lab-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+        body: JSON.stringify({ encounter_id: enc.id, test_name: labForm.test_name.trim(), doctor_comment: labForm.doctor_comment.trim() || undefined }),
+      })
+      setLabForm({ test_name: '', doctor_comment: '' })
+      loadData()
+    } catch {} finally { setConsultSubmitting(false) }
+  }
+
+  async function handleRadiologyOrder() {
+    if (!record?.patient_id || !radiologyForm.imaging_type.trim()) return
+    setConsultSubmitting(true)
+    try {
+      const encRes = await fetch('/api/encounters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+        body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
+      })
+      const enc = await encRes.json()
+      await fetch('/api/radiology-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+        body: JSON.stringify({ encounter_id: enc.id, imaging_type: radiologyForm.imaging_type.trim(), doctor_name: staffName, patient_name: record.full_name, doctor_comment: radiologyForm.doctor_comment.trim() || undefined }),
+      })
+      setRadiologyForm({ imaging_type: '', doctor_comment: '' })
+      loadData()
+    } catch {} finally { setConsultSubmitting(false) }
+  }
+
+  async function handleRxSubmit() {
+    if (!record?.patient_id || !rxForm.drug_name.trim()) return
+    setConsultSubmitting(true)
+    try {
+      const encRes = await fetch('/api/encounters', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+        body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
+      })
+      const enc = await encRes.json()
+      await fetch('/api/prescriptions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+        body: JSON.stringify({ encounter_id: enc.id, drug_name: rxForm.drug_name.trim(), dosage: rxForm.dosage, quantity: Number(rxForm.quantity) || 0, instructions: rxForm.instructions }),
+      })
+      setRxForm({ drug_name: '', dosage: '', quantity: '', instructions: '' })
+      loadData()
+    } catch {} finally { setConsultSubmitting(false) }
+  }
+
+  async function handleANCSubmit() {
+    if (!id) return
+    setAncSubmitting(true)
+    try {
+      await fetch('/api/antenatal-visits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+        body: JSON.stringify({ ...ancForm, maternity_patient_id: id, staff_id: staffId }),
+      })
+      setShowANCModal(false)
+      setAncForm({})
+      loadData()
+    } catch {} finally { setAncSubmitting(false) }
+  }
+
+  function formatDate(d: string) {
+    if (!d) return '—'
+    return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+  }
+
+  function calcGestAge(edd: string): number {
+    if (!edd) return 0
+    const diff = new Date(edd).getTime() - Date.now()
+    return Math.max(0, 40 - Math.floor(diff / (7 * 24 * 60 * 60 * 1000)))
+  }
+
+  if (loading) return <div className="flex justify-center py-20"><Loader2 size={32} className="animate-spin text-primary" /></div>
+  if (!record) return <div className="flex justify-center py-20 text-slate-400">Record not found</div>
+
+  const tabs = [
+    { id: 'profile', label: 'Profile', icon: Baby },
+    { id: 'visits', label: `ANC Visits (${visits.length})`, icon: Calendar },
+    { id: 'consultation', label: `Consultation`, icon: PenLine },
+    { id: 'delivery', label: delivery ? 'Delivery' : 'Delivery', icon: Stethoscope },
+    { id: 'postnatal', label: `Postnatal (${postnatalVisits.length})`, icon: Heart },
+  ]
+
+  return (
+    <div className="max-w-6xl mx-auto space-y-6">
+      <div className="flex items-start gap-3 flex-wrap">
+        <button onClick={() => navigate('/maternity/patients')} className="p-2 rounded-xl hover:bg-slate-100 mt-0.5"><ArrowLeft size={20} className="text-slate-500" /></button>
+        <div className="w-10 h-10 rounded-xl bg-pink-100 flex items-center justify-center mt-0.5"><Baby size={22} className="text-pink-600" /></div>
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl font-semibold text-slate-800 truncate">{record.full_name}</h1>
+          <p className="text-sm text-slate-400 truncate">{record.hospital_number} &middot; DOB: {record.dob?.slice(0, 10)}</p>
+        </div>
+        <div className="flex gap-2">
+          {record.status === 'active' && canEdit && (
+            <button onClick={() => setShowAdmitModal(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium">
+              <Stethoscope size={15} /> Admit for Labour
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {tabs.map((t) => {
+          const Icon = t.icon
+          return (
+            <button key={t.id} onClick={() => setActiveTab(t.id)}
+              className={`flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                activeTab === t.id ? 'bg-pink-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+              }`}>
+              <Icon size={12} className="hidden sm:inline" /> {t.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {activeTab === 'profile' && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+          <h2 className="text-base font-semibold text-slate-800">Pregnancy Profile</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div><p className="text-xs text-slate-400">EDD</p><p className="text-sm font-medium text-slate-800">{formatDate(record.edd)}</p></div>
+            <div><p className="text-xs text-slate-400">Gestational Age</p><p className="text-sm font-medium text-slate-800">{calcGestAge(record.edd)} weeks</p></div>
+            <div><p className="text-xs text-slate-400">LMP</p><p className="text-sm font-medium text-slate-800">{formatDate(record.lmp)}</p></div>
+            <div><p className="text-xs text-slate-400">Booking GA</p><p className="text-sm font-medium text-slate-800">{record.booking_gestational_age ? `${record.booking_gestational_age}w` : '—'}</p></div>
+            <div><p className="text-xs text-slate-400">Gravida / Para</p><p className="text-sm font-medium text-slate-800">G{record.gravida} P{record.para}</p></div>
+            <div><p className="text-xs text-slate-400">Living Children</p><p className="text-sm font-medium text-slate-800">{record.living_children}</p></div>
+            <div><p className="text-xs text-slate-400">Miscarriages</p><p className="text-sm font-medium text-slate-800">{record.miscarriages ?? 0}</p></div>
+            <div><p className="text-xs text-slate-400">Babies Alive</p><p className="text-sm font-medium text-slate-800">{record.baby_alive ?? 0}</p></div>
+            <div><p className="text-xs text-slate-400">Blood Group</p><p className="text-sm font-medium text-slate-800">{record.blood_group || '—'}</p></div>
+            <div><p className="text-xs text-slate-400">Genotype</p><p className="text-sm font-medium text-slate-800">{record.genotype || '—'}</p></div>
+            <div><p className="text-xs text-slate-400">Rh Factor</p><p className="text-sm font-medium text-slate-800">{record.rh_factor || '—'}</p></div>
+            <div><p className="text-xs text-slate-400">HIV Status</p><p className="text-sm font-medium text-slate-800">{record.hiv_status || '—'}</p></div>
+            <div><p className="text-xs text-slate-400">HBV Status</p><p className="text-sm font-medium text-slate-800">{record.hbv_status || '—'}</p></div>
+            <div>
+              <p className="text-xs text-slate-400">Risk Level</p>
+              <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium mt-1 ${
+                record.risk_level === 'high' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+              }`}>{record.risk_level}</span>
+            </div>
+          </div>
+          {record.risk_factors && (
+            <div><p className="text-xs text-slate-400 mb-1">Risk Factors</p><p className="text-sm text-slate-600 bg-slate-50 rounded-xl p-3">{record.risk_factors}</p></div>
+          )}
+          <div className="text-xs text-slate-400 pt-2 border-t border-slate-100">
+            Booked: {formatDate(record.booked_at)} &middot; Status: <span className="font-medium">{record.status}</span>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'visits' && (
+        <div className="space-y-4">
+          {canEdit && (
+            <button onClick={() => setShowANCModal(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium">
+              <Plus size={15} /> Record ANC Visit
+            </button>
+          )}
+          {visits.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
+              <Calendar size={40} className="text-slate-300 mx-auto mb-3" />
+              <p className="text-sm text-slate-400">No ANC visits recorded yet</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {visits.map((v) => (
+                <div key={v.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-semibold text-slate-800">Visit #{v.visit_number}</h3>
+                    <span className="text-xs text-slate-400">{formatDate(v.visit_date)} &middot; GA: {v.gestational_age_weeks}w</span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    {v.weight && <div><span className="text-slate-400">Weight:</span> <span className="font-medium">{v.weight} kg</span></div>}
+                    {v.systolic_bp && <div><span className="text-slate-400">BP:</span> <span className="font-medium">{v.systolic_bp}/{v.diastolic_bp}</span></div>}
+                    {v.fundal_height && <div><span className="text-slate-400">FH:</span> <span className="font-medium">{v.fundal_height} cm</span></div>}
+                    {v.fetal_presentation && <div><span className="text-slate-400">Presentation:</span> <span className="font-medium">{v.fetal_presentation}</span></div>}
+                    {v.fetal_heart_rate && <div><span className="text-slate-400">FHR:</span> <span className="font-medium">{v.fetal_heart_rate} bpm</span></div>}
+                    {v.fetal_heart_sound && <div><span className="text-slate-400">FH Sound:</span> <span className="font-medium">{v.fetal_heart_sound}</span></div>}
+                    {v.urine_protein && <div><span className="text-slate-400">Urine Protein:</span> <span className="font-medium">{v.urine_protein}</span></div>}
+                    {v.urine_glucose && <div><span className="text-slate-400">Urine Glucose:</span> <span className="font-medium">{v.urine_glucose}</span></div>}
+                    {v.hemoglobin && <div><span className="text-slate-400">Hb:</span> <span className="font-medium">{v.hemoglobin} g/dL</span></div>}
+                    {v.pcv && <div><span className="text-slate-400">PCV:</span> <span className="font-medium">{v.pcv}%</span></div>}
+                    {v.tt_dose && <div><span className="text-slate-400">TT Dose:</span> <span className="font-medium">{v.tt_dose}</span></div>}
+                  </div>
+                  <div className="flex items-center gap-3 mt-2 text-[10px] text-slate-400">
+                    {v.iycf_given && <span className="text-green-600">Iron/Folate given</span>}
+                    {v.next_appointment_date && <span>Next: {formatDate(v.next_appointment_date)}</span>}
+                    {v.staff_name && <span>By: {v.staff_name}</span>}
+                  </div>
+                  {v.notes && <p className="text-xs text-slate-500 bg-slate-50 rounded-xl p-2 mt-2">{v.notes}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'consultation' && isDoctor && (
+        <div className="space-y-6">
+          {/* Pregnancy Banner */}
+          <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-4">
+            <div className="flex items-start gap-3 flex-wrap">
+              <div className="w-8 h-8 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0"><Baby size={16} className="text-purple-600" /></div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-purple-800">Antenatal Patient</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-purple-700">
+                  <span>EDD: {record.edd?.slice(0, 10) || '—'}</span>
+                  {record.edd && <span>Gest. Age: {calcGestAge(record.edd)} weeks</span>}
+                  <span>G{record.gravida} P{record.para}</span>
+                  <span>Living: {record.living_children ?? 0}</span>
+                  <span className={`px-2 py-0.5 rounded-full font-medium ${record.risk_level === 'high' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{record.risk_level} risk</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sub-tabs */}
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {[
+              { id: 'soap', label: 'SOAP Note', icon: PenLine },
+              { id: 'orders', label: 'Orders', icon: FlaskConical },
+              { id: 'prescribe', label: 'Prescribe', icon: Pill },
+              { id: 'icd', label: 'ICD-11', icon: Search },
+            ].map((st) => {
+              const Icon = st.icon
+              const isActive = (activeConsultTab || 'soap') === st.id
+              return (
+                <button key={st.id} onClick={() => setActiveConsultTab(st.id)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${
+                    isActive ? 'bg-primary text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                  }`}>
+                  <Icon size={15} /> {st.label}
+                </button>
+              )
+            })}
+          </div>
+
+          {/* SOAP Tab */}
+          {(activeConsultTab || 'soap') === 'soap' && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(['subjective', 'objective', 'assessment', 'plan'] as const).map((f) => (
+                  <div key={f}>
+                    <label className="block text-xs font-medium text-slate-500 mb-1.5 capitalize flex items-center gap-1">{f}</label>
+                    <textarea rows={3} value={soap[f]} onChange={(e) => setSoap((p) => ({ ...p, [f]: e.target.value }))}
+                      placeholder={f === 'subjective' ? "Patient's reported symptoms, history..." : f === 'objective' ? "Exam findings, vitals..." : f === 'assessment' ? "Diagnosis, clinical reasoning..." : "Treatment plan, follow-up..."}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary transition-shadow resize-none" />
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4">
+                <label className="block text-xs font-medium text-slate-500 mb-1.5">Notes</label>
+                <textarea rows={2} value={soap.notes} onChange={(e) => setSoap((p) => ({ ...p, notes: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary transition-shadow resize-none" />
+              </div>
+              <button onClick={handleSOAPSubmit} disabled={consultSubmitting || (!soap.subjective && !soap.objective && !soap.assessment && !soap.plan)}
+                className="mt-4 w-full flex items-center justify-center gap-2 bg-primary text-white font-semibold py-2.5 px-6 rounded-xl shadow-sm hover:scale-[1.01] transition-all disabled:opacity-50">
+                {consultSubmitting ? <><Loader2 size={15} className="animate-spin" /> Saving...</> : <><PenLine size={15} /> Save SOAP Note</>}
+              </button>
+
+              {/* Encounter Timeline */}
+              <div className="mt-6 pt-4 border-t border-slate-100">
+                <h2 className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-3">Maternity Consultation History ({maternityEncounters.length})</h2>
+                {maternityEncounters.length === 0 ? (
+                  <p className="text-sm text-slate-400">No prior maternity encounters.</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {maternityEncounters.slice(0, 15).map((enc, idx) => (
+                      <button key={enc.id} onClick={() => setSelectedEncounter(enc)}
+                        className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border transition-all hover:shadow-md ${
+                          idx === 0 ? 'border-blue-200 bg-blue-50/40' : 'border-slate-100 bg-slate-50/40'
+                        }`}>
+                        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5"><Clock size={14} className="text-primary" /></div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">{enc.encounter_type}</span>
+                            <span className="text-xs text-slate-400">{new Date(enc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                            {idx === 0 && <span className="text-[10px] font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">Current</span>}
+                          </div>
+                          {enc.soap_notes?.subjective && <p className="text-sm text-slate-600 mt-1 line-clamp-2">{enc.soap_notes.subjective}</p>}
+                          <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-400">
+                            {enc.staff_name ? <span>By: <strong>{enc.staff_name}</strong></span> : null}
+                          </div>
+                        </div>
+                        <ChevronDown size={14} className="text-slate-300 flex-shrink-0 mt-2" />
+                      </button>
+                    ))}
+                  </div>
+                )}</div></div>)}
+
+          {/* Orders Tab */}
+          {(activeConsultTab || 'soap') === 'orders' && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="flex gap-3 mb-4">
+                <button onClick={() => setActiveConsultModal('lab')}
+                  className="flex-1 flex items-center justify-center gap-2 py-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 text-sm font-medium hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 hover:scale-[1.01] transition-all">
+                  <FlaskConical size={18} /> Order Lab Test
+                </button>
+                <button onClick={() => setActiveConsultModal('radiology')}
+                  className="flex-1 flex items-center justify-center gap-2 py-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-700 text-sm font-medium hover:bg-blue-50 hover:border-blue-200 hover:text-blue-600 hover:scale-[1.01] transition-all">
+                  <ScanLine size={18} /> Order Radiology
+                </button>
+              </div>
+              <p className="text-xs text-slate-400 text-center">Orders are created under a new maternity encounter</p>
+            </div>
+          )}
+
+          {/* Prescribe Tab */}
+          {(activeConsultTab || 'soap') === 'prescribe' && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="space-y-3">
+                <div className="relative">
+                  <label className="block text-xs font-medium text-slate-500 mb-1.5">Drug Name</label>
+                  <div className="relative">
+                    <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" />
+                    <input type="text" placeholder="Type drug name or search inventory..." value={rxForm.drug_name}
+                      onChange={(e) => { setRxForm((p) => ({ ...p, drug_name: e.target.value })); setShowDrugSuggestions(true) }}
+                      onFocus={() => setShowDrugSuggestions(true)} onBlur={() => setTimeout(() => setShowDrugSuggestions(false), 200)}
+                      className="w-full rounded-xl border border-slate-200 pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
+                  </div>
+                  {showDrugSuggestions && rxForm.drug_name.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
+                      {pharmacyInventory.filter((d: any) => d.drug_name?.toLowerCase().includes(rxForm.drug_name.toLowerCase())).slice(0, 10).map((drug: any) => (
+                        <button key={drug.id || drug.drug_name} type="button" onMouseDown={() => { setRxForm((p) => ({ ...p, drug_name: drug.drug_name })); setShowDrugSuggestions(false) }}
+                          className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors flex items-center gap-2"><Pill size={13} className="text-blue-500" /> {drug.drug_name}</button>
+                      ))}
+                      <div className="px-4 py-2 text-xs text-slate-400 border-t border-slate-100">Type any custom drug name — it will be sent to pharmacy</div>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1.5">Dosage</label>
+                    <input type="text" placeholder="e.g. 500mg" value={rxForm.dosage}
+                      onChange={(e) => setRxForm((p) => ({ ...p, dosage: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1.5">Quantity</label>
+                    <input type="number" placeholder="30" value={rxForm.quantity}
+                      onChange={(e) => setRxForm((p) => ({ ...p, quantity: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1.5">Instructions</label>
+                  <textarea rows={2} placeholder="e.g. Take one capsule three times daily after meals" value={rxForm.instructions}
+                    onChange={(e) => setRxForm((p) => ({ ...p, instructions: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary resize-none" />
+                </div>
+                <button onClick={handleRxSubmit} disabled={consultSubmitting || !rxForm.drug_name.trim()}
+                  className="w-full flex items-center justify-center gap-2 bg-primary text-white font-semibold py-2.5 px-4 rounded-xl shadow-sm hover:scale-[1.01] transition-all disabled:opacity-50">
+                  {consultSubmitting ? <><Loader2 size={14} className="animate-spin" /> Submitting...</> : <><Pill size={15} /> Issue Prescription</>}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ICD-11 Tab */}
+          {(activeConsultTab || 'soap') === 'icd' && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+              <div className="relative">
+                <button onClick={() => setIcdOpen((prev) => !prev)}
+                  className="w-full flex items-center justify-between rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-700 bg-white hover:border-slate-300 transition-colors">
+                  <span className={selectedIcd ? 'text-slate-700' : 'text-slate-400'}>{selectedIcd || 'Select ICD-11 code...'}</span>
+                  <ChevronDown size={15} className={`text-slate-400 transition-transform ${icdOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {icdOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setIcdOpen(false)} />
+                    <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-60 overflow-hidden">
+                      <div className="p-2 border-b border-slate-100">
+                        <div className="relative">
+                          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" />
+                          <input type="text" placeholder="Search codes..." value={icdSearch} onChange={(e) => setIcdSearch(e.target.value)}
+                            className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary" />
+                        </div>
+                      </div>
+                      <div className="overflow-y-auto max-h-44">
+                        {(icdSearch ? icd11Codes.filter((c) => c.code.toLowerCase().includes(icdSearch.toLowerCase()) || c.label.toLowerCase().includes(icdSearch.toLowerCase())) : icd11Codes).map((item) => (
+                          <button key={item.code} onClick={async () => {
+                            setSelectedIcd(item.code); setSelectedIcdLabel(item.label); setIcdOpen(false); setIcdSearch('')
+                            if (!record?.patient_id) return
+                            const encRes = await fetch('/api/encounters', {
+                              method: 'POST', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                              body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
+                            })
+                            const enc = await encRes.json()
+                            await fetch(`/api/encounters/${enc.id}`, {
+                              method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                              body: JSON.stringify({ diagnoses: [{ code: item.code, label: item.label, diagnosed_at: new Date().toISOString() }] }),
+                            }).then(() => {
+                              setIcdMessage(`Diagnosis added: ${item.code} — ${item.label}`)
+                              setTimeout(() => setIcdMessage(''), 4000)
+                              fetch(`/api/encounters?patient_id=${record.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+                                .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
+                            })
+                          }}
+                            className={`w-full text-left px-4 py-2 text-sm hover:bg-blue-50 transition-colors ${selectedIcd === item.code ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-600'}`}>
+                            <span className="font-mono text-xs text-primary">{item.code}</span><span className="ml-2">{item.label}</span>
+                          </button>
+                        ))}
+                        {icdSearch && icd11Codes.filter((c) => c.code.toLowerCase().includes(icdSearch.toLowerCase()) || c.label.toLowerCase().includes(icdSearch.toLowerCase())).length === 0 && (
+                          <p className="px-4 py-3 text-sm text-slate-400">No matching codes found</p>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+              {icdMessage && (
+                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700 mt-3">
+                  <CheckCircle size={16} className="text-emerald-500 flex-shrink-0" />
+                  <span>{icdMessage}</span>
+                </div>
+              )}
+              <p className="text-xs text-slate-400 text-center mt-2">The diagnosis is saved to a new maternity encounter — view it under Consultation History</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Encounter Detail Modal */}
+      {selectedEncounter && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setSelectedEncounter(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <h2 className="text-base font-semibold text-slate-800">Consultation Details</h2>
+              <button onClick={() => setSelectedEncounter(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="overflow-y-auto flex-1 p-6 space-y-4">
+              <p className="text-xs text-slate-400">{new Date(selectedEncounter.created_at).toLocaleString()} {selectedEncounter.staff_name ? `by ${selectedEncounter.staff_name}` : ''}</p>
+              {selectedEncounter.soap_notes && (
+                <div className="space-y-2">
+                  {(['subjective', 'objective', 'assessment', 'plan'] as const).map((f) => (
+                    selectedEncounter.soap_notes[f] ? (
+                      <div key={f}>
+                        <p className="text-xs font-semibold text-slate-500 uppercase">{f}</p>
+                        <p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-2.5 mt-0.5">{selectedEncounter.soap_notes[f]}</p>
+                      </div>
+                    ) : null
+                  ))}
+                </div>
+              )}
+              {selectedEncounter.notes && <div><p className="text-xs font-semibold text-slate-500 uppercase">Notes</p><p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-2.5 mt-0.5">{selectedEncounter.notes}</p></div>}
+              {selectedEncounter.diagnoses && Array.isArray(selectedEncounter.diagnoses) && selectedEncounter.diagnoses.length > 0 && (
+                <div><p className="text-xs font-semibold text-slate-500 uppercase">Diagnoses</p><div className="flex flex-wrap gap-1.5 mt-1">{selectedEncounter.diagnoses.map((d: any, i: number) => <span key={i} className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-xs">{d.label || d}</span>)}</div></div>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end flex-shrink-0">
+              <button onClick={() => setSelectedEncounter(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'consultation' && !isDoctor && (
+        <div className="flex flex-col items-center py-16 text-slate-400">
+          <PenLine size={40} className="text-slate-300 mb-3" />
+          <p className="text-sm font-medium">Doctor access required</p>
+          <p className="text-xs mt-1">Only doctors can perform maternity consultations</p>
+        </div>
+      )}
+
+      {/* Lab Order Modal */}
+      {activeConsultModal === 'lab' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setActiveConsultModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-sm font-semibold text-slate-800 flex items-center gap-2"><FlaskConical size={16} className="text-blue-500" /> Order Lab Test</h2>
+              <button onClick={() => setActiveConsultModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Test Name</label>
+                <input type="text" list="labTestOptions" value={labForm.test_name} onChange={(e) => setLabForm((p) => ({ ...p, test_name: e.target.value }))}
+                  placeholder="Start typing test name..." className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
+                <datalist id="labTestOptions">
+                  {labCatalog.map((t: any) => <option key={t.id || t.test_name || t.name} value={t.test_name || t.name} />)}
+                </datalist>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Doctor's Comment</label>
+                <textarea rows={2} value={labForm.doctor_comment} onChange={(e) => setLabForm((p) => ({ ...p, doctor_comment: e.target.value }))}
+                  placeholder="Optional..." className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary resize-none" />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setActiveConsultModal(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium">Cancel</button>
+              <button onClick={async () => { await handleLabOrder(); setActiveConsultModal(null) }} disabled={consultSubmitting || !labForm.test_name.trim()}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-blue-500 text-white text-sm font-medium disabled:opacity-50">
+                {consultSubmitting ? <Loader2 size={14} className="animate-spin" /> : <FlaskConical size={14} />}
+                Submit Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Radiology Order Modal */}
+      {activeConsultModal === 'radiology' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setActiveConsultModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-sm font-semibold text-slate-800 flex items-center gap-2"><ScanLine size={16} className="text-indigo-500" /> Order Radiology</h2>
+              <button onClick={() => setActiveConsultModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Imaging Type</label>
+                <input type="text" list="radiologyOptions" value={radiologyForm.imaging_type} onChange={(e) => setRadiologyForm((p) => ({ ...p, imaging_type: e.target.value }))}
+                  placeholder="Start typing imaging type..." className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
+                <datalist id="radiologyOptions">
+                  {radiologyInventory.map((t: any) => <option key={t.id || t.drug_name} value={t.drug_name} />)}
+                </datalist>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Doctor's Comment</label>
+                <textarea rows={2} value={radiologyForm.doctor_comment} onChange={(e) => setRadiologyForm((p) => ({ ...p, doctor_comment: e.target.value }))}
+                  placeholder="Optional..." className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary resize-none" />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setActiveConsultModal(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium">Cancel</button>
+              <button onClick={async () => { await handleRadiologyOrder(); setActiveConsultModal(null) }} disabled={consultSubmitting || !radiologyForm.imaging_type.trim()}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-500 text-white text-sm font-medium disabled:opacity-50">
+                {consultSubmitting ? <Loader2 size={14} className="animate-spin" /> : <ScanLine size={14} />}
+                Submit Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'delivery' && (
+        <div className="space-y-4">
+          {!delivery ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
+              <Stethoscope size={40} className="text-slate-300 mx-auto mb-3" />
+              <p className="text-sm text-slate-400">No delivery record yet</p>
+              {canEdit && (
+                <button onClick={() => navigate('/maternity/labour')}
+                  className="mt-3 px-4 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium">Admit for Labour</button>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+                <h2 className="text-base font-semibold text-slate-800">Delivery Record</h2>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                  <div><p className="text-xs text-slate-400">Date</p><p className="font-medium">{formatDate(delivery.delivery_date)}</p></div>
+                  <div><p className="text-xs text-slate-400">Time</p><p className="font-medium">{delivery.delivery_time || '—'}</p></div>
+                  <div><p className="text-xs text-slate-400">Type</p><p className="font-medium">{delivery.delivery_type || '—'}</p></div>
+                  <div><p className="text-xs text-slate-400">Place</p><p className="font-medium">{delivery.delivery_place || '—'}</p></div>
+                  <div><p className="text-xs text-slate-400">Perineum</p><p className="font-medium">{delivery.perineum_status || '—'}</p></div>
+                  <div><p className="text-xs text-slate-400">Placenta</p><p className="font-medium">{delivery.placenta_delivery || '—'}</p></div>
+                  <div><p className="text-xs text-slate-400">Blood Loss</p><p className="font-medium">{delivery.blood_loss_ml ? `${delivery.blood_loss_ml} mL` : '—'}</p></div>
+                  <div><p className="text-xs text-slate-400">Outcome</p><p className="font-medium">{delivery.outcome}</p></div>
+                </div>
+                {delivery.complication && delivery.complication !== 'none' && (
+                  <div><p className="text-xs text-slate-400 mb-1">Complication</p><p className="text-sm text-rose-600 bg-rose-50 rounded-xl p-3">{delivery.complication}{delivery.complication_notes ? ` — ${delivery.complication_notes}` : ''}</p></div>
+                )}
+                {delivery.delivered_by_name && <p className="text-xs text-slate-400">Delivered by: {delivery.delivered_by_name}</p>}
+              </div>
+
+              {newborns.length > 0 && (
+                <div className="space-y-3">
+                  <h2 className="text-base font-semibold text-slate-800">Newborn{newborns.length > 1 ? 's' : ''}</h2>
+                  {newborns.map((nb) => (
+                    <div key={nb.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Baby size={16} className="text-pink-500" />
+                        <span className="text-sm font-semibold text-slate-800">{nb.baby_name || `Baby #${nb.baby_number}`}</span>
+                        <span className="text-xs text-slate-400">{nb.baby_sex || ''}</span>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                        <div><span className="text-slate-400">Weight:</span> {nb.birth_weight ? `${nb.birth_weight} kg` : '—'}</div>
+                        <div><span className="text-slate-400">Length:</span> {nb.birth_length ? `${nb.birth_length} cm` : '—'}</div>
+                        <div><span className="text-slate-400">Head Circ:</span> {nb.head_circumference ? `${nb.head_circumference} cm` : '—'}</div>
+                        <div><span className="text-slate-400">APGAR:</span> {nb.apgar_1min != null ? `${nb.apgar_1min}/${nb.apgar_5min || '?'}/${nb.apgar_10min || '?'}` : '—'}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'postnatal' && (
+        <div className="space-y-4">
+          {!delivery ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
+              <Heart size={40} className="text-slate-300 mx-auto mb-3" />
+              <p className="text-sm text-slate-400">No delivery record — postnatal care starts after delivery</p>
+            </div>
+          ) : (
+            <>
+              {canEdit && (
+                <button onClick={() => navigate('/maternity/postnatal')}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-teal-500 text-white text-sm font-medium">
+                  <Plus size={15} /> Record Postnatal Visit
+                </button>
+              )}
+              {postnatalVisits.length === 0 ? (
+                <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
+                  <Heart size={40} className="text-slate-300 mx-auto mb-3" />
+                  <p className="text-sm text-slate-400">No postnatal visits recorded yet</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {postnatalVisits.map((pv) => (
+                    <div key={pv.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-semibold text-slate-800">Visit #{pv.visit_number}</span>
+                        <span className="text-xs text-slate-400">{formatDate(pv.visit_date)}</span>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                        {pv.fundal_height_cm != null && <div><span className="text-slate-400">Fundus:</span> {pv.fundal_height_cm} cm</div>}
+                        {pv.lochia && <div><span className="text-slate-400">Lochia:</span> {pv.lochia}</div>}
+                        {pv.systolic_bp && <div><span className="text-slate-400">BP:</span> {pv.systolic_bp}/{pv.diastolic_bp}</div>}
+                        {pv.breastfeeding_status && <div><span className="text-slate-400">BF:</span> {pv.breastfeeding_status}</div>}
+                        {pv.family_planning_discussed && <div><span className="text-slate-400">FP:</span> Discussed{pv.family_planning_method ? ` (${pv.family_planning_method})` : ''}</div>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {showANCModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!ancSubmitting) setShowANCModal(false) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Calendar size={18} className="text-primary" /> Record ANC Visit</h2>
+              <button onClick={() => setShowANCModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { label: 'Weight (kg)', key: 'weight', type: 'number' },
+                  { label: 'Systolic BP', key: 'systolic_bp', type: 'number' },
+                  { label: 'Diastolic BP', key: 'diastolic_bp', type: 'number' },
+                  { label: 'Fundal Height (cm)', key: 'fundal_height', type: 'number' },
+                  { label: 'Fetal Presentation', key: 'fetal_presentation', type: 'select', options: ['', 'cephalic', 'breech', 'transverse'] },
+                  { label: 'Fetal Heart Rate', key: 'fetal_heart_rate', type: 'number' },
+                  { label: 'FH Sound', key: 'fetal_heart_sound', type: 'text' },
+                  { label: 'Urine Protein', key: 'urine_protein', type: 'select', options: ['', 'negative', 'trace', '+1', '+2', '+3'] },
+                  { label: 'Urine Glucose', key: 'urine_glucose', type: 'select', options: ['', 'negative', 'trace', '+1', '+2', '+3'] },
+                  { label: 'Hemoglobin (g/dL)', key: 'hemoglobin', type: 'number' },
+                  { label: 'PCV (%)', key: 'pcv', type: 'number' },
+                  { label: 'TT Dose', key: 'tt_dose', type: 'select', options: ['', '1', '2', '3', '4', '5', 'completed'] },
+                ].map((f) => (
+                  <div key={f.key}>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
+                    {f.type === 'select' ? (
+                      <select value={ancForm[f.key] || ''} onChange={(e) => setAncForm((p: any) => ({ ...p, [f.key]: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-primary">
+                        {(f.options || []).map((o) => <option key={o} value={o}>{o || 'Select'}</option>)}
+                      </select>
+                    ) : (
+                      <input type={f.type} step="any" value={ancForm[f.key] || ''} onChange={(e) => setAncForm((p: any) => ({ ...p, [f.key]: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input type="checkbox" checked={ancForm.iycf_given || false}
+                    onChange={(e) => setAncForm((p: any) => ({ ...p, iycf_given: e.target.checked }))}
+                    className="rounded border-slate-300" />
+                  Iron/Folate Given
+                </label>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Next Appointment Date</label>
+                <input type="date" value={ancForm.next_appointment_date || ''}
+                  onChange={(e) => setAncForm((p: any) => ({ ...p, next_appointment_date: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Notes</label>
+                <textarea rows={3} value={ancForm.notes || ''} onChange={(e) => setAncForm((p: any) => ({ ...p, notes: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary resize-none" />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setShowANCModal(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium">Cancel</button>
+              <button onClick={handleANCSubmit} disabled={ancSubmitting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium disabled:opacity-50">
+                {ancSubmitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                {ancSubmitting ? 'Saving...' : 'Save Visit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Labour Admission Modal */}
+      {showAdmitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!admitSubmitting) setShowAdmitModal(false) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800">Admit for Labour — {record?.full_name}</h2>
+              <button onClick={() => setShowAdmitModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-slate-500">This will admit the patient to the Maternity Ward and create a labour/delivery record.</p>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Admission Time</label>
+                <input type="datetime-local" value={admitForm.admitted_at || ''}
+                  onChange={(e) => setAdmitForm((p: any) => ({ ...p, admitted_at: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Labour Onset Time</label>
+                <input type="datetime-local" value={admitForm.labour_onset_at || ''}
+                  onChange={(e) => setAdmitForm((p: any) => ({ ...p, labour_onset_at: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Membranes</label>
+                <select value={admitForm.rupture_of_membranes || ''} onChange={(e) => setAdmitForm((p: any) => ({ ...p, rupture_of_membranes: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none">
+                  <option value="">Not specified</option>
+                  <option value="intact">Intact</option>
+                  <option value="ruptured">Ruptured (Spontaneous)</option>
+                  <option value="artificial">Artificially Ruptured (ARM)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Notes</label>
+                <textarea rows={3} value={admitForm.notes || ''}
+                  onChange={(e) => setAdmitForm((p: any) => ({ ...p, notes: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none resize-none" />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setShowAdmitModal(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium">Cancel</button>
+              <button onClick={async () => {
+                if (!id || !record) return
+                setAdmitSubmitting(true)
+                try {
+                  const res = await fetch('/api/maternity-admit-labour', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                    body: JSON.stringify({
+                      maternity_patient_id: id,
+                      admitted_at: admitForm.admitted_at || new Date().toISOString(),
+                      labour_onset_at: admitForm.labour_onset_at || null,
+                      rupture_of_membranes_at: admitForm.rupture_of_membranes || null,
+                      admitted_by: staffId,
+                      notes: admitForm.notes || null,
+                    }),
+                  })
+                  if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}))
+                    alert(errData.message || 'Failed to admit for labour')
+                    return
+                  }
+                  setShowAdmitModal(false)
+                  await new Promise(r => setTimeout(r, 500))
+                  navigate('/maternity/labour')
+                } catch (err: any) { alert('Failed to admit for labour: ' + (err.message || '')) } finally { setAdmitSubmitting(false) }
+              }} disabled={admitSubmitting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium disabled:opacity-50">
+                {admitSubmitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                {admitSubmitting ? 'Admitting...' : 'Confirm Admission'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

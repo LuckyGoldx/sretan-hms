@@ -30,6 +30,7 @@ import {
   FlaskConical,
   Building2,
   ChevronDown,
+  Baby, Heart,
 } from 'lucide-react'
 
 const Login = lazy(() => import('./components/Login'))
@@ -85,6 +86,14 @@ const PaypointPatients = lazy(() => import('./components/PaypointPatients'))
 const FinancePatientBilling = lazy(() => import('./components/FinancePatientBilling'))
 const FinancePaymentHistory = lazy(() => import('./components/FinancePaymentHistory'))
 const BillingPage = lazy(() => import('./components/BillingPage'))
+const MaternityDashboard = lazy(() => import('./components/MaternityDashboard'))
+const MaternityPatientList = lazy(() => import('./components/MaternityPatientList'))
+const MaternityPatientDetail = lazy(() => import('./components/MaternityPatientDetail'))
+const MaternityANCWorklist = lazy(() => import('./components/MaternityANCWorklist'))
+const MaternityLabourWard = lazy(() => import('./components/MaternityLabourWard'))
+const MaternityPostnatalWard = lazy(() => import('./components/MaternityPostnatalWard'))
+const MaternityBooking = lazy(() => import('./components/MaternityBooking'))
+const MaternityLabourSummary = lazy(() => import('./components/MaternityLabourSummary'))
 
 interface SidebarLink {
   to: string
@@ -135,6 +144,14 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/radiology/history', label: 'History', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology' },
   { to: '/radiology-inventory', label: 'Radiology Inventory', icon: Package, roles: ['Admin', 'Radiology'], category: 'Radiology' },
   { to: '/radiology-expiry', label: 'Radiology Expiry', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology' },
+  // ── Maternity ──
+  { to: '/maternity', label: 'Maternity Dashboard', icon: Baby, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Maternity' },
+  { to: '/maternity/booking', label: 'Book Pregnancy', icon: UserPlus, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Maternity' },
+  { to: '/maternity/patients', label: 'Maternity Patients', icon: Users, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Maternity' },
+  { to: '/maternity/anc', label: 'ANC Visits', icon: Calendar, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Maternity' },
+  { to: '/maternity/labour', label: 'Labour & Delivery', icon: Stethoscope, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Maternity' },
+  { to: '/maternity/labour-summary', label: 'Labour Summary', icon: ClipboardList, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Maternity' },
+  { to: '/maternity/postnatal', label: 'Postnatal', icon: Heart, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Maternity' },
   // ── Records ──
   { to: '/records/patients', label: 'Patient Records', icon: Users, roles: ['Records', 'Admin'], category: 'Records' },
   { to: '/records/requests', label: 'Record Requests', icon: FileText, roles: ['Records', 'Admin'], category: 'Records' },
@@ -282,7 +299,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm">
             M
           </div>
-          <span className="font-semibold text-slate-800 text-sm">Machoko HMS</span>
+          <span className="font-semibold text-slate-800 text-sm">Sretan HMS</span>
           <button onClick={onClose} className="ml-auto lg:hidden p-1 rounded-lg hover:bg-slate-100">
             <XIcon className="w-5 h-5 text-slate-500" />
           </button>
@@ -295,7 +312,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
               if (!grouped[cat]) grouped[cat] = []
               grouped[cat].push(link)
             }
-            const categoryOrder = ['Dashboard', 'Clinical', 'Laboratory', 'Pharmacy', 'Radiology', 'Records', 'Finance', 'Administration']
+            const categoryOrder = ['Dashboard', 'Clinical', 'Laboratory', 'Pharmacy', 'Radiology', 'Maternity', 'Records', 'Finance', 'Administration']
             const sorted = Object.entries(grouped).sort(([a], [b]) => {
               const ia = categoryOrder.indexOf(a)
               const ib = categoryOrder.indexOf(b)
@@ -685,7 +702,16 @@ export default function App() {
           <Route path="/radiology/review" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyReview /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/radiology/orders" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyOrders /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/radiology/history" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyHistory /></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/services-inventory" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><ServiceInventory /></Suspense></ProtectedRoute></Layout>} />
+                    <Route path="/maternity" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityDashboard /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/booking" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityBooking /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/patients" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityPatientList /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/patients/:id" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityPatientDetail /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/anc" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityANCWorklist /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/labour" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityLabourWard /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/labour-summary" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityLabourSummary /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/postnatal" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityPostnatalWard /></Suspense></ProtectedRoute></Layout>} />
+          <Route
+            path="/services-inventory" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><ServiceInventory /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance/dashboard" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinanceDashboard /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance/billing" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinancePatientBilling /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance/payment-history" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinancePaymentHistory /></Suspense></ProtectedRoute></Layout>} />

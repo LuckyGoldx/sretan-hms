@@ -13,7 +13,7 @@ function getTenantId(): string {
 router.get('/api/prescriptions', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { encounter_id, status, doctor_id } = req.query;
+    const { encounter_id, status, doctor_id, encounter_type } = req.query;
     let query = `SELECT p.*, s.name as doctor_name
                   FROM prescriptions p
                   LEFT JOIN encounters e ON e.id = p.encounter_id
@@ -39,7 +39,7 @@ router.get('/api/prescriptions', async (req: Request, res: Response) => {
       params.push(doctor_id);
       paramIndex++;
     }
-
+    if (encounter_type) { query += ` AND e.encounter_type = $${paramIndex}`; params.push(encounter_type); paramIndex++; }
     query += ' ORDER BY p.created_at DESC';
 
     const result = await pool.query(query, params);

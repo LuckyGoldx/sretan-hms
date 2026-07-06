@@ -6,7 +6,7 @@ import type { Patient, Encounter } from '../types'
 import {
   User, Clock, Pill, Beaker, Scan, Activity, Loader2, Bed, Search, ClipboardList, ChevronDown, Info,
   AlertTriangle, ChevronRight, ArrowLeft, Stethoscope, FlaskConical, Droplets, XCircle,
-  FileText, X, Plus, CheckCircle, Edit2, Mic, Printer, FileImage
+  FileText, X, Plus, CheckCircle, Edit2, Mic, Printer, FileImage, Baby, Calendar as CalIcon, Heart
 } from 'lucide-react'
 
 const PER_PAGE = 15
@@ -150,12 +150,22 @@ export default function PatientChart() {
   const [viewImage, setViewImage] = useState<string | null>(null)
   const [imageZoom, setImageZoom] = useState(false)
   const [showVitalsForm, setShowVitalsForm] = useState(false)
-  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
+  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
   const [showVitalsPreview, setShowVitalsPreview] = useState(false)
   const [editingVital, setEditingVital] = useState<any | null>(null)
   const [vitalsNotesModal, setVitalsNotesModal] = useState<string | null>(null)
   const [vitalsEditHistoryModal, setVitalsEditHistoryModal] = useState<any | null>(null)
+  useEffect(() => {
+    if (!vitalsEditHistoryModal?.edit_log) return
+    for (const entry of vitalsEditHistoryModal.edit_log) {
+      if (entry.edited_by && !entry.edited_by_name && !staffCache[entry.edited_by]) {
+        api.get(`/staff/${entry.edited_by}`).then((r) => {
+          if (r.data?.name) setStaffCache((p) => ({ ...p, [entry.edited_by]: r.data.name }))
+        }).catch(() => {})
+      }
+    }
+  }, [vitalsEditHistoryModal?.id])
   const [rxPage, setRxPage] = useState(1)
   const [encPage, setEncPage] = useState(1)
   const [labPage, setLabPage] = useState(1)
@@ -349,6 +359,16 @@ export default function PatientChart() {
   const [modalEnc, setModalEnc] = useState<any | null>(null)
   const [modalEncData, setModalEncData] = useState<{ prescriptions: any[]; labOrders: any[]; labResultsMap: Record<string, any[]>; radiologyOrders: any[]; doctorName: string } | null>(null)
   const [staffCache, setStaffCache] = useState<Record<string, string>>({})
+  const [maternityRecord, setMaternityRecord] = useState<any>(null)
+  const [ancVisits, setAncVisits] = useState<any[]>([])
+  const [maternityDelivery, setMaternityDelivery] = useState<any>(null)
+  const [maternityNewborns, setMaternityNewborns] = useState<any[]>([])
+  const [postnatalVisits, setPostnatalVisits] = useState<any[]>([])
+  const [showMaternityBooking, setShowMaternityBooking] = useState(false)
+  const [maternityBookingForm, setMaternityBookingForm] = useState<any>({})
+  const [showANCVisitModal, setShowANCVisitModal] = useState(false)
+  const [ancForm, setAncForm] = useState<any>({})
+  const [ancSubmitting, setAncSubmitting] = useState(false)
   useEffect(() => {
     api.get<any[]>('/inventory?category=pharmacy').then((res) => {
       const drugs = [...new Set((res.data || []).map((i: any) => i.drug_name).filter(Boolean))] as string[]
@@ -360,6 +380,7 @@ export default function PatientChart() {
   const isNurse = currentUser?.role === 'Nurse'
   const isDoctor = currentUser?.role === 'Doctor'
   const isAdmin = currentUser?.role === 'Admin'
+  const isRecords = currentUser?.role === 'Records'
 
   async function fetchDoctorNameWithCache(staffId: string): Promise<string> {
     if (staffCache[staffId]) return staffCache[staffId]
@@ -400,42 +421,64 @@ export default function PatientChart() {
           height: vitalsForm.height ? parseFloat(vitalsForm.height) : null,
           fetal_heart_rate: vitalsForm.fetal_heart_rate ? parseInt(vitalsForm.fetal_heart_rate) : null,
           fetal_heart_sound: vitalsForm.fetal_heart_sound || null,
+          fundal_height: vitalsForm.fundal_height ? parseFloat(vitalsForm.fundal_height) : null,
+          fetal_presentation: vitalsForm.fetal_presentation || null,
+          urine_protein: vitalsForm.urine_protein || null,
+          urine_glucose: vitalsForm.urine_glucose || null,
+          hemoglobin: vitalsForm.hemoglobin ? parseFloat(vitalsForm.hemoglobin) : null,
+          pcv: vitalsForm.pcv ? parseFloat(vitalsForm.pcv) : null,
+          gestational_age_weeks: vitalsForm.gestational_age_weeks ? parseInt(vitalsForm.gestational_age_weeks) : null,
+          tt_dose: vitalsForm.tt_dose || null,
           triage_priority: vitalsForm.triage_priority,
           nursing_notes: vitalsForm.nursing_notes,
           edited_by: currentUser?.id,
         })
         setShowVitalsForm(false)
         setEditingVital(null)
-        setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
-        const encId = editingVital.encounter_id
-        if (encId) { const res = await api.get(`/vitals/${encId}`); setVitalsList(res.data || []) }
-        return
+        setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
+        setEditingVital(null)
+        setShowVitalsPreview(false)
+      } else {
+        // Create new encounter + vitals
+        const encRes = await api.post('/encounters', {
+          patient_id: patientId,
+          encounter_type: 'vitals',
+          chief_complaint: vitalsForm.nursing_notes?.slice(0, 200) || '',
+          staff_id: currentUser?.id,
+        })
+        const encId = encRes.data?.id
+        if (encId) {
+          await api.post('/vitals', {
+            encounter_id: encId,
+            systolic_bp: vitalsForm.systolic_bp ? parseInt(vitalsForm.systolic_bp) : null,
+            diastolic_bp: vitalsForm.diastolic_bp ? parseInt(vitalsForm.diastolic_bp) : null,
+            pulse: vitalsForm.pulse ? parseInt(vitalsForm.pulse) : null,
+            temperature: vitalsForm.temperature ? parseFloat(vitalsForm.temperature) : null,
+            respiration_rate: vitalsForm.respiration_rate ? parseInt(vitalsForm.respiration_rate) : null,
+            weight: vitalsForm.weight ? parseFloat(vitalsForm.weight) : null,
+            spo2: vitalsForm.spo2 ? parseInt(vitalsForm.spo2) : null,
+            height: vitalsForm.height ? parseFloat(vitalsForm.height) : null,
+            fetal_heart_rate: vitalsForm.fetal_heart_rate ? parseInt(vitalsForm.fetal_heart_rate) : null,
+            fetal_heart_sound: vitalsForm.fetal_heart_sound || null,
+            fundal_height: vitalsForm.fundal_height ? parseFloat(vitalsForm.fundal_height) : null,
+            fetal_presentation: vitalsForm.fetal_presentation || null,
+            urine_protein: vitalsForm.urine_protein || null,
+            urine_glucose: vitalsForm.urine_glucose || null,
+            hemoglobin: vitalsForm.hemoglobin ? parseFloat(vitalsForm.hemoglobin) : null,
+            pcv: vitalsForm.pcv ? parseFloat(vitalsForm.pcv) : null,
+            gestational_age_weeks: vitalsForm.gestational_age_weeks ? parseInt(vitalsForm.gestational_age_weeks) : null,
+            tt_dose: vitalsForm.tt_dose || null,
+            triage_priority: vitalsForm.triage_priority,
+            nursing_notes: vitalsForm.nursing_notes,
+            recorded_by: currentUser?.id,
+          })
+        }
+        setShowVitalsForm(false)
+        setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
+        setShowVitalsPreview(false)
       }
-
-      const encRes = await api.post('/encounters', {
-        patient_id: patientId, encounter_type: 'vitals', chief_complaint: vitalsForm.nursing_notes.slice(0, 200),
-        staff_id: currentUser?.id,
-      })
-      await api.post('/vitals', {
-        encounter_id: encRes.data.id,
-        systolic_bp: vitalsForm.systolic_bp ? parseInt(vitalsForm.systolic_bp) : null,
-        diastolic_bp: vitalsForm.diastolic_bp ? parseInt(vitalsForm.diastolic_bp) : null,
-        pulse: vitalsForm.pulse ? parseInt(vitalsForm.pulse) : null,
-        temperature: vitalsForm.temperature ? parseFloat(vitalsForm.temperature) : null,
-        respiration_rate: vitalsForm.respiration_rate ? parseInt(vitalsForm.respiration_rate) : null,
-        weight: vitalsForm.weight ? parseFloat(vitalsForm.weight) : null,
-        spo2: vitalsForm.spo2 ? parseInt(vitalsForm.spo2) : null,
-        height: vitalsForm.height ? parseFloat(vitalsForm.height) : null,
-        fetal_heart_rate: vitalsForm.fetal_heart_rate ? parseInt(vitalsForm.fetal_heart_rate) : null,
-        fetal_heart_sound: vitalsForm.fetal_heart_sound || null,
-        recorded_by: currentUser?.id,
-        triage_priority: vitalsForm.triage_priority,
-        nursing_notes: vitalsForm.nursing_notes,
-      })
-      setShowVitalsForm(false)
-      setShowVitalsPreview(false)
       setActiveSection('vitals')
-      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
+      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
       const encRes2 = await api.get(`/encounters?patient_id=${patientId}`)
       const loadedEncs = encRes2.data || []
       const vits: any[] = []
@@ -541,6 +584,40 @@ export default function PatientChart() {
         const admRes = await api.get(`/admissions?patient_id=${patientId}`).catch(() => ({ data: [] }))
         setAdmissions(admRes.data || [])
 
+        // Fetch maternity data
+        try {
+          const matRes = await fetch(`/api/maternity-patients?patient_id=${patientId}`, {
+            headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+          })
+          const matData = await matRes.json()
+          if (Array.isArray(matData) && matData.length > 0) {
+            const rec = matData[0]
+            setMaternityRecord(rec)
+            const ancRes = await fetch(`/api/antenatal-visits?maternity_patient_id=${rec.id}`, {
+              headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+            })
+            const ancData = await ancRes.json()
+            setAncVisits(Array.isArray(ancData) ? ancData : [])
+            const delRes = await fetch(`/api/maternity-deliveries?maternity_patient_id=${rec.id}`, {
+              headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+            })
+            const delData = await delRes.json()
+            if (Array.isArray(delData) && delData.length > 0) {
+              setMaternityDelivery(delData[0])
+              const ddRes = await fetch(`/api/maternity-deliveries/${delData[0].id}`, {
+                headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+              })
+              const dd = await ddRes.json()
+              setMaternityNewborns(dd.newborns || [])
+              const pnRes = await fetch(`/api/postnatal-visits?delivery_id=${delData[0].id}`, {
+                headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+              })
+              const pn = await pnRes.json()
+              setPostnatalVisits(Array.isArray(pn) ? pn : [])
+            }
+          }
+        } catch {}
+
         if (patientId) {
           const [notesRes, txRes, fbRes, sessRes] = await Promise.all([
             api.get(`/nurse-notes?patient_id=${patientId}`).catch(() => ({ data: [] })),
@@ -633,11 +710,12 @@ export default function PatientChart() {
     { id: 'treatment_sheet', label: `Tx Sheet (${treatments.filter((t: any) => t.status === 'active').length})`, icon: Pill },
     { id: 'treatment_summary', label: `Tx Summary (${treatments.length})`, icon: ClipboardList },
     { id: 'fluid_balance', label: fluidSessions.length > 0 ? `Fluid (${fluidSessions.length})` : 'Fluid', icon: Droplets },
+    { id: 'maternity', label: 'Maternity', icon: Baby },
     { id: 'nurse_clinical_notes', label: nurseOnlyNotes.length > 0 ? `Nurses Clin. Notes (${nurseOnlyNotes.length})` : 'Nurses Clin. Notes', icon: FileText },
     { id: 'doctor_clinical_notes', label: (doctorNotes.length + soapEncounters.length) > 0 ? `Doctors Cli. Notes (${doctorNotes.length + soapEncounters.length})` : 'Doctors Cli. Notes', icon: Stethoscope },
   ]
 
-  const visibleSections = sections
+  const visibleSections = sections.filter((s) => s.id !== 'maternity' || patient?.sex === 'Female')
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 overflow-x-hidden">
@@ -1428,6 +1506,14 @@ export default function PatientChart() {
                       height: String(v.height || ''),
                       fetal_heart_rate: String(v.fetal_heart_rate || ''),
                       fetal_heart_sound: v.fetal_heart_sound || '',
+                      fundal_height: String(v.fundal_height || ''),
+                      fetal_presentation: v.fetal_presentation || '',
+                      urine_protein: v.urine_protein || '',
+                      urine_glucose: v.urine_glucose || '',
+                      hemoglobin: String(v.hemoglobin || ''),
+                      pcv: String(v.pcv || ''),
+                      gestational_age_weeks: String(v.gestational_age_weeks || ''),
+                      tt_dose: v.tt_dose || '',
                       triage_priority: v.triage_priority || 'green',
                       nursing_notes: v.nursing_notes || '',
                     }); setShowVitalsForm(true) }}
@@ -2753,6 +2839,291 @@ export default function PatientChart() {
         </div>
       )}
 
+      {/* Maternity Tab */}
+      {activeSection === 'maternity' && (
+        <div className="space-y-4">
+          {maternityRecord ? (
+            <>
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-slate-800 flex items-center gap-2"><Baby size={18} className="text-pink-500" /> Pregnancy Profile</h3>
+                  <div className="flex gap-2">
+                    {isDoctor && (
+                      <button onClick={() => navigate(`/consultation/${patientId}?type=maternity`)}
+                        className="flex items-center gap-1 text-xs bg-purple-500 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-purple-600">Consult</button>
+                    )}
+                    {!isRecords && (
+                      <button onClick={() => navigate(`/maternity/patients/${maternityRecord.id}`)}
+                        className="text-xs text-primary font-medium hover:underline">View Full Chart</button>
+                    )}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div><p className="text-xs text-slate-400">EDD</p><p className="font-medium">{maternityRecord.edd?.slice(0, 10) || '—'}</p></div>
+                  {maternityRecord.edd && <div><p className="text-xs text-slate-400">Gest. Age</p><p className="font-medium">{Math.max(0, 40 - Math.floor((new Date(maternityRecord.edd).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000)))} weeks</p></div>}
+                  <div><p className="text-xs text-slate-400">Gravida/Para</p><p className="font-medium">G{maternityRecord.gravida} P{maternityRecord.para}</p></div>
+                  <div><p className="text-xs text-slate-400">Living Children</p><p className="font-medium">{maternityRecord.living_children ?? 0}</p></div>
+                  <div><p className="text-xs text-slate-400">Miscarriages</p><p className="font-medium">{maternityRecord.miscarriages ?? 0}</p></div>
+                  <div><p className="text-xs text-slate-400">Babies Alive</p><p className="font-medium">{maternityRecord.baby_alive ?? 0}</p></div>
+                  <div>
+                    <p className="text-xs text-slate-400">Risk</p>
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${maternityRecord.risk_level === 'high' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{maternityRecord.risk_level}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-slate-800 flex items-center gap-2"><CalIcon size={16} className="text-purple-500" /> ANC Visits ({ancVisits.length})</h3>
+                  {!isRecords && (
+                    <button onClick={() => setShowANCVisitModal(true)} className="text-xs text-primary font-medium hover:underline">+ Record Visit</button>
+                  )}
+                </div>
+                {ancVisits.length === 0 ? (
+                  <p className="text-sm text-slate-400">No ANC visits recorded</p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {ancVisits.slice(0, 5).map((v: any) => (
+                      <div key={v.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-xl text-xs cursor-pointer hover:bg-slate-100">
+                        <div>
+                          <span className="font-medium">Visit #{v.visit_number}</span>
+                          <span className="text-slate-400 ml-2">{v.visit_date?.slice(0, 10)}</span>
+                        </div>
+                        <div className="text-slate-500">FH: {v.fundal_height || '—'}cm · FHR: {v.fetal_heart_rate || '—'}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold text-slate-800 flex items-center gap-2"><Stethoscope size={16} className="text-rose-500" /> Labour & Delivery</h3>
+                </div>
+                {maternityDelivery ? (
+                  <div className="text-sm space-y-1">
+                    <p><span className="text-slate-400">Delivery:</span> {maternityDelivery.delivery_date?.slice(0, 10)} · {maternityDelivery.delivery_type}</p>
+                    <p><span className="text-slate-400">Outcome:</span> {maternityDelivery.outcome}</p>
+                    {maternityNewborns.map((nb: any) => (
+                      <p key={nb.id} className="text-xs"><span className="text-slate-400">Baby:</span> {nb.baby_name || `Baby #${nb.baby_number}`} · {nb.birth_weight}kg</p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">Not yet delivered</p>
+                )}
+              </div>
+
+              {maternityDelivery && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+                  <h3 className="font-semibold text-slate-800 flex items-center gap-2"><Heart size={16} className="text-teal-500" /> Postnatal ({postnatalVisits.length})</h3>
+                  {postnatalVisits.length === 0 ? (
+                    <p className="text-sm text-slate-400">No postnatal visits recorded</p>
+                  ) : (
+                    <div className="space-y-1 text-sm">
+                      {postnatalVisits.map((pv: any) => (
+                        <p key={pv.id} className="text-xs">Visit #{pv.visit_number}: {pv.visit_date?.slice(0, 10)} · Lochia: {pv.lochia} · BF: {pv.breastfeeding_status}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
+              <Baby size={48} className="text-slate-300 mx-auto mb-3" />
+              <p className="text-sm text-slate-500 mb-4">No pregnancy record found</p>
+              {patient?.sex === 'Female' && (
+                <button onClick={() => setShowMaternityBooking(true)}
+                  className="px-6 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
+                  Book Pregnancy
+                </button>
+              )}
+              {patient?.sex !== 'Female' && (
+                <p className="text-xs text-slate-400">Maternity module is available for female patients only</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Maternity Booking Modal */}
+      {showMaternityBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowMaternityBooking(false)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800">Book Pregnancy</h2>
+              <button onClick={() => setShowMaternityBooking(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">LMP</label>
+                  <input type="date" value={maternityBookingForm.lmp || ''}
+                    onChange={(e) => setMaternityBookingForm((p: any) => ({ ...p, lmp: e.target.value, edd: e.target.value ? new Date(new Date(e.target.value).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : '' }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none" />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">EDD</label>
+                  <input type="date" value={maternityBookingForm.edd || ''}
+                    onChange={(e) => setMaternityBookingForm((p: any) => ({ ...p, edd: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Gravida</label>
+                  <input type="number" min="1" value={maternityBookingForm.gravida || 1}
+                    onChange={(e) => setMaternityBookingForm((p: any) => ({ ...p, gravida: parseInt(e.target.value) || 1 }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Para</label>
+                  <input type="number" min="0" value={maternityBookingForm.para || 0}
+                    onChange={(e) => setMaternityBookingForm((p: any) => ({ ...p, para: parseInt(e.target.value) || 0 }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Blood Group</label>
+                  <select value={maternityBookingForm.blood_group || ''} onChange={(e) => setMaternityBookingForm((p: any) => ({ ...p, blood_group: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none">
+                    <option value="">Select</option>
+                    <option value="A">A</option>
+                    <option value="B">B</option>
+                    <option value="AB">AB</option>
+                    <option value="O">O</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Genotype</label>
+                  <select value={maternityBookingForm.genotype || ''} onChange={(e) => setMaternityBookingForm((p: any) => ({ ...p, genotype: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none">
+                    <option value="">Select</option>
+                    <option value="AA">AA</option>
+                    <option value="AS">AS</option>
+                    <option value="SS">SS</option>
+                    <option value="AC">AC</option>
+                    <option value="SC">SC</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Rh Factor</label>
+                  <select value={maternityBookingForm.rh_factor || ''} onChange={(e) => setMaternityBookingForm((p: any) => ({ ...p, rh_factor: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none">
+                    <option value="">Select</option>
+                    <option value="Positive">Positive</option>
+                    <option value="Negative">Negative</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Risk Level</label>
+                  <select value={maternityBookingForm.risk_level || 'low'} onChange={(e) => setMaternityBookingForm((p: any) => ({ ...p, risk_level: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none">
+                    <option value="low">Low</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setShowMaternityBooking(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium">Cancel</button>
+              <button onClick={async () => {
+                try {
+                  await fetch('/api/maternity-patients', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                    body: JSON.stringify({ ...maternityBookingForm, patient_id: patientId, booked_by: currentUser?.id }),
+                  })
+                  setShowMaternityBooking(false)
+                  setMaternityBookingForm({})
+                  window.location.reload()
+                } catch { alert('Failed to book pregnancy') }
+              }} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ANC Visit Modal */}
+      {showANCVisitModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!ancSubmitting) setShowANCVisitModal(false) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><CalIcon size={18} className="text-primary" /> Record ANC Visit</h2>
+              <button onClick={() => setShowANCVisitModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  { label: 'Weight (kg)', key: 'weight', type: 'number' },
+                  { label: 'Systolic BP', key: 'systolic_bp', type: 'number' },
+                  { label: 'Diastolic BP', key: 'diastolic_bp', type: 'number' },
+                  { label: 'Fundal Height (cm)', key: 'fundal_height', type: 'number' },
+                  { label: 'Fetal Presentation', key: 'fetal_presentation', type: 'select', options: ['', 'cephalic', 'breech', 'transverse'] },
+                  { label: 'FHR', key: 'fetal_heart_rate', type: 'number' },
+                  { label: 'FH Sound', key: 'fetal_heart_sound', type: 'text' },
+                  { label: 'Urine Protein', key: 'urine_protein', type: 'select', options: ['', 'negative', 'trace', '+1', '+2', '+3'] },
+                  { label: 'Urine Glucose', key: 'urine_glucose', type: 'select', options: ['', 'negative', 'trace', '+1', '+2', '+3'] },
+                  { label: 'Hemoglobin (g/dL)', key: 'hemoglobin', type: 'number' },
+                  { label: 'PCV (%)', key: 'pcv', type: 'number' },
+                  { label: 'TT Dose', key: 'tt_dose', type: 'select', options: ['', '1', '2', '3', '4', '5', 'completed'] },
+                ].map((f: any) => (
+                  <div key={f.key}>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
+                    {f.type === 'select' ? (
+                      <select value={(ancForm as any)[f.key] || ''} onChange={(e) => setAncForm((p: any) => ({ ...p, [f.key]: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-primary">
+                        {f.options.map((o: string) => <option key={o} value={o}>{o || 'Select'}</option>)}
+                      </select>
+                    ) : (
+                      <input type={f.type} step="any" value={(ancForm as any)[f.key] || ''} onChange={(e) => setAncForm((p: any) => ({ ...p, [f.key]: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div>
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input type="checkbox" checked={(ancForm as any).iycf_given || false}
+                    onChange={(e) => setAncForm((p: any) => ({ ...p, iycf_given: e.target.checked }))}
+                    className="rounded border-slate-300" />
+                  Iron/Folate Given
+                </label>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Next Appointment Date</label>
+                <input type="date" value={(ancForm as any).next_appointment_date || ''}
+                  onChange={(e) => setAncForm((p: any) => ({ ...p, next_appointment_date: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Notes</label>
+                <textarea rows={3} value={(ancForm as any).notes || ''} onChange={(e) => setAncForm((p: any) => ({ ...p, notes: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary resize-none" />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setShowANCVisitModal(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium">Cancel</button>
+              <button onClick={async () => {
+                if (!maternityRecord) return
+                setAncSubmitting(true)
+                try {
+                  await fetch('/api/antenatal-visits', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                    body: JSON.stringify({ ...ancForm, maternity_patient_id: maternityRecord.id, staff_id: currentUser?.id }),
+                  })
+                  setShowANCVisitModal(false)
+                  setAncForm({})
+                  window.location.reload()
+                } catch {} finally { setAncSubmitting(false) }
+              }} disabled={ancSubmitting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium disabled:opacity-50">
+                {ancSubmitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                {ancSubmitting ? 'Saving...' : 'Save Visit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add Treatment Modal */}
       {showTreatmentModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!treatmentSubmitting) setShowTreatmentModal(false) }}>
@@ -3122,18 +3493,49 @@ export default function PatientChart() {
                   { label: 'Weight', key: 'weight', placeholder: '70 kg', tip: 'Patient weight in kilograms.' },
                   { label: 'SpO₂', key: 'spo2', placeholder: '98 %', tip: 'Blood oxygen saturation percentage.' },
                   { label: 'Height', key: 'height', placeholder: '175 cm', tip: 'Patient height in centimetres.' },
-                  { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm', tip: 'Fetal heart rate in beats per minute.' },
-                  { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'e.g. Normal, Muffled', tip: 'Quality of fetal heart sounds (e.g. Normal, Muffled, Absent).' },
-                ].map((f) => (
-                  <Hint key={f.key} text={f.tip}>
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
-                    <input type={f.key === 'fetal_heart_sound' ? 'text' : 'number'} step="any" placeholder={f.placeholder} value={(vitalsForm as any)[f.key]}
-                      onChange={(e) => setVitalsForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                  </div>
-                  </Hint>
-                ))}
+                  ...(maternityRecord ? [
+                    { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm', tip: 'Fetal heart rate in beats per minute.' },
+                    { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'e.g. Normal, Muffled', tip: 'Quality of fetal heart sounds (e.g. Normal, Muffled, Absent).' },
+                    { label: 'Fundal Height (cm)', key: 'fundal_height', placeholder: '24 cm', tip: 'Symphysis-fundal height in centimetres.' },
+                    { label: 'Fetal Presentation', key: 'fetal_presentation', placeholder: 'cephalic', tip: 'Fetal presentation: cephalic, breech, or transverse.' },
+                    { label: 'Urine Protein', key: 'urine_protein', placeholder: 'neg/trace/+1/+2/+3', tip: 'Urine protein by dipstick.' },
+                    { label: 'Urine Glucose', key: 'urine_glucose', placeholder: 'neg/trace/+1/+2/+3', tip: 'Urine glucose by dipstick.' },
+                    { label: 'Hemoglobin (g/dL)', key: 'hemoglobin', placeholder: '12.0', tip: 'Hemoglobin level in g/dL.' },
+                    { label: 'PCV (%)', key: 'pcv', placeholder: '36', tip: 'Packed cell volume percentage.' },
+                    { label: 'Gest. Age (wks)', key: 'gestational_age_weeks', placeholder: '24', tip: 'Gestational age in weeks.' },
+                    { label: 'TT Dose', key: 'tt_dose', placeholder: 'e.g. 1, 2, 3, completed', tip: 'Tetanus toxoid dose.' },
+                  ] : []),
+                ].filter((f: any) => f.key !== '_maternity').map((f: any) => {
+                  if (['fetal_presentation', 'urine_protein', 'urine_glucose', 'tt_dose'].includes(f.key)) {
+                    const opts: Record<string, string[]> = {
+                      fetal_presentation: ['', 'cephalic', 'breech', 'transverse'],
+                      urine_protein: ['', 'negative', 'trace', '+1', '+2', '+3'],
+                      urine_glucose: ['', 'negative', 'trace', '+1', '+2', '+3'],
+                      tt_dose: ['', '1', '2', '3', '4', '5', 'completed'],
+                    }
+                    return (
+                      <Hint key={f.key} text={f.tip}>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
+                        <select value={(vitalsForm as any)[f.key] || ''} onChange={(e) => setVitalsForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-primary">
+                          {(opts[f.key] || ['']).map((o: string) => <option key={o} value={o}>{o || 'Select'}</option>)}
+                        </select>
+                      </div>
+                      </Hint>
+                    )
+                  }
+                  return (
+                    <Hint key={f.key} text={f.tip}>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
+                      <input type={f.key === 'fetal_heart_sound' ? 'text' : 'number'} step="any" placeholder={f.placeholder} value={(vitalsForm as any)[f.key]}
+                        onChange={(e) => setVitalsForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                    </div>
+                    </Hint>
+                  )
+                })}
                 <div className="col-span-2 md:col-span-3">
                   <Hint text="Assign a triage category based on clinical urgency.">
                   <label className="block text-xs font-medium text-slate-500 mb-1">Triage Priority</label>
@@ -3220,7 +3622,7 @@ export default function PatientChart() {
                   <div className="space-y-2">
                     {[...vitalsEditHistoryModal.edit_log].reverse().map((entry: any, i: number) => (
                       <div key={i} className="bg-slate-50 rounded-xl p-3 border border-slate-100 text-xs space-y-1">
-                        <p className="font-medium text-slate-600">{entry.edited_by_name || 'Unknown'}</p>
+                        <p className="font-medium text-slate-600">{entry.edited_by_name || staffCache[entry.edited_by] || 'Unknown'}</p>
                         <p className="text-slate-400 text-[10px]">{new Date(entry.edited_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
                         {entry.previous && (
                           <div className="text-slate-600 space-y-0.5 mt-1.5 pt-1.5 border-t border-slate-200">
@@ -3263,6 +3665,14 @@ export default function PatientChart() {
                   vitalsForm.height ? { label: 'Height', value: `${vitalsForm.height} cm` } : null,
                   vitalsForm.fetal_heart_rate ? { label: 'FHR', value: `${vitalsForm.fetal_heart_rate} bpm` } : null,
                   vitalsForm.fetal_heart_sound ? { label: 'FH Sound', value: vitalsForm.fetal_heart_sound } : null,
+                  vitalsForm.fundal_height ? { label: 'Fundal Height', value: `${vitalsForm.fundal_height} cm` } : null,
+                  vitalsForm.fetal_presentation ? { label: 'Fetal Presentation', value: vitalsForm.fetal_presentation } : null,
+                  vitalsForm.urine_protein ? { label: 'Urine Protein', value: vitalsForm.urine_protein } : null,
+                  vitalsForm.urine_glucose ? { label: 'Urine Glucose', value: vitalsForm.urine_glucose } : null,
+                  vitalsForm.hemoglobin ? { label: 'Hemoglobin', value: `${vitalsForm.hemoglobin} g/dL` } : null,
+                  vitalsForm.pcv ? { label: 'PCV', value: `${vitalsForm.pcv} %` } : null,
+                  vitalsForm.gestational_age_weeks ? { label: 'Gest. Age', value: `${vitalsForm.gestational_age_weeks} wks` } : null,
+                  vitalsForm.tt_dose ? { label: 'TT Dose', value: vitalsForm.tt_dose } : null,
                 ].filter(Boolean).map((f: any) => (
                   <div key={f.label} className="bg-slate-50 rounded-xl p-3">
                     <p className="text-[10px] text-slate-400 font-medium uppercase">{f.label}</p>

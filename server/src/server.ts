@@ -29,6 +29,7 @@ import nurseModuleRouter from './routes/nurseModule';
 import recordsRouter from './routes/records';
 import setupConsoleRouter from './setup/setupConsole';
 import paymentsRouter from './routes/payments';
+import maternityRouter from './routes/maternity';
 
 declare global {
   var clockTampered: boolean | undefined;
@@ -62,6 +63,7 @@ app.use(recordsRouter);
 app.use(setupRouter);
 app.use(setupConsoleRouter);
 app.use(paymentsRouter);
+app.use(maternityRouter);
 
 app.use(errorHandler);
 
@@ -116,7 +118,7 @@ async function start(): Promise<void> {
     }
 
     app.listen(PORT, () => {
-      console.log(`Machoko HMS Server running on port ${PORT}`);
+      console.log(`Sretan HMS Server running on port ${PORT}`);
     });
   } catch (err) {
     console.error('Failed to start server:', err);

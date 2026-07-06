@@ -100,6 +100,27 @@ export const OCCUPATIONS = [
   'Zookeeper', 'Zoologist',
 ]
 
+export const RELIGIONS = [
+  'Christianity', 'Catholic', 'Protestant', 'Anglican', 'Methodist', 'Baptist', 'Pentecostal', 'Presbyterian',
+  'Islam', 'Sunni', 'Shia',
+  'Traditionalist', 'African Traditional Religion',
+  'Hinduism', 'Buddhism', 'Judaism', 'Sikhism', 'Jainism', 'Baháʼí',
+  'Mormon', 'Jehovah\'s Witness', 'Seventh-day Adventist', 'Orthodox',
+  'Spiritual but not religious', 'Agnostic', 'Atheist', 'Other',
+]
+
+export const NIGERIA_TRIBES = [
+  'Hausa', 'Fulani', 'Yoruba', 'Igbo', 'Ijaw', 'Kanuri', 'Ibibio', 'Tiv', 'Nupe', 'Edo',
+  'Efik', 'Idoma', 'Igala', 'Urhobo', 'Isoko', 'Ebira', 'Jukun', 'Bura', 'Duka', 'Kambari',
+  'Bini', 'Gbagyi', 'Igede', 'Igbira', 'Mumuye', 'Angas', 'Pankshin', 'Sura', 'Tangale', 'Tera',
+  'Bachama', 'Bajju', 'Berom', 'Bokyi', 'Bolewa', 'Burak', 'Chamba', 'Daba', 'Dakarkari', 'Dera',
+  'Ekoi', 'Fyam', 'Ga\'anda', 'Gade', 'Gwari', 'Huba', 'Hyam', 'Jibu', 'Kaka',
+  'Kamwe', 'Karekare', 'Kuteb', 'Kofyar', 'Koro', 'Kpan', 'Kurama', 'Laka', 'Longuda', 'Mada',
+  'Manga', 'Margi', 'Mbat', 'Mbol', 'Mbula', 'Ngizim', 'Nungu', 'Nyam', 'Obolo',
+  'Ogoni', 'Oron', 'Reshe', 'Rukuba', 'Saya', 'Sha', 'Sukur', 'Tal', 'Tarok', 'Waja',
+  'Wurkum', 'Yache', 'Yakurr', 'Yala', 'Zarma', 'Zaranda',
+]
+
 export const RELATIONSHIPS = [
   'Spouse', 'Husband', 'Wife', 'Partner', 'Fiancé', 'Fiancée',
   'Parent', 'Father', 'Mother', 'Stepfather', 'Stepmother', 'Guardian',

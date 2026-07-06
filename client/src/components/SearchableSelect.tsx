@@ -6,13 +6,16 @@ interface Props {
   options: string[]
   placeholder?: string
   className?: string
-  defaultOpen?: boolean
 }
 
-export default function SearchableSelect({ value, onChange, options, placeholder = 'Search...', className = '', defaultOpen }: Props) {
+export default function SearchableSelect({ value, onChange, options, placeholder = 'Search...', className = '' }: Props) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState(value || '')
   const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    setSearch(value || '')
+  }, [value])
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {

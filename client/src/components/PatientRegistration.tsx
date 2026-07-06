@@ -5,7 +5,7 @@ import { User, Phone, Shield, Check, ChevronRight, ChevronLeft, Loader2, ArrowLe
 import api from '../hooks/useAxios'
 import { compressImage } from '../utils/compressImage'
 import { validatePhone } from '../utils/validatePhone'
-import { COUNTRIES, NIGERIA_STATES, NIGERIA_LGAS, OCCUPATIONS, RELATIONSHIPS } from '../data/formData'
+import { COUNTRIES, NIGERIA_STATES, NIGERIA_LGAS, OCCUPATIONS, RELIGIONS, NIGERIA_TRIBES, RELATIONSHIPS } from '../data/formData'
 import SearchableSelect from './SearchableSelect'
 
 interface FormData {
@@ -17,6 +17,8 @@ interface FormData {
   emergency_contact_name: string; emergency_contact_phone: string
   insurance: string; insurance_type: string; insurance_sub_type: string
   blood_type: string
+  tribe: string
+  religion: string
 }
 
 const initialForm: FormData = {
@@ -26,6 +28,7 @@ const initialForm: FormData = {
   next_of_kin: '', next_of_kin_phone: '', relationship: '', next_of_kin_address: '',
   emergency_contact_name: '', emergency_contact_phone: '',
   insurance: '', insurance_type: '', insurance_sub_type: '', blood_type: '',
+  tribe: '', religion: '',
 }
 
 const steps = [
@@ -157,6 +160,7 @@ export default function PatientRegistration() {
         emergency_contact_name: form.emergency_contact_name.trim(), emergency_contact_phone: form.emergency_contact_phone.trim(),
         insurance: form.insurance, insurance_type: form.insurance_type, insurance_sub_type: form.insurance_sub_type,
         blood_type: form.blood_type,
+        tribe: form.tribe, religion: form.religion,
       }
       if (form.insurance_type === 'Other' && form.insurance_sub_type) await saveCustomInsType(form.insurance_sub_type)
       const patient = await api.post('/patients', payload)
@@ -192,7 +196,7 @@ export default function PatientRegistration() {
       <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
       <div className="mb-8"><h1 className="text-2xl font-bold text-slate-800">Patient Registration</h1><p className="text-sm text-slate-500 mt-1">Register a new patient in the system</p></div>
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200">
         <div className="flex border-b border-slate-100 overflow-x-auto">
           {steps.map((s, i) => {
             const Icon = s.icon
@@ -242,6 +246,17 @@ export default function PatientRegistration() {
                     <input type="text" placeholder="Enter state/province" value={form.state_of_origin} onChange={(e) => update('state_of_origin', e.target.value)}
                       className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />)}
                   {errors.state_of_origin && <p className="text-xs text-rose-500 mt-1">{errors.state_of_origin}</p>}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="block text-xs font-medium text-slate-500 mb-1">Religion</label>
+                  <SearchableSelect value={form.religion} onChange={(v) => update('religion', v)} options={RELIGIONS} placeholder="Search religion..." /></div>
+                <div><label className="block text-xs font-medium text-slate-500 mb-1">Tribe</label>
+                  {form.nationality === 'Nigeria' ? (
+                    <SearchableSelect value={form.tribe} onChange={(v) => update('tribe', v)} options={NIGERIA_TRIBES} placeholder="Search tribe..." />
+                  ) : (
+                    <input type="text" placeholder="Enter ethnicity/tribe" value={form.tribe} onChange={(e) => update('tribe', e.target.value)}
+                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />)}
+                </div>
               </div>
               {form.state_of_origin && (<div><label className="block text-xs font-medium text-slate-500 mb-1">LGA / District</label>
                 {form.nationality === 'Nigeria' ? (
@@ -385,6 +400,7 @@ export default function PatientRegistration() {
                   { label: 'Relationship', value: form.relationship || '—' }, { label: 'Next of Kin Address', value: form.next_of_kin_address || '—' },
                   { label: 'Emergency Contact', value: form.emergency_contact_name ? `${form.emergency_contact_name} (${form.emergency_contact_phone})` : '—' },
                   { label: 'Blood Type', value: form.blood_type || '—' },
+                  { label: 'Religion', value: form.religion || '—' }, { label: 'Tribe', value: form.tribe || '—' },
                   { label: 'Insurance', value: form.insurance || '—' }, { label: 'Insurance Type', value: form.insurance_type || '—' },
                 ].map((f) => (
                   <div key={f.label} className="flex justify-between"><span className="text-slate-500">{f.label}</span><span className="font-medium text-slate-800 text-right max-w-[60%] truncate">{f.value}</span></div>

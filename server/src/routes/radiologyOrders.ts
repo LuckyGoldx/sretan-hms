@@ -19,7 +19,7 @@ async function autoImagingNumber(pool: any, tenantId: string): Promise<string> {
 router.get('/api/radiology-orders', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { status, encounter_id, doctor_id, is_paid, imaging_type } = req.query;
+    const { status, encounter_id, doctor_id, is_paid, imaging_type, encounter_type } = req.query;
     let query = `SELECT r.*, enc.patient_id, pat.hospital_number, s.name as reported_by_name, sr.name as approved_by_name
                  FROM radiology_orders r
                  LEFT JOIN encounters enc ON enc.id = r.encounter_id
@@ -38,7 +38,7 @@ router.get('/api/radiology-orders', async (req: Request, res: Response) => {
       query += ` AND r.encounter_id IN (SELECT id FROM encounters WHERE staff_id = $${idx} AND tenant_id = $1)`;
       params.push(doctor_id); idx++;
     }
-
+    if (encounter_type) { query += ` AND enc.encounter_type = $${idx}`; params.push(encounter_type); idx++; }
     query += ' ORDER BY r.created_at DESC';
     const result = await pool.query(query, params);
     res.json(result.rows);

@@ -1,7 +1,7 @@
-# Machoko HMS — Comprehensive Session Summary
+# Sretan HMS — Comprehensive Session Summary
 
 **Date:** June 13, 2026
-**Project:** Hospital Management System (formerly Sretan EMR, now Machoko HMS)
+**Project:** Hospital Management System — Sretan HMS
 **Repository:** https://github.com/LuckyGoldx/sretan-hms.git
 
 ---
@@ -1313,3 +1313,276 @@ Removed `fluid_intake` and `fluid_output` fields from:
 ---
 
 *End of Session Summary — July 1, 2026*
+
+---
+
+## Session — July 2, 2026
+
+### 1. Height & Fetal Heart Rate in Vitals
+
+- **Migration**: `020_vitals_height_fhr.sql` — `height DECIMAL(5,2)`, `fetal_heart_rate INT` columns
+- Server POST `/api/vitals` accepts `height`, `fetal_heart_rate`
+- Added to all 4 vitals modals: PatientChart, TriageStation, MyPatients, DoctorVitals — form state, POST payload, UI fields, display grids
+- **Fetal Heart Sound**: `021_vitals_fetal_heart_sound.sql` — `fetal_heart_sound VARCHAR` column
+- Added as text input to all vitals modals + display grids; server accepts in POST
+- Input uses `type="text"` for FH Sound (descriptive values like Normal/Muffled/Absent)
+
+### 2. Clinical Note View Tracking
+
+- **Migration**: `021_clinical_note_views.sql` — `clinical_note_views` table (note_id, viewed_by, viewed_at, UNIQUE constraint per staff per note)
+- `POST /api/nurse-notes/:id/view` — records view (upsert)
+- `GET /api/nurse-notes` — returns `view_count` and `viewers` array (name + timestamp)
+- Nurse + doctor notes truncated at 250 chars with "View more →"; clicking opens comprehensive modal with full content
+- Admin users see view count badges and viewer list (name + timestamp) in detail modal
+
+### 3. Vitals Preview & Audit System
+
+- **Migration**: `023_vitals_audit.sql` — `recorded_by`, `edited_by`, `edited_at`, `deleted_by`, `deleted_at`, `edit_log JSONB`
+- Server PUT `/api/vitals/:id` — validates 10-minute window + same-staff-only; logs previous snapshot to `edit_log`; includes `edited_by_name` in log entries
+- Server DELETE `/api/vitals/:id` — soft-deletes with same time + staff checks
+- Server GET now returns `recorded_by_name` and `edited_by_name`; filters out soft-deleted records
+- **Preview modal** — "Preview & Save" button opens stylish modal showing only fields with values; "Edit" goes back; "Confirm & Save" submits
+- **Vitals cards** — Edit/Delete buttons visible only within 10 minutes for recording staff; "Edited by [name] [timestamp]" shown on edited records
+- **Edit history modal** — clicking edited-by name opens modal showing all edit_log entries with editor names, timestamps, and previous values
+- Preview modal applied to PatientChart, DoctorVitals, MyPatients, AdmissionsPage
+- TriageStation scope omitted (dedicated triage flow, not generic vitals form)
+
+### 4. VoiceInput Auto-Scroll
+
+- `VoiceInput` component enhanced: accepts optional `textareaId` prop; `useEffect` watches text growth during recording and auto-scrolls the target textarea
+- Added `id="vitals-notes-ta"`, `id="nurse-note-ta"`, `id="doctor-note-ta"` to respective textareas
+
+### 5. Tooltip Hint System Expansion
+
+- Added `Hint` tooltips to all interactive elements in record vitals modal (header, close, all input fields, triage buttons, Cancel/Save, nursing notes)
+- `Hint` component refactored to use `React.cloneElement` — no layout-breaking wrapper `<span>`; preserves exact DOM structure
+
+### 6. Vitals UI Improvements
+
+- Vitals cards show only metrics with actual values (filter out empty via `.filter(Boolean)`) — no more "—" entries
+- Nursing notes in vitals cards: truncated at 250 chars with clickable "...View more" button → modal with full text
+- Timestamps in 12-hour format (`en-US` locale)
+- Pagination: 20 per page (`VITALS_PER_PAGE = 20`)
+- Auto-switch to vitals tab after saving (`setActiveSection('vitals')`)
+- Tabs: removed nurse role filter — all tabs visible to all roles (Rx, Radiology, Doctors Cli. Notes now visible to nurses)
+- Edited vitals card: stacked vertically (name above timestamp) instead of inline
+
+### 7. Server-Side Updates
+
+- `vitals.ts`: complete rewrite with PUT/DELETE endpoints; audit logging with staff name lookup; enriched GET with joined names
+- `nurseModule.ts`: added view tracking endpoints, enhanced GET with subqueries for view_count/viewers
+- `prescriptions.ts`: query joins encounters+staff_users to return `doctor_name`
+
+### 8. Database Migrations
+
+| File | Purpose |
+|------|---------|
+| `020_vitals_height_fhr.sql` | Add `height`, `fetal_heart_rate` to vitals |
+| `021_clinical_note_views.sql` | Create `clinical_note_views` table |
+| `022_vitals_fetal_heart_sound.sql` | Add `fetal_heart_sound` to vitals |
+| `023_vitals_audit.sql` | Add audit columns + `edit_log` to vitals |
+
+---
+
+## Session 2026-07-02 to 2026-07-06 — Maternity Module (Full Implementation)
+
+**Session Date:** July 2–6, 2026
+
+### 1. Maternity Module Overview
+
+Full pregnancy lifecycle tracking: booking/registration, antenatal visits, labour & delivery with WHO 1994 Partograph, delivery records, newborns (supports twins/triplets), postnatal care. Integrates with existing Admissions (Maternity Ward), Paypoint (maternity services), Vitals (maternity fields), and Patient Chart.
+
+### 2. Database Migrations (4 files)
+
+| Migration | Content |
+|-----------|---------|
+| `024_maternity_core.sql` | `maternity_patients` (pregnancy profile: LMP, EDD, gravida, para, blood group, genotype, Rh, HIV, HBV, risk level) + `antenatal_visits` (visit_number, fundal_height, fetal_presentation, FHR, urine protein/glucose, Hb, PCV, TT dose, next appointment) |
+| `025_maternity_labour.sql` | `maternity_deliveries` (labour admission, delivery details, perineum, placenta, complications, outcome) + `maternity_partograph` (time-series cervical dilation, descent, contractions, FHR, maternal vitals, drugs, moulding, caput) + `maternity_newborns` (baby name, sex, weight, length, head circumference, APGAR 1/5/10min, resuscitation, vitamin K, congenital anomalies) |
+| `026_maternity_postnatal.sql` | `postnatal_visits` (fundal height, lochia, vitals, breastfeeding, perineal wound, c-section wound, family planning) |
+| `027_vitals_maternity_fields.sql` | ALTER TABLE vitals ADD COLUMN fundal_height, fetal_presentation, urine_protein, urine_glucose, hemoglobin, pcv, gestational_age_weeks, tt_dose |
+
+### 3. Server Routes (`routes/maternity.ts`)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/maternity-patients` | GET | List with filters (status, search, patient_id, edd range, risk_level) + `available_female=true` returns female patients not yet in maternity program |
+| `/api/maternity-patients/stats` | GET | Dashboard stats: active pregnancies, deliveries today, due this week, overdue ANC |
+| `/api/maternity-patients/:id` | GET | Single record with patient info, visit count, last visit date, next appointment |
+| `/api/maternity-patients` | POST | Book pregnancy (validates patient is female, no duplicate active record) |
+| `/api/maternity-patients/:id` | PUT | Update pregnancy profile |
+| `/api/antenatal-visits` | GET/POST | ANC visit CRUD (auto visit_number, gestational_age) |
+| `/api/antenatal-visits/:id` | PUT | Edit ANC visit |
+| `/api/maternity-deliveries` | GET/POST | Delivery records (POST auto-detects if complete: sets status='active' for labour admission, 'completed' for full delivery) |
+| `/api/maternity-admit-labour` | POST | Atomic labour admission: creates admissions record (Maternity Ward) + delivery record (status='active'), checks for existing active delivery |
+| `/api/maternity-deliveries/:id` | GET | Full detail with newborns + partograph entries |
+| `/api/maternity-deliveries/:id` | PUT | Update delivery; auto-updates maternity_patient status if completed |
+| `/api/maternity-deliveries/:id/complete` | PUT | Dedicated completion: records full delivery details + sets status='completed' + updates maternity_patient to 'delivered' |
+| `/api/maternity-partograph` | GET/POST | Partograph entry CRUD (24-hour timeline, all WHO fields) |
+| `/api/maternity-partograph/:id` | PUT | Update single partograph entry |
+| `/api/maternity-partograph/:id` | DELETE | Remove partograph entry (used by undo/redo and point removal) |
+| `/api/maternity-newborns` | POST | Add newborn to delivery |
+| `/api/maternity-newborns/:id` | PUT/DELETE | Update/remove newborn |
+| `/api/postnatal-visits` | GET/POST | Postnatal visit CRUD |
+
+**Vitals enhancement:** `routes/vitals.ts` updated to accept 8 new maternity fields in POST/PUT with audit snapshot support.
+
+### 4. Client Components
+
+| Component | Route | Purpose |
+|-----------|-------|---------|
+| `MaternityDashboard` | `/maternity` | Stats cards (active pregnancies, deliveries today, due this week, overdue ANC), quick action grid, recent activity |
+| `MaternityBooking` | `/maternity/booking` | Lists available female patients (not yet in maternity), comprehensive booking modal with ALL fields (LMP/EDD, gravida/para, blood group, genotype, Rh, HIV, HBV, risk factors) |
+| `MaternityPatientList` | `/maternity/patients` | Searchable/filterable table with status, EDD badges, risk level, gravida/para, last visit |
+| `MaternityPatientDetail` | `/maternity/patients/:id` | 4 tabs: **Profile** (full pregnancy data), **ANC Visits** (timeline with expandable cards), **Delivery** (delivery record + newborns), **Postnatal** (visits list). Labour admission modal with datetime, membranes, notes → creates delivery + admission record |
+| `MaternityANCWorklist` | `/maternity/anc` | Active patients grid with "Record ANC Visit" modal (weight, BP, fundal height, FHR, presentation, urine, Hb, PCV, TT dose, next appointment) |
+| `MaternityLabourWard` | `/maternity/labour` | Two views: **Active Labours** list with "Manage Labour" (opens partograph + delivery management) and direct **"Admit Patient"** button. Partograph chart, delivery form, newborn form |
+| `MaternityLabourSummary` | `/maternity/labour-summary` | All deliveries with search, date/status filters, detail modal (delivery info, newborns, partograph entries) |
+| `MaternityPostnatalWard` | `/maternity/postnatal` | Delivered patient list + postnatal visit recording modal |
+| `PartographChart` | embedded | **WHO 1994 Modified Partograph** — interactive SVG chart (see Section 6 below) |
+
+### 5. Patient Chart Integration
+
+- **Maternity tab** added to PatientChart sections array (visible only for female patients)
+- Shows: Pregnancy profile card (EDD, gestational age, gravida/para, risk level), ANC visit timeline (last 5), Labour & Delivery summary, Postnatal visits
+- "Book Pregnancy" button for female patients without a record
+- "Record ANC Visit" button for Nurse/Doctor roles
+- "View Full Chart" link to dedicated `/maternity/patients/:id` page
+
+### 6. Doctor Consultation Integration
+
+- Maternity info banner in DoctorConsultation.tsx: shows EDD, gestational age, gravida/para, risk level, last ANC visit date, "View Full Chart" button
+- Data fetched alongside patient data on consultation load
+
+### 7. Nurse Vitals Enhancement
+
+All 4 vitals forms (PatientChart, TriageStation, MyPatients, DoctorVitals) updated:
+- **Conditionally show** 8 maternity fields (fundal height, fetal presentation, urine protein, urine glucose, hemoglobin, PCV, gestational age, TT dose) — only visible when the patient has an active maternity record
+- Previously always visible; now gated by API fetch on patient selection
+- Fields render as `<select>` dropdowns for categorical values (fetal_presentation, urine_protein, urine_glucose, tt_dose) and `<input>` for numeric (fundal_height, hemoglobin, PCV, gestational_age_weeks)
+
+### 8. Sidebar & Navigation
+
+Maternity appears as its own category between Radiology and Records in Admin grouped view:
+```
+Maternity (Doctor, Nurse, Records, Admin):
+  /maternity              → Maternity Dashboard
+  /maternity/booking      → Book Pregnancy
+  /maternity/patients     → Maternity Patients
+  /maternity/anc          → ANC Visits
+  /maternity/labour       → Labour & Delivery
+  /maternity/labour-summary → Labour Summary
+  /maternity/postnatal    → Postnatal
+```
+
+### 9. WHO 1994 Partograph Chart — Interactive Digital Implementation
+
+The `PartographChart` component is a complete interactive digital version of the WHO 1994 Modified Partograph paper form:
+
+#### Layout Structure
+- **24 columns** (Hours 0-23), matching WHO standard
+- **Fixed width** (columns fill container via dynamic cell width calculation with ResizeObserver)
+- **Hidden scrollbars** (CSS: `scrollbar-width: none`, `::-webkit-scrollbar: display: none`)
+- **Fullscreen mode** (Fullscreen API toggle button in toolbar)
+- **A4-printable** (`@media print` CSS class)
+
+#### Sections (top to bottom)
+
+| Section | Implementation |
+|---------|---------------|
+| **Header** | 2-row patient info (Name, Gravida, Para, Hospital #, Date of admission, Time of admission, Ruptured membranes hours) |
+| **Fetal Heart Rate** | SVG chart (80-200 bpm, 13 rows). Click to plot dots with SVG polyline. **Shading zones**: red (<110 or >160), amber (110-119 or 150-160), green (120-150). **Thick lines** at 90 and 180 bpm. Dotted reference lines at 120 and 160. |
+| **Amniotic fluid / Moulding** | Dual `<select>` per cell: Amniotic fluid (I/C/M/B) + Moulding (0/+/++/+++). 24 columns. |
+| **Cervix / Descent** | **Outer Y-axis**: Cervix 0-10 cm (11 rows). **Inner Y-axis**: Descent 0-5 (6 rows). **Alert line** (solid black, 1px): from [4cm, Hour 0] → [10cm, Hour 6], labeled "Alert". **Action line** (dashed red, 2px): from [4cm, Hour 4] → [10cm, Hour 10], labeled "Action". **Click** to place X (cervix). **Shift+Click** to place O (descent). **WHO crossing logic**: Warning banners — "Crossed Alert Line" (amber) and animated red "ACTION REQUIRED". |
+| **Contractions per 10 min** | Y-axis 1-5 (5 rows). Select per cell (1-5). Visual shading key. |
+| **Oxytocin U/L drops/min** | Select per cell (0/5/10/15/20/30/40/50). |
+| **Drugs given and IV fluids** | Full-width `<textarea>` (3 rows height). |
+| **Maternal Vital Signs** | SVG chart (60-180, 13 rows). **Click** (no drag) = toggle pulse dot (●). **Click+drag** (≥5px movement) = draw BP arrow (↑) with systolic at mousedown, diastolic at mouseup position. Legend below. |
+| **Temperature °C** | `<input type=number step=0.1 min=30 max=42>` per cell. |
+| **Urine** | 3 rows: **protein** (Nil/+/++/+++), **acetone** (Nil/+/++/+++), **volume** (<30/30-100/>100). Select per cell. |
+| **Hours + Time** | Numbered HOURS 0-23 + TIME inputs per cell (bottom rows). |
+
+#### Undo/Redo System
+- History stack in MaternityLabourWard tracks every mutation: add/delete/update/clear
+- **Undo**: reverses last action (deletes added entry, re-creates deleted entry, restores old value)
+- **Redo**: re-applies undone action
+- **Clear All**: deletes all entries for the current patient (undoable)
+- Stack persists across component re-renders
+
+#### Data Model
+```typescript
+type PartoEntry = {
+  hour: number; time?: string; fhr?: number; cervix_cm?: number; descent_0_5?: number;
+  contractions?: 1|2|3|4|5; oxytocin?: number; pulse?: number; bp_sys?: number; bp_dia?: number; temp?: number;
+  amniotic_fluid?: 'I'|'C'|'M'|'B'; moulding?: '0'|'+'|'++'|'+++';
+  urine_protein?: 'Nil'|'+'|'++'|'+++'; urine_acetone?: 'Nil'|'+'|'++'|'+++'; urine_volume?: '<30'|'30-100'|'>100';
+  drugs_iv?: string; _id?: string;
+}
+```
+
+#### Key Fixes
+- **Cross-field corruption**: Vitals chart fired BOTH `onClick` (pulse dot) AND `onMouseDown` (BP arrow) on every click. Fixed: `onMouseDown`+`onMouseUp` with 5px movement threshold distinguishes click (pulse toggle) vs drag (BP arrow). No more `useEffect` window mousemove listener — saves only on mouseup.
+- **Race conditions**: Removed per-mousemove API saves during BP drag. BP sys saves on mousedown, BP dia saves on mouseup only.
+- **Cleanup**: `onMouseLeave` handler + window `mouseup` listener (no mousemove) for when user drags outside chart.
+
+### 10. Access by Role (Maternity)
+
+| Feature | Records | Nurse | Doctor | Admin |
+|---------|:------:|:-----:|:-----:|:-----:|
+| Maternity Dashboard | ✓ | ✓ | ✓ | ✓ |
+| Book Pregnancy | ✓ | ✓ | ✓ | ✓ |
+| Maternity Patient List | ✓ | ✓ | ✓ | ✓ |
+| ANC Visit Recording | - | ✓ | ✓ | ✓ |
+| Labour Admission | - | ✓ | ✓ | ✓ |
+| Partograph Recording | - | ✓ | ✓ | ✓ |
+| Delivery Recording | - | ✓ | ✓ | ✓ |
+| Postnatal Care | - | ✓ | ✓ | ✓ |
+| Patient Chart Maternity tab | ✓ (read-only) | ✓ | ✓ | ✓ |
+| Maternity Vitals fields | - | ✓ (if maternity patient) | ✓ (if maternity patient) | ✓ (if maternity patient) |
+
+### 11. Plan Document
+
+A comprehensive `MATERNITY_MODULE_PLAN.md` file was created at project root detailing:
+- Full implementation plan with architecture, database schema, server routes, client components
+- Access matrix by role
+- Build order (5 phases)
+- Integration points (Admissions, Paypoint, Inventory, Lab, Appointments)
+- Sidebar and navigation placement
+
+### 12. Files Created
+
+```
+database/024_maternity_core.sql
+database/025_maternity_labour.sql
+database/026_maternity_postnatal.sql
+database/027_vitals_maternity_fields.sql
+server/src/routes/maternity.ts
+server/src/db/migrate.ts
+client/src/components/MaternityDashboard.tsx
+client/src/components/MaternityBooking.tsx
+client/src/components/MaternityPatientList.tsx
+client/src/components/MaternityPatientDetail.tsx
+client/src/components/MaternityANCWorklist.tsx
+client/src/components/MaternityLabourWard.tsx
+client/src/components/MaternityLabourSummary.tsx
+client/src/components/MaternityPostnatalWard.tsx
+client/src/components/PartographChart.tsx
+MATERNITY_MODULE_PLAN.md
+```
+
+### 13. Files Modified
+
+```
+server/src/server.ts                    — registered maternity routes, auto-run migrations
+server/src/routes/vitals.ts             — added 8 maternity fields to POST/PUT with audit
+server/src/db/init.ts                   — replaced single-migration with runMigrations()
+client/src/App.tsx                      — added 7 maternity sidebar links + routes + icons
+client/src/components/PatientChart.tsx  — added Maternity tab + booking/ANC modals + vitals fields
+client/src/components/TriageStation.tsx — conditional maternity vitals fields
+client/src/components/MyPatients.tsx    — conditional maternity vitals fields
+client/src/components/DoctorVitals.tsx  — conditional maternity vitals fields + display cards
+client/src/components/DoctorConsultation.tsx — maternity info banner
+```
+
+---
+
+*End of Session Summary — July 6, 2026*

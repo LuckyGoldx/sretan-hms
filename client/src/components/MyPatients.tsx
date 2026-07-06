@@ -120,7 +120,8 @@ export default function MyPatients() {
   const [selectedWard, setSelectedWard] = useState('')
   const [admitting, setAdmitting] = useState(false)
   const [vitalsPatient, setVitalsPatient] = useState<any | null>(null)
-  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
+  const [hasMaternityRecord, setHasMaternityRecord] = useState(false)
+  const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
   const [showVitalsPreview, setShowVitalsPreview] = useState(false)
 
@@ -218,12 +219,20 @@ export default function MyPatients() {
         height: vitalsForm.height ? parseFloat(vitalsForm.height) : null,
         fetal_heart_rate: vitalsForm.fetal_heart_rate ? parseInt(vitalsForm.fetal_heart_rate) : null,
         fetal_heart_sound: vitalsForm.fetal_heart_sound || null,
+        fundal_height: vitalsForm.fundal_height ? parseFloat(vitalsForm.fundal_height) : null,
+        fetal_presentation: vitalsForm.fetal_presentation || null,
+        urine_protein: vitalsForm.urine_protein || null,
+        urine_glucose: vitalsForm.urine_glucose || null,
+        hemoglobin: vitalsForm.hemoglobin ? parseFloat(vitalsForm.hemoglobin) : null,
+        pcv: vitalsForm.pcv ? parseFloat(vitalsForm.pcv) : null,
+        gestational_age_weeks: vitalsForm.gestational_age_weeks ? parseInt(vitalsForm.gestational_age_weeks) : null,
+        tt_dose: vitalsForm.tt_dose || null,
         recorded_by: currentUser?.id,
         triage_priority: vitalsForm.triage_priority,
         nursing_notes: vitalsForm.nursing_notes,
       })
       setVitalsPatient(null)
-      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
+      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
       setError('')
     } catch (err: any) { setError(err?.response?.data?.message || 'Failed to save vitals') } finally { setVitalsSubmitting(false) }
   }
@@ -377,7 +386,12 @@ export default function MyPatients() {
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   {isNurse ? (
                     <>
-                    <button onClick={() => { setVitalsPatient(patient); setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' }) }}
+                    <button onClick={() => { setVitalsPatient(patient); setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
+                      setHasMaternityRecord(false)
+                      if (patient.sex === 'Female') {
+                        fetch('/api/maternity-patients?patient_id=' + patient.id, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }).then(r => r.json()).then(d => { if (Array.isArray(d) && d.length > 0) setHasMaternityRecord(true) }).catch(() => {})
+                      }
+                    }}
                       className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:scale-[1.01] transition-all duration-200 shadow-sm">
                       <Heart className="w-3.5 h-3.5" /> Vitals
                     </button>
@@ -485,14 +499,31 @@ export default function MyPatients() {
                   { label: 'Weight', key: 'weight', placeholder: '70 kg' },
                   { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
                   { label: 'Height', key: 'height', placeholder: '175 cm' },
-                  { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
-                  { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'Normal' },
-                ].map((f) => (
+                  ...(hasMaternityRecord ? [
+                    { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
+                    { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'Normal' },
+                    { label: 'Fundal Ht (cm)', key: 'fundal_height', type: 'number', placeholder: '24' },
+                    { label: 'Presentation', key: 'fetal_presentation', type: 'select', options: ['', 'cephalic', 'breech', 'transverse'] },
+                    { label: 'Urine Protein', key: 'urine_protein', type: 'select', options: ['', 'negative', 'trace', '+1', '+2', '+3'] },
+                    { label: 'Urine Glucose', key: 'urine_glucose', type: 'select', options: ['', 'negative', 'trace', '+1', '+2', '+3'] },
+                    { label: 'Hb (g/dL)', key: 'hemoglobin', type: 'number', placeholder: '12.0' },
+                    { label: 'PCV (%)', key: 'pcv', type: 'number', placeholder: '36' },
+                    { label: 'Gest. Age (wk)', key: 'gestational_age_weeks', type: 'number', placeholder: '24' },
+                    { label: 'TT Dose', key: 'tt_dose', type: 'select', options: ['', '1', '2', '3', '4', '5', 'completed'] },
+                  ] : []),
+                ].map((f: any) => (
                   <div key={f.key}>
                     <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
-                    <input type={f.key === 'fetal_heart_sound' ? 'text' : 'number'} step="any" placeholder={f.placeholder} value={(vitalsForm as any)[f.key]}
-                      onChange={(e) => setVitalsForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                    {f.type === 'select' ? (
+                      <select value={(vitalsForm as any)[f.key] || ''} onChange={(e) => setVitalsForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-primary">
+                        {(f.options || []).map((o: string) => <option key={o} value={o}>{o || 'Select'}</option>)}
+                      </select>
+                    ) : (
+                      <input type={f.type || (f.key === 'fetal_heart_sound' ? 'text' : 'number')} step="any" placeholder={f.placeholder} value={(vitalsForm as any)[f.key]}
+                        onChange={(e) => setVitalsForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                        className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                    )}
                   </div>
                 ))}
                 <div className="col-span-2 md:col-span-3">
@@ -554,6 +585,14 @@ export default function MyPatients() {
                   vitalsForm.height ? { label: 'Height', value: `${vitalsForm.height} cm` } : null,
                   vitalsForm.fetal_heart_rate ? { label: 'FHR', value: `${vitalsForm.fetal_heart_rate} bpm` } : null,
                   vitalsForm.fetal_heart_sound ? { label: 'FH Sound', value: vitalsForm.fetal_heart_sound } : null,
+                  vitalsForm.fundal_height ? { label: 'Fundal Ht', value: `${vitalsForm.fundal_height} cm` } : null,
+                  vitalsForm.fetal_presentation ? { label: 'Presentation', value: vitalsForm.fetal_presentation } : null,
+                  vitalsForm.urine_protein ? { label: 'Urine Protein', value: vitalsForm.urine_protein } : null,
+                  vitalsForm.urine_glucose ? { label: 'Urine Glucose', value: vitalsForm.urine_glucose } : null,
+                  vitalsForm.hemoglobin ? { label: 'Hb', value: `${vitalsForm.hemoglobin} g/dL` } : null,
+                  vitalsForm.pcv ? { label: 'PCV', value: `${vitalsForm.pcv} %` } : null,
+                  vitalsForm.gestational_age_weeks ? { label: 'Gest. Age', value: `${vitalsForm.gestational_age_weeks} wks` } : null,
+                  vitalsForm.tt_dose ? { label: 'TT Dose', value: vitalsForm.tt_dose } : null,
                 ].filter(Boolean).map((f: any) => (
                   <div key={f.label} className="bg-slate-50 rounded-xl p-3">
                     <p className="text-[10px] text-slate-400 font-medium uppercase">{f.label}</p>

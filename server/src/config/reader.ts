@@ -21,6 +21,8 @@ export interface ClinicProfile {
   module_pharmacy: boolean;
   module_radiology: boolean;
   module_finance_hmo: boolean;
+  hospital_number_prefix: string;
+  hospital_number_include_year: boolean;
 }
 
 const CONFIG_PATH = 'C:/hms/config/clinic_profile.json';
@@ -53,6 +55,8 @@ export function readClinicProfile(): ClinicProfile {
     module_pharmacy: false,
     module_radiology: false,
     module_finance_hmo: false,
+    hospital_number_prefix: 'SRT',
+    hospital_number_include_year: true,
   };
 }
 

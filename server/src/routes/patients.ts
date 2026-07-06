@@ -104,7 +104,7 @@ router.post('/api/patients', async (req: Request, res: Response) => {
   try {
     await clockGuard(pool, 'patients');
 
-    const { full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type, edited_by } = req.body;
+    const { full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type, tribe, religion, edited_by } = req.body;
     const tenantId = getTenantId();
 
     if (!full_name || !dob || !sex) {
@@ -113,14 +113,25 @@ router.post('/api/patients', async (req: Request, res: Response) => {
     }
 
     const id = uuidv4();
-    const seqResult = await pool.query("SELECT COALESCE(MAX(SUBSTRING(hospital_number FROM 'SRT-2026-(\\d+)')::int), 0) + 1 AS next_num FROM patients WHERE hospital_number ~ '^SRT-2026-'");
+    const config = readClinicProfile();
+    const prefix = config.hospital_number_prefix || 'SRT';
+    const includeYear = config.hospital_number_include_year !== false;
+    const year = new Date().getFullYear();
+    const yearPart = includeYear ? `-${year}` : '';
+    const pattern = includeYear
+      ? `${prefix}-${year}-`
+      : `${prefix}-`;
+    const seqQuery = includeYear
+      ? `SELECT COALESCE(MAX(SUBSTRING(hospital_number FROM '${prefix}-${year}-(\\d+)')::int), 0) + 1 AS next_num FROM patients WHERE hospital_number ~ '^${prefix}-${year}-'`
+      : `SELECT COALESCE(MAX(SUBSTRING(hospital_number FROM '${prefix}-(\\d+)')::int), 0) + 1 AS next_num FROM patients WHERE hospital_number ~ '^${prefix}-'`;
+    const seqResult = await pool.query(seqQuery);
     const nextNum = seqResult.rows[0]?.next_num || 1;
-    const hospitalNumber = `SRT-2026-${String(nextNum).padStart(5, '0')}`;
+    const hospitalNumber = `${pattern}${String(nextNum).padStart(5, '0')}`;
     const result = await pool.query(
-      `INSERT INTO patients (id, tenant_id, hospital_number, full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+      `INSERT INTO patients (id, tenant_id, hospital_number, full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type, tribe, religion)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
        RETURNING *`,
-      [id, tenantId, hospitalNumber, full_name, dob, sex, phone || null, next_of_kin || null, next_of_kin_phone || null, insurance || null, blood_type || null, status || 'checked_in', email || null, address || null, emergency_contact_name || null, emergency_contact_phone || null, occupation || null, marital_status || null, nationality || null, state_of_origin || null, lga || null, next_of_kin_address || null, relationship || null, insurance_type || null, insurance_sub_type || null]
+      [id, tenantId, hospitalNumber, full_name, dob, sex, phone || null, next_of_kin || null, next_of_kin_phone || null, insurance || null, blood_type || null, status || 'checked_in', email || null, address || null, emergency_contact_name || null, emergency_contact_phone || null, occupation || null, marital_status || null, nationality || null, state_of_origin || null, lga || null, next_of_kin_address || null, relationship || null, insurance_type || null, insurance_sub_type || null, tribe || null, religion || null]
     );
 
     res.status(201).json(result.rows[0]);
@@ -135,7 +146,7 @@ router.put('/api/patients/:id', async (req: Request, res: Response) => {
 
     const tenantId = getTenantId();
     const { id } = req.params;
-    const { full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type, edited_by } = req.body;
+    const { full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type, tribe, religion, edited_by } = req.body;
 
     const existing = await pool.query(
       'SELECT * FROM patients WHERE id = $1 AND tenant_id = $2',
@@ -160,10 +171,11 @@ router.put('/api/patients/:id', async (req: Request, res: Response) => {
         nationality = COALESCE($16, nationality), state_of_origin = COALESCE($17, state_of_origin),
         lga = COALESCE($18, lga), next_of_kin_address = COALESCE($19, next_of_kin_address),
         relationship = COALESCE($20, relationship), insurance_type = COALESCE($21, insurance_type),
-        insurance_sub_type = COALESCE($22, insurance_sub_type)
-       WHERE id = $23 AND tenant_id = $24
+        insurance_sub_type = COALESCE($22, insurance_sub_type),
+        tribe = COALESCE($23, tribe), religion = COALESCE($24, religion)
+       WHERE id = $25 AND tenant_id = $26
        RETURNING *`,
-      [full_name || null, dob || null, sex || null, phone || null, next_of_kin || null, next_of_kin_phone || null, insurance || null, blood_type || null, status || null, email || null, address || null, emergency_contact_name || null, emergency_contact_phone || null, occupation || null, marital_status || null, nationality || null, state_of_origin || null, lga || null, next_of_kin_address || null, relationship || null, insurance_type || null, insurance_sub_type || null, id, tenantId]
+      [full_name || null, dob || null, sex || null, phone || null, next_of_kin || null, next_of_kin_phone || null, insurance || null, blood_type || null, status || null, email || null, address || null, emergency_contact_name || null, emergency_contact_phone || null, occupation || null, marital_status || null, nationality || null, state_of_origin || null, lga || null, next_of_kin_address || null, relationship || null, insurance_type || null, insurance_sub_type || null, tribe || null, religion || null, id, tenantId]
     );
 
     // Audit log

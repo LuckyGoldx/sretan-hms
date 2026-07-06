@@ -15,13 +15,24 @@ interface VitalsForm {
   height: string
   fetal_heart_rate: string
   fetal_heart_sound: string
+  fundal_height: string
+  fetal_presentation: string
+  urine_protein: string
+  urine_glucose: string
+  hemoglobin: string
+  pcv: string
+  gestational_age_weeks: string
+  tt_dose: string
   triage_priority: 'red' | 'yellow' | 'green'
   nursing_notes: string
 }
 
 const emptyForm: VitalsForm = {
   systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '',
-  weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '',
+  weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '',
+  fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '',
+  hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '',
+  triage_priority: 'green', nursing_notes: '',
 }
 
 const priorityColors: Record<string, string> = {
@@ -72,6 +83,7 @@ export default function TriageStation() {
   const [tab, setTab] = useState<'queue' | 'triage' | 'history'>('queue')
   const [search, setSearch] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
+  const [hasMaternityRecord, setHasMaternityRecord] = useState(false)
 
   const currentUser: { id: string; name: string; role: string } | null = (() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u) } catch {}
@@ -116,6 +128,14 @@ export default function TriageStation() {
         height: form.height ? parseFloat(form.height) : null,
         fetal_heart_rate: form.fetal_heart_rate ? parseInt(form.fetal_heart_rate) : null,
         fetal_heart_sound: form.fetal_heart_sound || null,
+        fundal_height: form.fundal_height ? parseFloat(form.fundal_height) : null,
+        fetal_presentation: form.fetal_presentation || null,
+        urine_protein: form.urine_protein || null,
+        urine_glucose: form.urine_glucose || null,
+        hemoglobin: form.hemoglobin ? parseFloat(form.hemoglobin) : null,
+        pcv: form.pcv ? parseFloat(form.pcv) : null,
+        gestational_age_weeks: form.gestational_age_weeks ? parseInt(form.gestational_age_weeks) : null,
+        tt_dose: form.tt_dose || null,
         recorded_by: currentUser?.id,
         triage_priority: form.triage_priority,
         nursing_notes: form.nursing_notes,
@@ -135,10 +155,20 @@ export default function TriageStation() {
     setTriaged((prev) => prev.filter((p) => p.id !== patientId))
   }
 
-  const selectForTriage = (patient: Patient) => {
+  const selectForTriage = async (patient: Patient) => {
     setSelectedPatient(patient.id)
     setForm(emptyForm)
     setTab('triage')
+    setHasMaternityRecord(false)
+    if (patient.sex === 'Female') {
+      try {
+        const res = await fetch(`/api/maternity-patients?patient_id=${patient.id}`, {
+          headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+        })
+        const data = await res.json()
+        if (Array.isArray(data) && data.length > 0) setHasMaternityRecord(true)
+      } catch {}
+    }
   }
 
   if (loading) return <div className="flex justify-center py-20"><Loader2 size={32} className="animate-spin text-primary" /></div>
@@ -238,14 +268,31 @@ export default function TriageStation() {
                 { label: 'Weight', key: 'weight', placeholder: '70 kg' },
                 { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
                 { label: 'Height', key: 'height', placeholder: '175 cm' },
-                { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
-                { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'Normal' },
-              ].map((f) => (
+                ...(hasMaternityRecord ? [
+                  { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
+                  { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'Normal' },
+                  { label: 'Fundal Ht (cm)', key: 'fundal_height', type: 'number', placeholder: '24' },
+                  { label: 'Presentation', key: 'fetal_presentation', type: 'select', placeholder: '', options: ['', 'cephalic', 'breech', 'transverse'] },
+                  { label: 'Urine Protein', key: 'urine_protein', type: 'select', placeholder: '', options: ['', 'negative', 'trace', '+1', '+2', '+3'] },
+                  { label: 'Urine Glucose', key: 'urine_glucose', type: 'select', placeholder: '', options: ['', 'negative', 'trace', '+1', '+2', '+3'] },
+                  { label: 'Hb (g/dL)', key: 'hemoglobin', type: 'number', placeholder: '12.0' },
+                  { label: 'PCV (%)', key: 'pcv', type: 'number', placeholder: '36' },
+                  { label: 'Gest. Age (wk)', key: 'gestational_age_weeks', type: 'number', placeholder: '24' },
+                  { label: 'TT Dose', key: 'tt_dose', type: 'select', placeholder: '', options: ['', '1', '2', '3', '4', '5', 'completed'] },
+                ] : []),
+              ].map((f: any) => (
                 <div key={f.key}>
                   <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
-                   <input type={f.key === 'fetal_heart_sound' ? 'text' : 'number'} step="any" placeholder={f.placeholder} value={(form as any)[f.key]}
-                    onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  {f.type === 'select' ? (
+                    <select value={(form as any)[f.key] || ''} onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-primary">
+                      {(f.options || []).map((o: string) => <option key={o} value={o}>{o || 'Select'}</option>)}
+                    </select>
+                  ) : (
+                    <input type={f.type || (f.key === 'fetal_heart_sound' ? 'text' : 'number')} step="any" placeholder={f.placeholder} value={(form as any)[f.key]}
+                      onChange={(e) => setForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  )}
                 </div>
               ))}
               <div className="col-span-2 md:col-span-3">

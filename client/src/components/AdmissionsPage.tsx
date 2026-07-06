@@ -32,6 +32,7 @@ export default function AdmissionsPage() {
   const [showNewBedInput, setShowNewBedInput] = useState(false)
   const [newBedNumber, setNewBedNumber] = useState('')
   const [vitalsPatient, setVitalsPatient] = useState<any | null>(null)
+  const [hasMaternityRecord, setHasMaternityRecord] = useState(false)
   const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
   const [showVitalsPreview, setShowVitalsPreview] = useState(false)
@@ -300,7 +301,7 @@ export default function AdmissionsPage() {
                     <div className="flex items-center gap-2 flex-shrink-0 ml-4">
                       {isNurse ? (
                         <>
-                        <button onClick={() => { setVitalsPatient(a); setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' }) }}
+                        <button onClick={() => { setVitalsPatient(a); setHasMaternityRecord(false); setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' }); api.get('/patients/' + a.patient_id).then(r => { const p = r.data; if (p?.sex === 'Female') api.get('/maternity-patients?patient_id=' + a.patient_id).then(res => { if (Array.isArray(res.data) && res.data.length > 0) setHasMaternityRecord(true) }).catch(() => {}) }).catch(() => {}) }}
                           className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium hover:bg-primary/90 transition-colors flex items-center gap-1"><Heart size={12} /> Vitals</button>
                         <button onClick={() => navigate(`/patient/${a.patient_id}`)}
                           className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
@@ -500,8 +501,10 @@ export default function AdmissionsPage() {
                   { label: 'Weight', key: 'weight', placeholder: '70 kg' },
                   { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
                   { label: 'Height', key: 'height', placeholder: '175 cm' },
-                  { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
-                  { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'Normal' },
+                  ...(hasMaternityRecord ? [
+                    { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
+                    { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'Normal' },
+                  ] : []),
                 ].map((f) => (
                   <div key={f.key}>
                     <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>

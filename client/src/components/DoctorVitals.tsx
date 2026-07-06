@@ -48,7 +48,8 @@ export default function DoctorVitals() {
   const [showRecordModal, setShowRecordModal] = useState(false)
   const [editingVital, setEditingVital] = useState<any | null>(null)
   const [showVitalsPreview, setShowVitalsPreview] = useState(false)
-  const [recordForm, setRecordForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
+  const [hasMaternityRecord, setHasMaternityRecord] = useState(false)
+  const [recordForm, setRecordForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
   const [recording, setRecording] = useState(false)
   const [recError, setRecError] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
@@ -116,13 +117,21 @@ export default function DoctorVitals() {
           height: recordForm.height ? parseFloat(recordForm.height) : null,
           fetal_heart_rate: recordForm.fetal_heart_rate ? parseInt(recordForm.fetal_heart_rate) : null,
           fetal_heart_sound: recordForm.fetal_heart_sound || null,
+          fundal_height: recordForm.fundal_height ? parseFloat(recordForm.fundal_height) : null,
+          fetal_presentation: recordForm.fetal_presentation || null,
+          urine_protein: recordForm.urine_protein || null,
+          urine_glucose: recordForm.urine_glucose || null,
+          hemoglobin: recordForm.hemoglobin ? parseFloat(recordForm.hemoglobin) : null,
+          pcv: recordForm.pcv ? parseFloat(recordForm.pcv) : null,
+          gestational_age_weeks: recordForm.gestational_age_weeks ? parseInt(recordForm.gestational_age_weeks) : null,
+          tt_dose: recordForm.tt_dose || null,
           triage_priority: recordForm.triage_priority,
           nursing_notes: recordForm.nursing_notes,
           edited_by: currentUser?.id,
         })
         setShowRecordModal(false)
         setEditingVital(null)
-        setRecordForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
+        setRecordForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
         setSuccessMsg('Vitals updated successfully')
         await loadVitals(selectedPatient)
         setTimeout(() => setSuccessMsg(''), 3000)
@@ -144,12 +153,20 @@ export default function DoctorVitals() {
         height: recordForm.height ? parseFloat(recordForm.height) : null,
         fetal_heart_rate: recordForm.fetal_heart_rate ? parseInt(recordForm.fetal_heart_rate) : null,
         fetal_heart_sound: recordForm.fetal_heart_sound || null,
+        fundal_height: recordForm.fundal_height ? parseFloat(recordForm.fundal_height) : null,
+        fetal_presentation: recordForm.fetal_presentation || null,
+        urine_protein: recordForm.urine_protein || null,
+        urine_glucose: recordForm.urine_glucose || null,
+        hemoglobin: recordForm.hemoglobin ? parseFloat(recordForm.hemoglobin) : null,
+        pcv: recordForm.pcv ? parseFloat(recordForm.pcv) : null,
+        gestational_age_weeks: recordForm.gestational_age_weeks ? parseInt(recordForm.gestational_age_weeks) : null,
+        tt_dose: recordForm.tt_dose || null,
         recorded_by: currentUser?.id,
         triage_priority: recordForm.triage_priority,
         nursing_notes: recordForm.nursing_notes,
       })
       setShowRecordModal(false)
-      setRecordForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' })
+      setRecordForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
       setSuccessMsg('Vitals recorded successfully')
       await loadVitals(selectedPatient)
       setTimeout(() => setSuccessMsg(''), 3000)
@@ -224,7 +241,13 @@ export default function DoctorVitals() {
             <>
               <div className="flex items-center justify-between">
                 <p className="text-sm text-slate-500">{vitals.length} vitals record{vitals.length !== 1 ? 's' : ''}</p>
-                <button onClick={() => { setShowRecordModal(true); setRecordForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', triage_priority: 'green', nursing_notes: '' }) }}
+                <button onClick={async () => {
+                  setShowRecordModal(true); setRecordForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
+                  setHasMaternityRecord(false)
+                  if (selectedPatient?.sex === 'Female') {
+                    fetch('/api/maternity-patients?patient_id=' + selectedPatient.id, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }).then(r => r.json()).then(d => { if (Array.isArray(d) && d.length > 0) setHasMaternityRecord(true) }).catch(() => {})
+                  }
+                }}
                   className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform">
                   <Heart size={14} /> Record Vitals
                 </button>
@@ -271,6 +294,14 @@ export default function DoctorVitals() {
                               height: String(v.height || ''),
                               fetal_heart_rate: String(v.fetal_heart_rate || ''),
                               fetal_heart_sound: v.fetal_heart_sound || '',
+                              fundal_height: String(v.fundal_height || ''),
+                              fetal_presentation: v.fetal_presentation || '',
+                              urine_protein: v.urine_protein || '',
+                              urine_glucose: v.urine_glucose || '',
+                              hemoglobin: String(v.hemoglobin || ''),
+                              pcv: String(v.pcv || ''),
+                              gestational_age_weeks: String(v.gestational_age_weeks || ''),
+                              tt_dose: v.tt_dose || '',
                               triage_priority: v.triage_priority || 'green',
                               nursing_notes: v.nursing_notes || '',
                             }); setShowRecordModal(true) }}
@@ -297,8 +328,16 @@ export default function DoctorVitals() {
                             { label: 'Height', value: v.height ? `${v.height}cm` : '—' },
                             { label: 'FHR', value: v.fetal_heart_rate ? `${v.fetal_heart_rate}bpm` : '—' },
                             { label: 'FH Sound', value: v.fetal_heart_sound || '—' },
+                            { label: 'Fundal Ht', value: v.fundal_height ? `${v.fundal_height}cm` : '—' },
+                            { label: 'Presentation', value: v.fetal_presentation || '—' },
+                            { label: 'Urine Protein', value: v.urine_protein || '—' },
+                            { label: 'Urine Glucose', value: v.urine_glucose || '—' },
+                            { label: 'Hb', value: v.hemoglobin ? `${v.hemoglobin}g/dL` : '—' },
+                            { label: 'PCV', value: v.pcv ? `${v.pcv}%` : '—' },
+                            { label: 'Gest. Age', value: v.gestational_age_weeks ? `${v.gestational_age_weeks}w` : '—' },
+                            { label: 'TT Dose', value: v.tt_dose || '—' },
                             { label: 'Triage', value: v.triage_priority ? ({ red: 'EMERGENCY', yellow: 'URGENT', green: 'ROUTINE' })[v.triage_priority as 'red' | 'yellow' | 'green'] || v.triage_priority : '—' },
-                          ].map((f) => (
+                          ].filter((f) => f.value !== '—').map((f) => (
                             <div key={f.label} className="bg-slate-50 rounded-xl p-2.5">
                               <p className="text-[10px] text-slate-400 font-medium uppercase">{f.label}</p>
                               <p className="text-sm font-bold text-slate-800 mt-0.5">{f.value}</p>
@@ -337,14 +376,31 @@ export default function DoctorVitals() {
                       { label: 'Weight', key: 'weight', placeholder: '70 kg' },
                       { label: 'SpO₂', key: 'spo2', placeholder: '98 %' },
                       { label: 'Height', key: 'height', placeholder: '175 cm' },
-                      { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
-                      { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'Normal' },
-                    ].map((f) => (
+                      ...(hasMaternityRecord ? [
+                        { label: 'FHR', key: 'fetal_heart_rate', placeholder: '140 bpm' },
+                        { label: 'FH Sound', key: 'fetal_heart_sound', placeholder: 'Normal' },
+                        { label: 'Fundal Ht (cm)', key: 'fundal_height', type: 'number', placeholder: '24' },
+                        { label: 'Presentation', key: 'fetal_presentation', type: 'select', options: ['', 'cephalic', 'breech', 'transverse'] },
+                        { label: 'Urine Protein', key: 'urine_protein', type: 'select', options: ['', 'negative', 'trace', '+1', '+2', '+3'] },
+                        { label: 'Urine Glucose', key: 'urine_glucose', type: 'select', options: ['', 'negative', 'trace', '+1', '+2', '+3'] },
+                        { label: 'Hb (g/dL)', key: 'hemoglobin', type: 'number', placeholder: '12.0' },
+                        { label: 'PCV (%)', key: 'pcv', type: 'number', placeholder: '36' },
+                        { label: 'Gest. Age (wk)', key: 'gestational_age_weeks', type: 'number', placeholder: '24' },
+                        { label: 'TT Dose', key: 'tt_dose', type: 'select', options: ['', '1', '2', '3', '4', '5', 'completed'] },
+                      ] : []),
+                    ].map((f: any) => (
                       <div key={f.key}>
                         <label className="block text-xs font-medium text-slate-500 mb-1">{f.label}</label>
-                        <input type={f.key === 'fetal_heart_sound' ? 'text' : 'number'} step="any" placeholder={f.placeholder} value={(recordForm as any)[f.key]}
-                          onChange={(e) => setRecordForm((p) => ({ ...p, [f.key]: e.target.value }))}
-                          className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                        {f.type === 'select' ? (
+                          <select value={(recordForm as any)[f.key] || ''} onChange={(e) => setRecordForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-primary">
+                            {(f.options || []).map((o: string) => <option key={o} value={o}>{o || 'Select'}</option>)}
+                          </select>
+                        ) : (
+                          <input type={f.type || (f.key === 'fetal_heart_sound' ? 'text' : 'number')} step="any" placeholder={f.placeholder} value={(recordForm as any)[f.key]}
+                            onChange={(e) => setRecordForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                        )}
                       </div>
                     ))}
                     <div className="col-span-2 md:col-span-3">
@@ -395,25 +451,33 @@ export default function DoctorVitals() {
                    <button onClick={() => setShowVitalsPreview(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
                  </div>
                  <div className="overflow-y-auto flex-1 p-6 space-y-4">
-                   <div className="grid grid-cols-2 gap-3">
-                     {[
-                       { label: 'Systolic BP', value: recordForm.systolic_bp ? `${recordForm.systolic_bp} mmHg` : '—' },
-                       { label: 'Diastolic BP', value: recordForm.diastolic_bp ? `${recordForm.diastolic_bp} mmHg` : '—' },
-                       { label: 'Pulse', value: recordForm.pulse ? `${recordForm.pulse} bpm` : '—' },
-                       { label: 'Temperature', value: recordForm.temperature ? `${recordForm.temperature} °C` : '—' },
-                       { label: 'Resp. Rate', value: recordForm.respiration_rate ? `${recordForm.respiration_rate}` : '—' },
-                       { label: 'Weight', value: recordForm.weight ? `${recordForm.weight} kg` : '—' },
-                       { label: 'SpO₂', value: recordForm.spo2 ? `${recordForm.spo2} %` : '—' },
-                       { label: 'Height', value: recordForm.height ? `${recordForm.height} cm` : '—' },
-                       { label: 'FHR', value: recordForm.fetal_heart_rate ? `${recordForm.fetal_heart_rate} bpm` : '—' },
-                       { label: 'FH Sound', value: recordForm.fetal_heart_sound || '—' },
-                     ].map((f) => (
-                       <div key={f.label} className="bg-slate-50 rounded-xl p-3">
-                         <p className="text-[10px] text-slate-400 font-medium uppercase">{f.label}</p>
-                         <p className="text-sm font-bold text-slate-800 mt-0.5">{f.value}</p>
-                       </div>
-                     ))}
-                   </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      {[
+                        recordForm.systolic_bp ? { label: 'Systolic BP', value: `${recordForm.systolic_bp} mmHg` } : null,
+                        recordForm.diastolic_bp ? { label: 'Diastolic BP', value: `${recordForm.diastolic_bp} mmHg` } : null,
+                        recordForm.pulse ? { label: 'Pulse', value: `${recordForm.pulse} bpm` } : null,
+                        recordForm.temperature ? { label: 'Temperature', value: `${recordForm.temperature} °C` } : null,
+                        recordForm.respiration_rate ? { label: 'Resp. Rate', value: `${recordForm.respiration_rate}` } : null,
+                        recordForm.weight ? { label: 'Weight', value: `${recordForm.weight} kg` } : null,
+                        recordForm.spo2 ? { label: 'SpO₂', value: `${recordForm.spo2} %` } : null,
+                        recordForm.height ? { label: 'Height', value: `${recordForm.height} cm` } : null,
+                        recordForm.fetal_heart_rate ? { label: 'FHR', value: `${recordForm.fetal_heart_rate} bpm` } : null,
+                        recordForm.fetal_heart_sound ? { label: 'FH Sound', value: recordForm.fetal_heart_sound } : null,
+                        recordForm.fundal_height ? { label: 'Fundal Ht', value: `${recordForm.fundal_height} cm` } : null,
+                        recordForm.fetal_presentation ? { label: 'Presentation', value: recordForm.fetal_presentation } : null,
+                        recordForm.urine_protein ? { label: 'Urine Protein', value: recordForm.urine_protein } : null,
+                        recordForm.urine_glucose ? { label: 'Urine Glucose', value: recordForm.urine_glucose } : null,
+                        recordForm.hemoglobin ? { label: 'Hb', value: `${recordForm.hemoglobin} g/dL` } : null,
+                        recordForm.pcv ? { label: 'PCV', value: `${recordForm.pcv} %` } : null,
+                        recordForm.gestational_age_weeks ? { label: 'Gest. Age', value: `${recordForm.gestational_age_weeks} wks` } : null,
+                        recordForm.tt_dose ? { label: 'TT Dose', value: recordForm.tt_dose } : null,
+                      ].filter(Boolean).map((f: any) => (
+                        <div key={f.label} className="bg-slate-50 rounded-xl p-3">
+                          <p className="text-[10px] text-slate-400 font-medium uppercase">{f.label}</p>
+                          <p className="text-sm font-bold text-slate-800 mt-0.5">{f.value}</p>
+                        </div>
+                      ))}
+                    </div>
                    <div className="bg-slate-50 rounded-xl p-3">
                      <p className="text-[10px] text-slate-400 font-medium uppercase mb-1">Triage</p>
                      <span className={`inline-flex px-2.5 py-1 rounded-lg text-xs font-bold ${

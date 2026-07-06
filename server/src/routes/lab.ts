@@ -15,7 +15,7 @@ const PRIORITIES = ['routine', 'urgent', 'stat'];
 router.get('/api/lab-orders', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { status, encounter_id, doctor_id, specimen_type, priority, is_paid } = req.query;
+    const { status, encounter_id, doctor_id, specimen_type, priority, is_paid, encounter_type } = req.query;
 
     let query = `SELECT l.*, enc.patient_id, pat.hospital_number,
                   (SELECT s.name FROM lab_results lr JOIN staff_users s ON s.id = lr.entered_by WHERE lr.lab_order_id = l.id AND lr.entered_by IS NOT NULL AND lr.status = 'completed' LIMIT 1) as entered_by_name,
@@ -35,6 +35,7 @@ router.get('/api/lab-orders', async (req: Request, res: Response) => {
       params.push(doctor_id);
       idx++;
     }
+    if (encounter_type) { query += ` AND enc.encounter_type = $${idx}`; params.push(encounter_type); idx++; }
 
     query += ' ORDER BY l.created_at DESC';
     const result = await pool.query(query, params);

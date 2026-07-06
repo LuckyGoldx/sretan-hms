@@ -13,18 +13,24 @@ function getTenantId(): string {
 router.get('/api/encounters', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { patient_id } = req.query;
-    let query = 'SELECT * FROM encounters WHERE tenant_id = $1';
+    const { patient_id, encounter_type } = req.query;
+    let query = `SELECT e.*, s.name as staff_name FROM encounters e LEFT JOIN staff_users s ON s.id = e.staff_id WHERE e.tenant_id = $1`;
     const params: any[] = [tenantId];
     let paramIndex = 2;
 
     if (patient_id) {
-      query += ` AND patient_id = $${paramIndex}`;
+      query += ` AND e.patient_id = $${paramIndex}`;
       params.push(patient_id);
       paramIndex++;
     }
 
-    query += ' ORDER BY created_at DESC';
+    if (encounter_type) {
+      query += ` AND e.encounter_type = $${paramIndex}`;
+      params.push(encounter_type);
+      paramIndex++;
+    }
+
+    query += ' ORDER BY e.created_at DESC';
 
     const result = await pool.query(query, params);
     res.json(result.rows);

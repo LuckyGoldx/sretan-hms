@@ -19,6 +19,8 @@ router.post('/api/vitals', async (req: Request, res: Response) => {
       encounter_id, systolic_bp, diastolic_bp, pulse, temperature,
       respiration_rate, weight, spo2, triage_priority, nursing_notes,
       fluid_intake, fluid_output, height, fetal_heart_rate, fetal_heart_sound,
+      fundal_height, fetal_presentation, urine_protein, urine_glucose,
+      hemoglobin, pcv, gestational_age_weeks, tt_dose,
       recorded_by
     } = req.body;
 
@@ -31,13 +33,18 @@ router.post('/api/vitals', async (req: Request, res: Response) => {
     const result = await pool.query(
       `INSERT INTO vitals (id, tenant_id, encounter_id, systolic_bp, diastolic_bp, pulse, temperature,
         respiration_rate, weight, spo2, triage_priority, nursing_notes, fluid_intake, fluid_output,
-        height, fetal_heart_rate, fetal_heart_sound, recorded_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        height, fetal_heart_rate, fetal_heart_sound, recorded_by,
+        fundal_height, fetal_presentation, urine_protein, urine_glucose, hemoglobin, pcv,
+        gestational_age_weeks, tt_dose)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+        $19, $20, $21, $22, $23, $24, $25, $26)
        RETURNING *`,
       [id, tenantId, encounter_id, systolic_bp || null, diastolic_bp || null, pulse || null,
        temperature || null, respiration_rate || null, weight || null, spo2 || null,
        triage_priority || null, nursing_notes || null, fluid_intake || null, fluid_output || null,
-       height || null, fetal_heart_rate || null, fetal_heart_sound || null, recorded_by || null]
+       height || null, fetal_heart_rate || null, fetal_heart_sound || null, recorded_by || null,
+       fundal_height || null, fetal_presentation || null, urine_protein || null, urine_glucose || null,
+       hemoglobin || null, pcv || null, gestational_age_weeks || null, tt_dose || null]
     );
 
     await pool.query(
@@ -112,7 +119,10 @@ router.put('/api/vitals/:id', async (req: Request, res: Response) => {
       temperature: vital.temperature, respiration_rate: vital.respiration_rate, weight: vital.weight,
       spo2: vital.spo2, height: vital.height, fetal_heart_rate: vital.fetal_heart_rate,
       fetal_heart_sound: vital.fetal_heart_sound, triage_priority: vital.triage_priority,
-      nursing_notes: vital.nursing_notes,
+      nursing_notes: vital.nursing_notes, fundal_height: vital.fundal_height,
+      fetal_presentation: vital.fetal_presentation, urine_protein: vital.urine_protein,
+      urine_glucose: vital.urine_glucose, hemoglobin: vital.hemoglobin, pcv: vital.pcv,
+      gestational_age_weeks: vital.gestational_age_weeks, tt_dose: vital.tt_dose,
     });
 
     const editorRes = await pool.query('SELECT name FROM staff_users WHERE id = $1', [edited_by]);
@@ -130,13 +140,20 @@ router.put('/api/vitals/:id', async (req: Request, res: Response) => {
         spo2 = COALESCE($7, spo2), height = COALESCE($8, height),
         fetal_heart_rate = COALESCE($9, fetal_heart_rate), fetal_heart_sound = COALESCE($10, fetal_heart_sound),
         triage_priority = COALESCE($11, triage_priority), nursing_notes = COALESCE($12, nursing_notes),
-        edited_by = $13, edited_at = NOW(), edit_log = edit_log || $14::jsonb
-       WHERE id = $15 RETURNING *`,
+        fundal_height = COALESCE($13, fundal_height), fetal_presentation = COALESCE($14, fetal_presentation),
+        urine_protein = COALESCE($15, urine_protein), urine_glucose = COALESCE($16, urine_glucose),
+        hemoglobin = COALESCE($17, hemoglobin), pcv = COALESCE($18, pcv),
+        gestational_age_weeks = COALESCE($19, gestational_age_weeks), tt_dose = COALESCE($20, tt_dose),
+        edited_by = $21, edited_at = NOW(), edit_log = edit_log || $22::jsonb
+       WHERE id = $23 RETURNING *`,
       [
         fields.systolic_bp || null, fields.diastolic_bp || null, fields.pulse || null,
         fields.temperature || null, fields.respiration_rate || null, fields.weight || null,
         fields.spo2 || null, fields.height || null, fields.fetal_heart_rate || null,
         fields.fetal_heart_sound || null, fields.triage_priority || null, fields.nursing_notes || null,
+        fields.fundal_height || null, fields.fetal_presentation || null, fields.urine_protein || null,
+        fields.urine_glucose || null, fields.hemoglobin || null, fields.pcv || null,
+        fields.gestational_age_weeks || null, fields.tt_dose || null,
         edited_by, newLogEntry, id,
       ]
     );

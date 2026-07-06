@@ -16,29 +16,8 @@ interface RadiologyForm { imaging_type: string; doctor_comment: string }
 interface PrescriptionForm { drug_name: string; dosage: string; quantity: string; instructions: string }
 type ModalType = 'lab' | 'radiology' | null
 
-const icd11Codes = [
-  { code: 'A00-B99', label: 'Certain infectious or parasitic diseases' },
-  { code: 'C00-D97', label: 'Neoplasms' },
-  { code: 'D50-D89', label: 'Diseases of the blood & immune system' },
-  { code: 'E00-E89', label: 'Endocrine, nutritional & metabolic diseases' },
-  { code: 'F01-F99', label: 'Mental, behavioural & neurodevelopmental disorders' },
-  { code: 'G00-G99', label: 'Diseases of the nervous system' },
-  { code: 'H00-H59', label: 'Diseases of the eye & adnexa' },
-  { code: 'H60-H95', label: 'Diseases of the ear & mastoid process' },
-  { code: 'I00-I99', label: 'Diseases of the circulatory system' },
-  { code: 'J00-J99', label: 'Diseases of the respiratory system' },
-  { code: 'K00-K95', label: 'Diseases of the digestive system' },
-  { code: 'L00-L99', label: 'Diseases of the skin & subcutaneous tissue' },
-  { code: 'M00-M99', label: 'Diseases of the musculoskeletal system & connective tissue' },
-  { code: 'N00-N99', label: 'Diseases of the genitourinary system' },
-  { code: 'O00-O9A', label: 'Pregnancy, childbirth & the puerperium' },
-  { code: 'P00-P96', label: 'Certain conditions originating in the perinatal period' },
-  { code: 'Q00-Q99', label: 'Congenital malformations, deformations & chromosomal abnormalities' },
-  { code: 'R00-R99', label: 'Symptoms, signs or clinical findings, not elsewhere classified' },
-  { code: 'S00-T88', label: 'Injury, poisoning & certain other consequences of external causes' },
-  { code: 'V00-Y99', label: 'External causes of morbidity & mortality' },
-  { code: 'Z00-Z99', label: 'Factors influencing health status & contact with health services' },
-]
+import { ICD11_CODES } from '../data/icd11Codes'
+const icd11Codes = ICD11_CODES.map((c) => ({ code: c.code, label: c.label }))
 const PER_PAGE = 15
 const fallbackImagingTypes = ['X-Ray', 'Ultrasound', 'CT', 'MRI']
 const emptySoap: SoapForm = { subjective: '', objective: '', assessment: '', plan: '', notes: '' }
@@ -141,6 +120,8 @@ function VoiceInput({ value, onChange }: { value: string; onChange: (val: string
 export default function DoctorConsultation() {
   const navigate = useNavigate()
   const { patientId } = useParams<{ patientId: string }>()
+  const urlParams = new URLSearchParams(window.location.search)
+  const encounterType = urlParams.get('type') || 'consultation'
   const [patient, setPatient] = useState<Patient | null>(null)
   const [encounters, setEncounters] = useState<Encounter[]>([])
   const [loading, setLoading] = useState(true)
@@ -181,6 +162,8 @@ export default function DoctorConsultation() {
   const [rxDetailModal, setRxDetailModal] = useState<any | null>(null)
   const [radiologyDetailModal, setRadiologyDetailModal] = useState<any | null>(null)
   const [radModalImage, setRadModalImage] = useState<string | null>(null)
+  const [maternityRecord, setMaternityRecord] = useState<any>(null)
+  const [lastANCVisit, setLastANCVisit] = useState<any>(null)
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => { setToast({ show: true, message, type }) }, [])
   const dismissToast = useCallback(() => { setToast((prev) => ({ ...prev, show: false })) }, [])
@@ -211,7 +194,7 @@ export default function DoctorConsultation() {
   const ensureEncounter = useCallback(async (): Promise<string> => {
     if (activeEncounterId) return activeEncounterId
     if (!patientId) throw new Error('No patient selected')
-    const encResponse = await api.post('/encounters', { patient_id: patientId, encounter_type: 'consultation', chief_complaint: '', staff_id: currentStaffId })
+    const encResponse = await api.post('/encounters', { patient_id: patientId, encounter_type: encounterType, chief_complaint: '', staff_id: currentStaffId })
     setActiveEncounterId(encResponse.data.id)
     return encResponse.data.id
   }, [activeEncounterId, patientId, currentStaffId])
@@ -247,7 +230,22 @@ export default function DoctorConsultation() {
           setAllRadOrders(allRad)
           setAllPrescriptions(allRx)
         }
-      } catch { showToast('Failed to load patient data', 'error') } finally { setLoading(false) }
+        // Fetch maternity data for consultation banner
+        try {
+          const matRes = await fetch(`/api/maternity-patients?patient_id=${patientId}`, {
+            headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+          })
+          const matData = await matRes.json()
+          if (Array.isArray(matData) && matData.length > 0) {
+            setMaternityRecord(matData[0])
+            const ancRes = await fetch(`/api/antenatal-visits?maternity_patient_id=${matData[0].id}&limit=1`, {
+              headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+            })
+            const ancData = await ancRes.json()
+            if (Array.isArray(ancData) && ancData.length > 0) setLastANCVisit(ancData[0])
+          }
+        } catch {}
+        } catch { showToast('Failed to load patient data', 'error') } finally { setLoading(false) }
     }
     fetchData()
   }, [patientId, showToast])
@@ -281,7 +279,7 @@ export default function DoctorConsultation() {
     setSoapSubmitting(true)
     try {
       const encId = await ensureEncounter()
-      await api.put(`/encounters/${encId}`, { encounter_type: 'consultation', chief_complaint: soap.subjective.slice(0, 500), soap_notes: soap })
+      await api.put(`/encounters/${encId}`, { encounter_type: encounterType, chief_complaint: soap.subjective.slice(0, 500), soap_notes: soap })
       showToast('SOAP note saved successfully', 'success')
       setSoap(emptySoap)
       const { data: refreshed } = await api.get<any>(`/patients/${patientId}`)
@@ -388,6 +386,30 @@ export default function DoctorConsultation() {
                 <p className="text-sm font-bold text-slate-800 mt-0.5">{v.value}</p>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Maternity Banner */}
+      {maternityRecord && maternityRecord.status === 'active' && (
+        <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-2xl p-4">
+          <div className="flex items-start gap-3 flex-wrap">
+            <div className="w-8 h-8 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0"><span className="text-purple-600 text-sm">👶</span></div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-purple-800">Antenatal Patient</p>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-purple-700">
+                <span>EDD: {maternityRecord.edd?.slice(0, 10) || '—'}</span>
+                {maternityRecord.edd && <span>Gest. Age: {Math.max(0, 40 - Math.floor((new Date(maternityRecord.edd).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000)))} weeks</span>}
+                <span>G{maternityRecord.gravida} P{maternityRecord.para}</span>
+                <span>Living: {maternityRecord.living_children ?? 0}</span>
+                <span className={`px-2 py-0.5 rounded-full font-medium ${maternityRecord.risk_level === 'high' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{maternityRecord.risk_level} risk</span>
+                {lastANCVisit && <span>Last ANC: {lastANCVisit.visit_date?.slice(0, 10)}</span>}
+              </div>
+            </div>
+            <button onClick={() => window.location.href = `/maternity/patients/${maternityRecord.id}`}
+              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-purple-700 bg-white border border-purple-200 rounded-xl hover:bg-purple-50">
+              View Full Chart
+            </button>
           </div>
         </div>
       )}
@@ -576,7 +598,8 @@ export default function DoctorConsultation() {
                     <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5"><Clock className="w-4 h-4 text-primary" /></div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider">{enc.encounter_type}</span>
+                        <span className={`text-xs font-semibold uppercase tracking-wider ${enc.encounter_type === 'maternity' ? 'text-purple-600' : 'text-slate-700'}`}>{enc.encounter_type}</span>
+                        {enc.encounter_type === 'maternity' && <span className="text-[9px] font-bold text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded-full">MAT</span>}
                         <span className="text-xs text-slate-400">{new Date(enc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                         {realIdx === 0 && <span className="text-[10px] font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">Current</span>}
                       </div>

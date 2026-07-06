@@ -1,4 +1,4 @@
-# Machoko HMS — Setup & Run Guide
+# Sretan HMS — Setup & Run Guide
 
 ## Prerequisites
 
@@ -53,7 +53,7 @@ npx tsx src/server.ts
 
 Expected output:
 ```
-Machoko HMS Server running on port 3000
+Sretan HMS Server running on port 3000
 ```
 
 The server auto-runs database schema migration on first boot, creates a default tenant, and seeds wards, staff users, and lab tests.
@@ -187,7 +187,7 @@ Get-Content "C:\hms\config\clinic_profile.json"
 
 If missing, create one with at minimum:
 ```json
-{"hospital_name": "Machoko HMS", "GLOBAL_SAAS_TENANT_ID": "00000000-0000-0000-0000-000000000001"}
+{"hospital_name": "Sretan HMS", "GLOBAL_SAAS_TENANT_ID": "00000000-0000-0000-0000-000000000001"}
 ```
 
 ---
