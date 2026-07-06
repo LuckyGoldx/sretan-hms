@@ -77,7 +77,7 @@ router.post('/api/encounters', async (req: Request, res: Response) => {
       `INSERT INTO encounters (id, tenant_id, patient_id, staff_id, encounter_type, chief_complaint, soap_notes, diagnoses)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [id, tenantId, patient_id, staff_id || null, encounter_type, chief_complaint || null, soap_notes || null, diagnoses || null]
+      [id, tenantId, patient_id, staff_id || null, encounter_type, chief_complaint || null, soap_notes ? JSON.stringify(soap_notes) : null, diagnoses ? JSON.stringify(diagnoses) : null]
     );
 
     res.status(201).json(result.rows[0]);
@@ -102,7 +102,7 @@ router.put('/api/encounters/:id', async (req: Request, res: Response) => {
         diagnoses = COALESCE($4, diagnoses)
        WHERE id = $5 AND tenant_id = $6
        RETURNING *`,
-      [encounter_type || null, chief_complaint || null, soap_notes || null, diagnoses || null, id, tenantId]
+      [encounter_type || null, chief_complaint || null, soap_notes ? JSON.stringify(soap_notes) : null, diagnoses ? JSON.stringify(diagnoses) : null, id, tenantId]
     );
 
     if (result.rows.length === 0) {
