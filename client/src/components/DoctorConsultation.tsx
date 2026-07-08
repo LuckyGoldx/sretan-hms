@@ -165,6 +165,7 @@ export default function DoctorConsultation() {
   const [maternityRecord, setMaternityRecord] = useState<any>(null)
   const [lastANCVisit, setLastANCVisit] = useState<any>(null)
   const [icdConfirmModal, setIcdConfirmModal] = useState<{ code: string; label: string; chapter: string } | null>(null)
+  const [pendingDiagnoses, setPendingDiagnoses] = useState<{ code: string; label: string }[]>([])
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => { setToast({ show: true, message, type }) }, [])
   const dismissToast = useCallback(() => { setToast((prev) => ({ ...prev, show: false })) }, [])
@@ -205,6 +206,8 @@ export default function DoctorConsultation() {
 
   useEffect(() => {
     if (!patientId) return
+    setPendingDiagnoses([])
+    activeEncounterRef.current = null
     const fetchData = async () => {
       setLoading(true)
       try {
@@ -283,9 +286,12 @@ export default function DoctorConsultation() {
     setSoapSubmitting(true)
     try {
       const encId = await ensureEncounter()
-      await api.put(`/encounters/${encId}`, { encounter_type: encounterType, chief_complaint: soap.subjective.slice(0, 500), soap_notes: soap })
+      if (!encId) { showToast('Failed to create encounter', 'error'); setSoapSubmitting(false); return }
+      const diagnoses = pendingDiagnoses.map((d) => ({ code: d.code, label: d.label, diagnosed_at: new Date().toISOString() }))
+      await api.put(`/encounters/${encId}`, { encounter_type: encounterType, chief_complaint: soap.subjective.slice(0, 500), soap_notes: soap, diagnoses: diagnoses.length > 0 ? diagnoses : undefined })
       showToast('SOAP note saved successfully', 'success')
       setSoap(emptySoap)
+      setPendingDiagnoses([])
       const { data: refreshed } = await api.get<any>(`/patients/${patientId}`)
       setEncounters(refreshed.encounters || [])
     } catch { showToast('Failed to save SOAP note', 'error') } finally { setSoapSubmitting(false) }
@@ -457,9 +463,23 @@ export default function DoctorConsultation() {
               value={soap.notes} onChange={(e) => handleSoapChange('notes', e.target.value)}
               className="auto-expand w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
           </div>
+          {pendingDiagnoses.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-medium text-slate-500 mb-1.5 flex items-center gap-1">ICD-11 Diagnoses ({pendingDiagnoses.length})</p>
+              <div className="flex flex-wrap gap-1.5">
+                {pendingDiagnoses.map((d, i) => (
+                  <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-medium">
+                    <span className="font-mono text-[10px]">{d.code}</span> {d.label}
+                    <button type="button" onClick={() => setPendingDiagnoses((prev) => prev.filter((_, j) => j !== i))}
+                      className="p-0.5 rounded-full hover:bg-blue-200 transition-colors"><X size={10} /></button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
           <button onClick={handleSoapSubmit} disabled={soapSubmitting}
             className="mt-4 w-full flex items-center justify-center gap-2 bg-primary text-white font-semibold py-3 px-6 rounded-xl shadow-sm hover:scale-[1.01] transition-all duration-200 disabled:opacity-50">
-            {soapSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : <><ScrollText className="w-4 h-4" /> Save SOAP Note</>}
+            {soapSubmitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Saving...</> : <><ScrollText className="w-4 h-4" /> Save SOAP Note{pendingDiagnoses.length > 0 ? ` + ${pendingDiagnoses.length} Diagnosis` : ''}</>}
           </button>
         </div>
       )}
@@ -1119,25 +1139,19 @@ export default function DoctorConsultation() {
                 </div>
                 <p className="text-sm font-medium text-slate-800">{icdConfirmModal.label}</p>
               </div>
-              <p className="text-xs text-slate-400">This diagnosis will be added to the current encounter. It will appear in the patient's medical record and can be referenced for treatment planning, billing, and reporting.</p>
+              <p className="text-xs text-slate-400">This diagnosis will be added to your consultation notes. It will be saved together with the SOAP note when you submit.</p>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
               <button onClick={() => setIcdConfirmModal(null)}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100">Cancel</button>
-              <button onClick={async () => {
+              <button onClick={() => {
                 const item = icdConfirmModal
                 setIcdConfirmModal(null)
                 setSelectedIcd(item.code)
-                try {
-                  const encId = await ensureEncounter()
-                  const res = await api.get(`/encounters/${encId}`)
-                  const current = Array.isArray(res.data?.diagnoses) ? res.data.diagnoses : []
-                  if (!current.some((d: any) => d.code === item.code)) {
-                    const putRes = await api.put(`/encounters/${encId}`, { diagnoses: [...current, { code: item.code, label: item.label, diagnosed_at: new Date().toISOString() }] })
-                    if (!putRes.data?.id) { showToast('Failed to save diagnosis - no response', 'error'); return }
-                  }
+                if (!pendingDiagnoses.some((d) => d.code === item.code)) {
+                  setPendingDiagnoses((prev) => [...prev, { code: item.code, label: item.label }])
                   showToast(`Diagnosis added: ${item.code} — ${item.label}`, 'success')
-                } catch { showToast('Failed to save diagnosis', 'error') }
+                }
               }}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
                 <CheckCircle size={14} /> Confirm Diagnosis

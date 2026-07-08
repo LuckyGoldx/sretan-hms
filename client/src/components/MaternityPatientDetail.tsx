@@ -34,10 +34,10 @@ export default function MaternityPatientDetail() {
   const [activeConsultTab, setActiveConsultTab] = useState('soap')
   const [activeConsultModal, setActiveConsultModal] = useState<'lab' | 'radiology' | null>(null)
   const [showDrugSuggestions, setShowDrugSuggestions] = useState(false)
+  const [pendingDiagnoses, setPendingDiagnoses] = useState<{ code: string; label: string }[]>([])
   const [icdSearch, setIcdSearch] = useState('')
   const [selectedIcd, setSelectedIcd] = useState('')
   const [selectedIcdLabel, setSelectedIcdLabel] = useState('')
-  const [icdMessage, setIcdMessage] = useState('')
   const [icdOpen, setIcdOpen] = useState(false)
   const [icdConfirmModal, setIcdConfirmModal] = useState<{ code: string; label: string; chapter: string } | null>(null)
 
@@ -124,17 +124,20 @@ export default function MaternityPatientDetail() {
     try {
       const encId = await ensureEncounter()
       if (!encId) { setConsultSubmitting(false); return }
+      const allDiagnoses = pendingDiagnoses.map((d) => ({ code: d.code, label: d.label, diagnosed_at: new Date().toISOString() }))
       await fetch(`/api/encounters/${encId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
         body: JSON.stringify({
           chief_complaint: soap.subjective.slice(0, 200),
           soap_notes: soap,
+          diagnoses: allDiagnoses.length > 0 ? allDiagnoses : undefined,
         }),
       })
       fetch(`/api/encounters?patient_id=${record.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
         .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
       setSoap({ subjective: '', objective: '', assessment: '', plan: '', notes: '' })
+      setPendingDiagnoses([])
     } catch {} finally { setConsultSubmitting(false) }
   }
 
@@ -394,9 +397,26 @@ export default function MaternityPatientDetail() {
                 <textarea rows={2} value={soap.notes} onChange={(e) => setSoap((p) => ({ ...p, notes: e.target.value }))}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary transition-shadow resize-none" />
               </div>
-              <button onClick={handleSOAPSubmit} disabled={consultSubmitting || (!soap.subjective && !soap.objective && !soap.assessment && !soap.plan)}
+              {pendingDiagnoses.length > 0 && (
+                <div className="mt-4">
+                  <p className="text-xs font-medium text-slate-500 mb-1.5 flex items-center gap-1">
+                    <Search size={12} /> ICD-11 Diagnoses ({pendingDiagnoses.length})
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {pendingDiagnoses.map((d, i) => (
+                      <span key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-medium">
+                        <span className="font-mono text-[10px]">{d.code}</span>
+                        {d.label}
+                        <button type="button" onClick={() => setPendingDiagnoses((prev) => prev.filter((_, j) => j !== i))}
+                          className="p-0.5 rounded-full hover:bg-purple-200 transition-colors"><X size={10} /></button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <button onClick={handleSOAPSubmit} disabled={consultSubmitting || (!soap.subjective && !soap.objective && !soap.assessment && !soap.plan && pendingDiagnoses.length === 0)}
                 className="mt-4 w-full flex items-center justify-center gap-2 bg-primary text-white font-semibold py-2.5 px-6 rounded-xl shadow-sm hover:scale-[1.01] transition-all disabled:opacity-50">
-                {consultSubmitting ? <><Loader2 size={15} className="animate-spin" /> Saving...</> : <><PenLine size={15} /> Save SOAP Note</>}
+                {consultSubmitting ? <><Loader2 size={15} className="animate-spin" /> Saving...</> : <><PenLine size={15} /> Save SOAP Note{pendingDiagnoses.length > 0 ? ` + ${pendingDiagnoses.length} Diagnosis` : ''}</>}
               </button>
 
               {/* Encounter Timeline */}
@@ -550,13 +570,7 @@ export default function MaternityPatientDetail() {
                   </>
                 )}
               </div>
-              {icdMessage && (
-                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-700 mt-3">
-                  <CheckCircle size={16} className="text-emerald-500 flex-shrink-0" />
-                  <span>{icdMessage}</span>
-                </div>
-              )}
-              <p className="text-xs text-slate-400 text-center mt-2">The diagnosis is saved to a new maternity encounter — view it under Consultation History</p>
+              <p className="text-xs text-slate-400 text-center mt-2">Selected codes appear in the SOAP tab — save them together with your notes.</p>
             </div>
           )}
         </div>
@@ -710,31 +724,17 @@ export default function MaternityPatientDetail() {
                 </div>
                 <p className="text-sm font-medium text-slate-800">{icdConfirmModal.label}</p>
               </div>
-              <p className="text-xs text-slate-400">This diagnosis will be added to a new maternity encounter. It will appear in the patient's maternity record and can be referenced for treatment planning.</p>
+              <p className="text-xs text-slate-400">This diagnosis will be added to your consultation notes. It will be saved together with the SOAP note when you submit.</p>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
               <button onClick={() => setIcdConfirmModal(null)}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100">Cancel</button>
-              <button onClick={async () => {
+              <button onClick={() => {
                 const item = icdConfirmModal
                 setIcdConfirmModal(null)
-                if (!record?.patient_id) return
-                try {
-                  const encId = await ensureEncounter()
-                  if (!encId) return
-                  const existing = await (await fetch(`/api/encounters/${encId}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })).json()
-                  const current = Array.isArray(existing.diagnoses) ? existing.diagnoses : []
-                  if (!current.some((d: any) => d.code === item.code)) {
-                    await fetch(`/api/encounters/${encId}`, {
-                      method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-                      body: JSON.stringify({ diagnoses: [...current, { code: item.code, label: item.label, diagnosed_at: new Date().toISOString() }] }),
-                    })
-                  }
-                  setIcdMessage(`Diagnosis added: ${item.code} — ${item.label}`)
-                  setTimeout(() => setIcdMessage(''), 4000)
-                  fetch(`/api/encounters?patient_id=${record.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
-                    .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
-                } catch {}
+                if (!pendingDiagnoses.some((d) => d.code === item.code)) {
+                  setPendingDiagnoses((prev) => [...prev, { code: item.code, label: item.label }])
+                }
               }}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium hover:scale-[1.01] transition-transform">
                 <CheckCircle size={14} /> Confirm Diagnosis
