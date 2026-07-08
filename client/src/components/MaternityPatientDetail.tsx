@@ -399,33 +399,46 @@ export default function MaternityPatientDetail() {
                 <textarea rows={2} value={soap.notes} onChange={(e) => setSoap((p) => ({ ...p, notes: e.target.value }))}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary transition-shadow resize-none" />
               </div>
-              {/* Inline ICD-11 Search */}
+              {/* Inline ICD-11 Search (same dropdown as ICD-11 tab) */}
               <div className="mt-4">
                 <label className="block text-xs font-medium text-slate-500 mb-1.5 flex items-center gap-1"><Search size={12} /> Add ICD-11 Diagnosis</label>
                 <div className="relative">
-                  <input type="text" placeholder="Search diagnosis code or name..." value={soapIcdSearch}
-                    onChange={(e) => { setSoapIcdSearch(e.target.value); setSoapIcdOpen(true) }}
-                    onFocus={() => setSoapIcdOpen(true)}
-                    onBlur={() => setTimeout(() => setSoapIcdOpen(false), 200)}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
-                  {soapIcdOpen && soapIcdSearch.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
-                      {icd11Codes.filter((c) => c.code.toLowerCase().includes(soapIcdSearch.toLowerCase()) || c.label.toLowerCase().includes(soapIcdSearch.toLowerCase())).slice(0, 15).map((item) => (
-                        <button key={item.code} type="button" onMouseDown={() => {
-                          if (!pendingDiagnoses.some((d) => d.code === item.code)) {
-                            setPendingDiagnoses((prev) => [...prev, { code: item.code, label: item.label }])
-                          }
-                          setSoapIcdSearch(''); setSoapIcdOpen(false)
-                        }}
-                          className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-purple-50 transition-colors flex items-center gap-2">
-                          <span className="font-mono text-xs text-purple-600">{item.code}</span>
-                          <span className="text-slate-600">{item.label}</span>
-                        </button>
-                      ))}
-                      {icd11Codes.filter((c) => c.code.toLowerCase().includes(soapIcdSearch.toLowerCase()) || c.label.toLowerCase().includes(soapIcdSearch.toLowerCase())).length === 0 && (
-                        <p className="px-4 py-3 text-sm text-slate-400">No matching codes</p>
-                      )}
-                    </div>
+                  <button onClick={() => setSoapIcdOpen((prev) => !prev)}
+                    className="w-full flex items-center justify-between rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-400 bg-white hover:border-slate-300 transition-colors">
+                    <span>Select ICD-11 code...</span>
+                    <ChevronDown size={15} className={`text-slate-400 transition-transform ${soapIcdOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {soapIcdOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setSoapIcdOpen(false)} />
+                      <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-60 overflow-hidden">
+                        <div className="p-2 border-b border-slate-100">
+                          <div className="relative">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none" />
+                            <input type="text" placeholder="Search codes..." value={soapIcdSearch}
+                              onChange={(e) => setSoapIcdSearch(e.target.value)}
+                              className="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-primary" />
+                          </div>
+                        </div>
+                        <div className="overflow-y-auto max-h-44">
+                          {(soapIcdSearch ? icd11Codes.filter((c) => c.code.toLowerCase().includes(soapIcdSearch.toLowerCase()) || c.label.toLowerCase().includes(soapIcdSearch.toLowerCase())) : icd11Codes).map((item) => (
+                            <button key={item.code} type="button" onClick={() => {
+                              if (!pendingDiagnoses.some((d) => d.code === item.code)) {
+                                setPendingDiagnoses((prev) => [...prev, { code: item.code, label: item.label }])
+                              }
+                              setSoapIcdSearch(''); setSoapIcdOpen(false)
+                            }}
+                              className="w-full text-left px-4 py-2 text-sm hover:bg-purple-50 transition-colors flex items-center gap-2">
+                              <span className="font-mono text-xs text-purple-600">{item.code}</span>
+                              <span className="text-slate-600">{item.label}</span>
+                            </button>
+                          ))}
+                          {(soapIcdSearch ? icd11Codes.filter((c) => c.code.toLowerCase().includes(soapIcdSearch.toLowerCase()) || c.label.toLowerCase().includes(soapIcdSearch.toLowerCase())).length === 0 : false) && (
+                            <p className="px-4 py-3 text-sm text-slate-400">No matching codes found</p>
+                          )}
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
