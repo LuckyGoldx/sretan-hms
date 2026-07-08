@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Baby, Search, Loader2, ArrowLeft, X, CheckCircle } from 'lucide-react'
+import { Baby, Search, Loader2, ArrowLeft, X, CheckCircle, ChevronRight } from 'lucide-react'
 
 export default function MaternityBooking() {
   const navigate = useNavigate()
@@ -42,6 +42,14 @@ export default function MaternityBooking() {
   function handleSearch() { setPage(1); loadPatients() }
 
   const totalPages = Math.ceil(total / limit)
+  function calcEGA(lmp: string): { weeks: number; days: number; weeksText: string } {
+    if (!lmp) return { weeks: 0, days: 0, weeksText: '' }
+    const ms = Date.now() - new Date(lmp).getTime()
+    const weeks = Math.max(0, Math.floor(ms / (7 * 24 * 60 * 60 * 1000)))
+    const days = Math.max(0, Math.floor((ms % (7 * 24 * 60 * 60 * 1000)) / (24 * 60 * 60 * 1000)))
+    return { weeks, days, weeksText: `${weeks}w ${days}d` }
+  }
+  const ega = calcEGA(form.lmp)
   const filtered = femalePatients
 
   function openBooking(patient: any) {
@@ -147,12 +155,19 @@ export default function MaternityBooking() {
                   <input type="date" value={form.lmp || ''}
                     onChange={(e) => setForm((p: any) => ({ ...p, lmp: e.target.value, edd: e.target.value ? new Date(new Date(e.target.value).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : '' }))}
                     className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
-                  {form.lmp && (() => {
-                    const egaMs = Date.now() - new Date(form.lmp).getTime()
-                    const egaWeeks = Math.max(0, Math.floor(egaMs / (7 * 24 * 60 * 60 * 1000)))
-                    const egaDays = Math.max(0, Math.floor((egaMs % (7 * 24 * 60 * 60 * 1000)) / (24 * 60 * 60 * 1000)))
-                    return <p className="text-xs text-primary font-medium mt-1.5">Estimated Gestational Age: <strong>{egaWeeks}w {egaDays}d</strong></p>
-                  })()}
+                </div>
+                <div className="col-span-2 md:col-span-3">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Estimated Gestational Age (from LMP)</label>
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-xl px-4 py-2.5">
+                      {form.lmp ? (
+                        <p className="text-lg font-bold text-purple-700">{ega.weeksText}</p>
+                      ) : (
+                        <p className="text-sm text-slate-400">Enter LMP to calculate</p>
+                      )}
+                    </div>
+                    {form.lmp && <p className="text-[10px] text-slate-400 self-end pb-1">Auto-calculated &middot; Updates daily</p>}
+                  </div>
                 </div>
                 <div className="col-span-2 md:col-span-3">
                   <label className="block text-xs font-medium text-slate-500 mb-1">Estimated Delivery Date (EDD)</label>
@@ -162,9 +177,17 @@ export default function MaternityBooking() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Gestational Age at Booking (weeks)</label>
-                  <input type="number" value={form.booking_gestational_age || ''}
-                    onChange={(e) => setForm((p: any) => ({ ...p, booking_gestational_age: parseInt(e.target.value) || '' }))}
-                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none" />
+                  <div className="flex gap-2">
+                    <input type="number" value={form.booking_gestational_age || ''}
+                      onChange={(e) => setForm((p: any) => ({ ...p, booking_gestational_age: parseInt(e.target.value) || '' }))}
+                      className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none" />
+                    {form.lmp && ega.weeks > 0 && (
+                      <button type="button" onClick={() => setForm((p: any) => ({ ...p, booking_gestational_age: ega.weeks }))}
+                        className="flex items-center gap-1 px-3 py-2 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 text-xs font-medium hover:bg-purple-100 whitespace-nowrap transition-colors">
+                        <ChevronRight size={12} /> Use EGA
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Gravida <span className="text-rose-500">*</span></label>

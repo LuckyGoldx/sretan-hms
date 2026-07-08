@@ -267,7 +267,9 @@ export default function MaternityPatientDetail() {
           <h2 className="text-base font-semibold text-slate-800">Pregnancy Profile</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div><p className="text-xs text-slate-400">EDD</p><p className="text-sm font-medium text-slate-800">{formatDate(record.edd)}</p></div>
-            <div><p className="text-xs text-slate-400">Gestational Age</p><p className="text-sm font-medium text-slate-800">{calcGestAge(record.edd)} weeks</p></div>
+            <div><p className="text-xs text-slate-400">Gestational Age (from LMP)</p><p className="text-sm font-bold text-purple-700">
+              {record.lmp ? (() => { const ms = Date.now() - new Date(record.lmp).getTime(); const w = Math.max(0, Math.floor(ms / (7 * 24 * 60 * 60 * 1000))); const d = Math.max(0, Math.floor((ms % (7 * 24 * 60 * 60 * 1000)) / (24 * 60 * 60 * 1000))); return `${w}w ${d}d` })() : '—'}
+            </p></div>
             <div><p className="text-xs text-slate-400">LMP</p><p className="text-sm font-medium text-slate-800">{formatDate(record.lmp)}</p></div>
             <div><p className="text-xs text-slate-400">Booking GA</p><p className="text-sm font-medium text-slate-800">{record.booking_gestational_age ? `${record.booking_gestational_age}w` : '—'}</p></div>
             <div><p className="text-xs text-slate-400">Gravida / Para</p><p className="text-sm font-medium text-slate-800">G{record.gravida} P{record.para}</p></div>
