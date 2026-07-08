@@ -52,11 +52,12 @@ export default function MaternityPatientList() {
 
   const totalPages = Math.ceil(total / limit)
 
-  function calcGestAge(edd: string): number {
-    if (!edd) return 0
-    const diff = new Date(edd).getTime() - Date.now()
-    const weeks = Math.max(0, Math.floor(diff / (7 * 24 * 60 * 60 * 1000)))
-    return 40 - weeks
+  function gestAgeFromLMP(lmp: string): { weeks: number; days: number; text: string } {
+    if (!lmp) return { weeks: 0, days: 0, text: '—' }
+    const ms = Date.now() - new Date(lmp).getTime()
+    const weeks = Math.max(0, Math.floor(ms / (7 * 24 * 60 * 60 * 1000)))
+    const days = Math.max(0, Math.floor((ms % (7 * 24 * 60 * 60 * 1000)) / (24 * 60 * 60 * 1000)))
+    return { weeks, days, text: `${weeks}w ${days}d` }
   }
 
   function daysUntil(date: string): number {
@@ -160,8 +161,9 @@ export default function MaternityPatientList() {
               </thead>
               <tbody>
                 {patients.map((p) => {
-                  const ga = calcGestAge(p.edd)
+                  const ga = gestAgeFromLMP(p.lmp)
                   const dueIn = daysUntil(p.edd)
+                  const isOverdue = dueIn < 0
                   return (
                     <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="px-4 py-3">
@@ -171,11 +173,16 @@ export default function MaternityPatientList() {
                       <td className="px-4 py-3">
                         {p.edd ? (
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
-                            dueIn < 0 ? 'bg-red-100 text-red-700' : dueIn <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                            isOverdue ? 'bg-red-100 text-red-700' : dueIn <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
                           }`}>{p.edd.slice(0, 10)}</span>
                         ) : '—'}
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{ga > 0 ? `${ga}w` : '—'}</td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs font-medium ${isOverdue ? 'text-rose-600' : 'text-slate-600'}`}>
+                          {ga.text}
+                        </span>
+                        {isOverdue && <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">Overdue</span>}
+                      </td>
                       <td className="px-4 py-3 text-slate-600">G{p.gravida} P{p.para}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${
