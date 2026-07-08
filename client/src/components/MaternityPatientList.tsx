@@ -8,6 +8,7 @@ export default function MaternityPatientList() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [smartFilter, setSmartFilter] = useState('')
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
   const [stats, setStats] = useState<any>({})
@@ -34,6 +35,7 @@ export default function MaternityPatientList() {
       const params = new URLSearchParams()
       if (search) params.append('search', search)
       if (statusFilter) params.append('status', statusFilter)
+      if (smartFilter) params.append('smart_filter', smartFilter)
       params.append('page', String(page))
       params.append('limit', String(limit))
       const res = await fetch(`/api/maternity-patients?${params.toString()}`, {
@@ -45,10 +47,16 @@ export default function MaternityPatientList() {
     } catch {} finally { setLoading(false) }
   }
 
-  useEffect(() => { fetchStats() }, [])
-  useEffect(() => { fetchPatients() }, [statusFilter, page])
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const f = params.get('filter')
+    if (f === 'due_this_week' || f === 'overdue_anc') setSmartFilter(f)
+  }, [])
 
-  function handleSearch() { setPage(1); fetchPatients() }
+  useEffect(() => { fetchStats() }, [])
+  useEffect(() => { fetchPatients() }, [statusFilter, smartFilter, page])
+
+  function handleSearch() { setSmartFilter(''); setPage(1); fetchPatients() }
 
   const totalPages = Math.ceil(total / limit)
 
@@ -123,7 +131,15 @@ export default function MaternityPatientList() {
             onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white" />
         </div>
-        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
+        <button onClick={() => { setSmartFilter(smartFilter === 'due_this_week' ? '' : 'due_this_week'); setPage(1); setStatusFilter('') }}
+          className={`px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${smartFilter === 'due_this_week' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-amber-50'}`}>
+          Due This Week
+        </button>
+        <button onClick={() => { setSmartFilter(smartFilter === 'overdue_anc' ? '' : 'overdue_anc'); setPage(1); setStatusFilter('') }}
+          className={`px-3 py-2 rounded-xl text-xs font-medium border transition-colors ${smartFilter === 'overdue_anc' ? 'bg-rose-100 text-rose-700 border-rose-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-rose-50'}`}>
+          Overdue ANC
+        </button>
+        <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); setSmartFilter('') }}
           className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-primary">
           <option value="">All Status</option>
           <option value="active">Active</option>
@@ -211,7 +227,7 @@ export default function MaternityPatientList() {
                         <div className="flex gap-1.5">
                           <button onClick={() => navigate(`/maternity/patients/${p.id}`)}
                             className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium">View</button>
-                          <button onClick={() => navigate(`/consultation/${p.patient_id}?type=maternity`)}
+                          <button onClick={() => navigate(p.status === 'active' ? `/consultation/${p.patient_id}?type=maternity` : `/consultation/${p.patient_id}`)}
                             className="px-3 py-1.5 rounded-lg bg-purple-500 text-white text-xs font-medium flex items-center gap-1"><PenLine size={11} /> Consult</button>
                         </div>
                       </td>

@@ -14,7 +14,7 @@ function getTenantId(): string {
 router.get('/api/maternity-patients', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { status, search, patient_id, edd_before, edd_after, risk_level, available_female, page, limit } = req.query;
+    const { status, search, patient_id, edd_before, edd_after, risk_level, available_female, page, limit, smart_filter } = req.query;
     let query = `
       SELECT mp.*, p.full_name, p.hospital_number, p.dob, p.phone, p.sex,
         (SELECT COUNT(*) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as visit_count,
@@ -72,6 +72,12 @@ router.get('/api/maternity-patients', async (req: Request, res: Response) => {
     if (status) {
       query += ` AND mp.status = $${idx++}`;
       params.push(status);
+    }
+    if (smart_filter === 'due_this_week') {
+      query += ` AND mp.status = 'active' AND mp.edd BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`;
+    }
+    if (smart_filter === 'overdue_anc') {
+      query += ` AND mp.status = 'active' AND (SELECT MAX(next_appointment_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) < CURRENT_DATE`;
     }
     if (risk_level) {
       query += ` AND mp.risk_level = $${idx++}`;

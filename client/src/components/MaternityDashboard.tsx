@@ -34,18 +34,20 @@ export default function MaternityDashboard() {
 
   const isRecords = role === 'Records'
 
-  function StatCard({ icon, label, value, color, bg }: { icon: React.ReactNode; label: string; value: string | number; color: string; bg: string }) {
-    return (
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-        <div className="flex items-center gap-3">
-          <div className={`w-9 h-9 rounded-xl ${bg} flex items-center justify-center`}>{icon}</div>
-          <div>
-            <p className="text-2xl font-bold text-slate-800">{value ?? '—'}</p>
-            <p className="text-xs text-slate-400">{label}</p>
-          </div>
+  function StatCard({ icon, label, value, color, bg, onClick }: { icon: React.ReactNode; label: string; value: string | number; color: string; bg: string; onClick?: () => void }) {
+    const content = (
+      <div className="flex items-center gap-3">
+        <div className={`w-9 h-9 rounded-xl ${bg} flex items-center justify-center`}>{icon}</div>
+        <div>
+          <p className="text-2xl font-bold text-slate-800">{value ?? '—'}</p>
+          <p className="text-xs text-slate-400">{label}</p>
         </div>
       </div>
     )
+    if (onClick) {
+      return <button onClick={onClick} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 w-full text-left hover:shadow-md transition-shadow cursor-pointer">{content}</button>
+    }
+    return <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">{content}</div>
   }
 
   function ActionCard({ label, desc, icon, color, bg, onClick }: { label: string; desc: string; icon: React.ReactNode; color: string; bg: string; onClick: () => void }) {
@@ -75,8 +77,8 @@ export default function MaternityDashboard() {
           <StatCard icon={<Baby size={18} className="text-blue-600" />} label="Active Pregnancies" value={stats.active_pregnancies} color="blue" bg="bg-blue-100" />
           <StatCard icon={<Activity size={18} className="text-emerald-600" />} label="Deliveries Today" value={stats.deliveries_today} color="emerald" bg="bg-emerald-100" />
           <StatCard icon={<TrendingUp size={18} className="text-indigo-600" />} label="Deliveries This Month" value={stats.deliveries_this_month} color="indigo" bg="bg-indigo-100" />
-          <StatCard icon={<Calendar size={18} className="text-amber-600" />} label="Due This Week" value={stats.due_this_week} color="amber" bg="bg-amber-100" />
-          <StatCard icon={<AlertTriangle size={18} className="text-rose-600" />} label="Overdue ANC" value={stats.overdue_anc} color="rose" bg="bg-rose-100" />
+          <StatCard icon={<Calendar size={18} className="text-amber-600" />} label="Due This Week" value={stats.due_this_week} color="amber" bg="bg-amber-100" onClick={() => navigate('/maternity/patients?filter=due_this_week')} />
+          <StatCard icon={<AlertTriangle size={18} className="text-rose-600" />} label="Overdue ANC" value={stats.overdue_anc} color="rose" bg="bg-rose-100" onClick={() => navigate('/maternity/patients?filter=overdue_anc')} />
           <StatCard icon={<Heart size={18} className="text-red-600" />} label="High Risk" value={stats.high_risk_pregnancies} color="red" bg="bg-red-100" />
           <StatCard icon={<ListChecks size={18} className="text-purple-600" />} label="Total Deliveries" value={stats.total_deliveries} color="purple" bg="bg-purple-100" />
         </div>
