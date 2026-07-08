@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, ScrollText, ClipboardList, Pill, Microscope, Scan, Search, Clock, X, Plus,
-  ChevronDown, CheckCircle, XCircle, AlertTriangle, Loader2, Syringe, FlaskConical, Activity, Mic,
+  ChevronDown, CheckCircle, XCircle, AlertTriangle, Loader2, Syringe, FlaskConical, Activity, Mic, Baby,
   FileText, FileImage,
 } from 'lucide-react'
 import api from '../hooks/useAxios'
@@ -135,6 +135,9 @@ export default function DoctorConsultation() {
   const [prescription, setPrescription] = useState<PrescriptionForm>({ drug_name: '', dosage: '', quantity: '', instructions: '' })
   const activeEncounterRef = useRef<string | null>(null)
   const maternityPatientIdRef = useRef<string | null>(null)
+  const ancPromptedRef = useRef(false)
+  const ancEncounterIdRef = useRef<string | null>(null)
+  const [showAncModal, setShowAncModal] = useState(false)
   const [inventoryDrugs, setInventoryDrugs] = useState<string[]>([])
   const [showDrugSuggestions, setShowDrugSuggestions] = useState(false)
   const [staffCache, setStaffCache] = useState<Record<string, string>>({})
@@ -209,6 +212,13 @@ export default function DoctorConsultation() {
       return encResponse.data.id
     } catch { return null }
   }, [patientId, currentStaffId])
+
+  function maybePromptAnc(encId: string) {
+    if (maternityPatientIdRef.current && !ancPromptedRef.current) {
+      ancEncounterIdRef.current = encId
+      setShowAncModal(true)
+    }
+  }
 
   useEffect(() => {
     if (!patientId) return
@@ -301,6 +311,7 @@ export default function DoctorConsultation() {
       const diagnoses = pendingDiagnoses.map((d) => ({ code: d.code, label: d.label, diagnosed_at: new Date().toISOString() }))
       await api.put(`/encounters/${encId}`, { encounter_type: encounterTypeRef.current, chief_complaint: soap.subjective.slice(0, 500), soap_notes: soap, diagnoses: diagnoses.length > 0 ? diagnoses : undefined })
       showToast('SOAP note saved successfully', 'success')
+      maybePromptAnc(encId)
       setSoap(emptySoap)
       setPendingDiagnoses([])
       const { data: refreshed } = await api.get<any>(`/patients/${patientId}`)
@@ -314,7 +325,7 @@ export default function DoctorConsultation() {
     try {
       const encId = await ensureEncounter()
       await api.post('/lab-orders', { encounter_id: encId, test_name: labForm.test_name.trim(), lab_number: patient?.hospital_number || undefined, doctor_comment: labForm.doctor_comment.trim() || undefined })
-      showToast('Lab order submitted', 'success'); setLabForm({ test_name: '', doctor_comment: '' }); setActiveModal(null)
+      showToast('Lab order submitted', 'success'); if (encId) maybePromptAnc(encId); setLabForm({ test_name: '', doctor_comment: '' }); setActiveModal(null)
     } catch { showToast('Failed to submit lab order', 'error') } finally { setLabSubmitting(false) }
   }
 
@@ -326,7 +337,7 @@ export default function DoctorConsultation() {
       const doctorName = (() => { try { const u = JSON.parse(localStorage.getItem('sretan_user') || '{}'); return u.name || '' } catch {} return '' })()
       const patName = patient?.full_name || ''
       await api.post('/radiology-orders', { encounter_id: encId, imaging_type: radiologyForm.imaging_type, doctor_name: doctorName, patient_name: patName, doctor_comment: radiologyForm.doctor_comment.trim() || undefined })
-      showToast('Radiology order submitted', 'success'); setRadiologyForm({ imaging_type: '', doctor_comment: '' }); setActiveModal(null)
+      showToast('Radiology order submitted', 'success'); if (encId) maybePromptAnc(encId); setRadiologyForm({ imaging_type: '', doctor_comment: '' }); setActiveModal(null)
     } catch { showToast('Failed to submit radiology order', 'error') } finally { setRadiologySubmitting(false) }
   }
 
@@ -336,7 +347,7 @@ export default function DoctorConsultation() {
     try {
       const encId = await ensureEncounter()
       await api.post('/prescriptions', { encounter_id: encId, drug_name: prescription.drug_name.trim(), dosage: prescription.dosage, quantity: Number(prescription.quantity) || 0, instructions: prescription.instructions })
-      showToast('Prescription created', 'success')
+      showToast('Prescription created', 'success'); if (encId) maybePromptAnc(encId)
       setPrescription({ drug_name: '', dosage: '', quantity: '', instructions: '' })
     } catch { showToast('Failed to create prescription', 'error') } finally { setPrescriptionSubmitting(false) }
   }
@@ -1214,6 +1225,72 @@ export default function DoctorConsultation() {
               }}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
                 <CheckCircle size={14} /> Confirm Diagnosis
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ANC Visit Confirmation Modal */}
+      {showAncModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAncModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center"><Baby size={16} className="text-white" /></div>
+                <div>
+                  <p className="text-sm font-semibold text-white">Record as ANC Visit?</p>
+                  <p className="text-[11px] text-white/70">This patient has an active pregnancy</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">Would you like to record this consultation as an <strong>Antenatal Care (ANC) visit</strong> for this pregnancy?</p>
+              <div className="bg-purple-50 rounded-xl p-3 text-xs text-purple-700">
+                <p className="font-medium mb-1">If YES:</p>
+                <ul className="list-disc list-inside space-y-0.5 text-purple-600">
+                  <li>An ANC visit record will be created for today</li>
+                  <li>Your SOAP notes will be attached to the visit</li>
+                  <li>All lab, radiology, and prescriptions for this pregnancy will be grouped under this visit</li>
+                  <li>Nurses can still add vitals/measurements separately</li>
+                </ul>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+              <button onClick={async () => {
+                setShowAncModal(false)
+                ancPromptedRef.current = true
+              }}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100">No, skip</button>
+              <button onClick={async () => {
+                setShowAncModal(false)
+                ancPromptedRef.current = true
+                const encId = ancEncounterIdRef.current
+                if (!encId || !maternityPatientIdRef.current) return
+                try {
+                  const existingRes = await fetch(`/api/antenatal-visits?maternity_patient_id=${maternityPatientIdRef.current}&date_to=${new Date().toISOString().slice(0, 10)}&date_from=${new Date().toISOString().slice(0, 10)}`, {
+                    headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+                  })
+                  const existing = await existingRes.json()
+                  if (Array.isArray(existing) && existing.length > 0) {
+                    await fetch(`/api/antenatal-visits/${existing[0].id}`, {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                      body: JSON.stringify({ encounter_id: encId }),
+                    })
+                    showToast('Linked to today\'s ANC visit', 'success')
+                  } else {
+                    await fetch('/api/antenatal-visits', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                      body: JSON.stringify({ maternity_patient_id: maternityPatientIdRef.current, encounter_id: encId, visit_date: new Date().toISOString().slice(0, 10), staff_id: currentStaffId }),
+                    })
+                    showToast('ANC visit created', 'success')
+                  }
+                } catch { showToast('Failed to create ANC visit', 'error') }
+              }}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium hover:scale-[1.01] transition-transform">
+                <CheckCircle size={14} /> Yes, record ANC visit
               </button>
             </div>
           </div>

@@ -39,6 +39,9 @@ export default function MaternityPatientDetail() {
   const [soapIcdSearch, setSoapIcdSearch] = useState('')
   const [soapIcdOpen, setSoapIcdOpen] = useState(false)
   const diagnosesRef = useRef<HTMLDivElement>(null)
+  const ancPromptedRef = useRef(false)
+  const ancEncounterIdRef = useRef<string | null>(null)
+  const [showAncModal, setShowAncModal] = useState(false)
   const [icdSearch, setIcdSearch] = useState('')
   const [selectedIcd, setSelectedIcd] = useState('')
   const [selectedIcdLabel, setSelectedIcdLabel] = useState('')
@@ -127,6 +130,13 @@ export default function MaternityPatientDetail() {
     return enc.id
   }
 
+  function maybePromptAnc(encId: string) {
+    if (id && !ancPromptedRef.current) {
+      ancEncounterIdRef.current = encId
+      setShowAncModal(true)
+    }
+  }
+
   async function handleSOAPSubmit() {
     if (!record?.patient_id) return
     setConsultSubmitting(true)
@@ -143,6 +153,7 @@ export default function MaternityPatientDetail() {
           diagnoses: allDiagnoses.length > 0 ? allDiagnoses : undefined,
         }),
       })
+      maybePromptAnc(encId)
       fetch(`/api/encounters?patient_id=${record.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
         .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
       setSoap({ subjective: '', objective: '', assessment: '', plan: '', notes: '' })
@@ -161,6 +172,7 @@ export default function MaternityPatientDetail() {
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
         body: JSON.stringify({ encounter_id: encId, test_name: labForm.test_name.trim(), doctor_comment: labForm.doctor_comment.trim() || undefined }),
       })
+      maybePromptAnc(encId)
       setLabForm({ test_name: '', doctor_comment: '' })
       loadData()
     } catch {} finally { setConsultSubmitting(false) }
@@ -177,6 +189,7 @@ export default function MaternityPatientDetail() {
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
         body: JSON.stringify({ encounter_id: encId, imaging_type: radiologyForm.imaging_type.trim(), doctor_name: staffName, patient_name: record.full_name, doctor_comment: radiologyForm.doctor_comment.trim() || undefined }),
       })
+      maybePromptAnc(encId)
       setRadiologyForm({ imaging_type: '', doctor_comment: '' })
       loadData()
     } catch {} finally { setConsultSubmitting(false) }
@@ -193,6 +206,7 @@ export default function MaternityPatientDetail() {
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
         body: JSON.stringify({ encounter_id: encId, drug_name: rxForm.drug_name.trim(), dosage: rxForm.dosage, quantity: Number(rxForm.quantity) || 0, instructions: rxForm.instructions }),
       })
+      maybePromptAnc(encId)
       setRxForm({ drug_name: '', dosage: '', quantity: '', instructions: '' })
       loadData()
     } catch {} finally { setConsultSubmitting(false) }
@@ -989,6 +1003,63 @@ export default function MaternityPatientDetail() {
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ANC Visit Confirmation Modal */}
+      {showAncModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAncModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-4">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center"><Baby size={16} className="text-white" /></div>
+                <div>
+                  <p className="text-sm font-semibold text-white">Record as ANC Visit?</p>
+                  <p className="text-[11px] text-white/70">This patient has an active pregnancy</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">Would you like to record this consultation as an <strong>Antenatal Care (ANC) visit</strong> for this pregnancy?</p>
+              <div className="bg-purple-50 rounded-xl p-3 text-xs text-purple-700">
+                <p className="font-medium mb-1">If YES:</p>
+                <ul className="list-disc list-inside space-y-0.5 text-purple-600">
+                  <li>An ANC visit record will be created for today</li>
+                  <li>Your SOAP notes will be attached to the visit</li>
+                  <li>All lab, radiology, and prescriptions will be grouped under this visit</li>
+                </ul>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+              <button onClick={() => { setShowAncModal(false); ancPromptedRef.current = true }}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100">No, skip</button>
+              <button onClick={async () => {
+                setShowAncModal(false); ancPromptedRef.current = true
+                const encId = ancEncounterIdRef.current
+                if (!encId || !id) return
+                try {
+                  const existingRes = await fetch(`/api/antenatal-visits?maternity_patient_id=${id}&date_to=${new Date().toISOString().slice(0, 10)}&date_from=${new Date().toISOString().slice(0, 10)}`, {
+                    headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+                  })
+                  const existing = await existingRes.json()
+                  if (Array.isArray(existing) && existing.length > 0) {
+                    await fetch(`/api/antenatal-visits/${existing[0].id}`, {
+                      method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                      body: JSON.stringify({ encounter_id: encId }),
+                    })
+                  } else {
+                    await fetch('/api/antenatal-visits', {
+                      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                      body: JSON.stringify({ maternity_patient_id: id, encounter_id: encId, visit_date: new Date().toISOString().slice(0, 10), staff_id: staffId }),
+                    })
+                  }
+                } catch {}
+              }}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium hover:scale-[1.01] transition-transform">
+                <CheckCircle size={14} /> Yes, record ANC visit
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
