@@ -418,7 +418,8 @@ router.post('/api/antenatal-visits', async (req: Request, res: Response) => {
       maternity_patient_id, visit_date, gestational_age_weeks,
       weight, systolic_bp, diastolic_bp, fundal_height, fetal_presentation,
       fetal_heart_rate, fetal_heart_sound, urine_protein, urine_glucose,
-      hemoglobin, pcv, tt_dose, iycf_given, next_appointment_date, notes, staff_id
+      hemoglobin, pcv, tt_dose, iycf_given, next_appointment_date, notes, staff_id,
+      soap_notes, encounter_id
     } = req.body;
 
     if (!maternity_patient_id) {
@@ -437,14 +438,15 @@ router.post('/api/antenatal-visits', async (req: Request, res: Response) => {
       `INSERT INTO antenatal_visits (id, tenant_id, maternity_patient_id, visit_number, visit_date,
         gestational_age_weeks, weight, systolic_bp, diastolic_bp, fundal_height, fetal_presentation,
         fetal_heart_rate, fetal_heart_sound, urine_protein, urine_glucose, hemoglobin, pcv,
-        tt_dose, iycf_given, next_appointment_date, notes, staff_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+        tt_dose, iycf_given, next_appointment_date, notes, staff_id, soap_notes, encounter_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
        RETURNING *`,
       [id, getTenantId(), maternity_patient_id, visitNumber, visit_date || new Date().toISOString().slice(0, 10),
        gestational_age_weeks || null, weight || null, systolic_bp || null, diastolic_bp || null,
        fundal_height || null, fetal_presentation || null, fetal_heart_rate || null, fetal_heart_sound || null,
        urine_protein || null, urine_glucose || null, hemoglobin || null, pcv || null,
-       tt_dose || null, iycf_given || false, next_appointment_date || null, notes || null, staff_id || null]
+       tt_dose || null, iycf_given || false, next_appointment_date || null, notes || null, staff_id || null,
+       soap_notes ? JSON.stringify(soap_notes) : null, encounter_id || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
@@ -467,13 +469,15 @@ router.put('/api/antenatal-visits/:id', async (req: Request, res: Response) => {
         hemoglobin = COALESCE($10, hemoglobin), pcv = COALESCE($11, pcv),
         tt_dose = COALESCE($12, tt_dose), iycf_given = COALESCE($13, iycf_given),
         next_appointment_date = COALESCE($14, next_appointment_date),
-        notes = COALESCE($15, notes)
-       WHERE id = $16 RETURNING *`,
+        notes = COALESCE($15, notes),
+        soap_notes = COALESCE($16, soap_notes)
+       WHERE id = $17 RETURNING *`,
       [fields.weight || null, fields.systolic_bp || null, fields.diastolic_bp || null,
        fields.fundal_height || null, fields.fetal_presentation || null, fields.fetal_heart_rate || null,
        fields.fetal_heart_sound || null, fields.urine_protein || null, fields.urine_glucose || null,
        fields.hemoglobin || null, fields.pcv || null, fields.tt_dose || null,
-       fields.iycf_given || false, fields.next_appointment_date || null, fields.notes || null, id]
+       fields.iycf_given || false, fields.next_appointment_date || null, fields.notes || null,
+       fields.soap_notes ? JSON.stringify(fields.soap_notes) : null, id]
     );
     if (result.rows.length === 0) {
       res.status(404).json({ error: true, message: 'Antenatal visit not found' });

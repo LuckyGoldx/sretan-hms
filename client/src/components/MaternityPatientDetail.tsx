@@ -202,10 +202,15 @@ export default function MaternityPatientDetail() {
     if (!id) return
     setAncSubmitting(true)
     try {
+      const { subjective, objective, assessment, plan, ...rest } = ancForm
+      const body: any = { ...rest, maternity_patient_id: id, staff_id: staffId }
+      if (subjective || objective || assessment || plan) {
+        body.soap_notes = { subjective: subjective || '', objective: objective || '', assessment: assessment || '', plan: plan || '' }
+      }
       await fetch('/api/antenatal-visits', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-        body: JSON.stringify({ ...ancForm, maternity_patient_id: id, staff_id: staffId }),
+        body: JSON.stringify(body),
       })
       setShowANCModal(false)
       setAncForm({})
@@ -384,6 +389,15 @@ export default function MaternityPatientDetail() {
                     {v.next_appointment_date && <span>Next: {formatDate(v.next_appointment_date)}</span>}
                     {v.staff_name && <span>By: {v.staff_name}</span>}
                   </div>
+                  {(() => {
+                    const sn = typeof v.soap_notes === 'string' ? (() => { try { return JSON.parse(v.soap_notes) } catch { return null } })() : v.soap_notes
+                    return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan) ? (
+                      <div className="mt-2 bg-purple-50 rounded-xl p-3 border border-purple-100 space-y-1">
+                        <p className="text-[10px] font-semibold text-purple-600 uppercase">Doctor's SOAP Notes</p>
+                        {(['subjective', 'objective', 'assessment', 'plan'] as const).map((f) => sn[f] ? <p key={f} className="text-xs text-slate-600"><span className="text-purple-500 font-medium uppercase text-[10px]">{f}:</span> {sn[f]}</p> : null)}
+                      </div>
+                    ) : null
+                  })()}
                   {v.notes && <p className="text-xs text-slate-500 bg-slate-50 rounded-xl p-2 mt-2">{v.notes}</p>}
                 </div>
               ))}
@@ -1123,6 +1137,18 @@ export default function MaternityPatientDetail() {
                   Iron/Folate Given
                 </label>
               </div>
+              {isDoctor && (
+                <div className="col-span-2 bg-purple-50 rounded-xl p-4 border border-purple-100 space-y-3">
+                  <p className="text-xs font-semibold text-purple-700 flex items-center gap-1"><PenLine size={12} /> SOAP Notes (Doctor's Assessment)</p>
+                  {(['subjective', 'objective', 'assessment', 'plan'] as const).map((f) => (
+                    <div key={f}>
+                      <label className="block text-xs font-medium text-purple-600 mb-0.5 capitalize">{f}</label>
+                      <textarea rows={2} value={ancForm[f] || ''} onChange={(e) => setAncForm((p: any) => ({ ...p, [f]: e.target.value }))}
+                        className="w-full rounded-xl border border-purple-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-400 resize-none bg-white" />
+                    </div>
+                  ))}
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">Next Appointment Date</label>
                 <input type="date" value={ancForm.next_appointment_date || ''}
