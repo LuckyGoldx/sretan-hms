@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Baby, ArrowLeft, Loader2, Activity, Calendar, Stethoscope, Heart, FileText, X, CheckCircle, Plus, PenLine, FlaskConical, ScanLine, Pill, Search, Clock, ChevronDown } from 'lucide-react'
 import { ICD11_CODES, Icd11Code } from '../data/icd11Codes'
@@ -28,7 +28,7 @@ export default function MaternityPatientDetail() {
   const [radiologyInventory, setRadiologyInventory] = useState<any[]>([])
   const [pharmacyInventory, setPharmacyInventory] = useState<any[]>([])
   const [consultSubmitting, setConsultSubmitting] = useState(false)
-  const [activeEncounterId, setActiveEncounterId] = useState<string | null>(null)
+  const activeEncounterRef = useRef<string | null>(null)
   const [selectedEncounter, setSelectedEncounter] = useState<any>(null)
   const [encounterOrders, setEncounterOrders] = useState<{ lab: any[]; radiology: any[]; prescriptions: any[] }>({ lab: [], radiology: [], prescriptions: [] })
   const [activeConsultTab, setActiveConsultTab] = useState('soap')
@@ -103,15 +103,18 @@ export default function MaternityPatientDetail() {
       .then((r) => r.json()).then((d) => setPharmacyInventory(Array.isArray(d) ? d : [])).catch(() => {})
   }, [isDoctor])
 
-  async function ensureEncounter(): Promise<string> {
-    if (activeEncounterId) return activeEncounterId
+  async function ensureEncounter(): Promise<string | null> {
+    if (activeEncounterRef.current) return activeEncounterRef.current
+    if (!record?.patient_id) return null
     const res = await fetch('/api/encounters', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-      body: JSON.stringify({ patient_id: record?.patient_id, encounter_type: 'maternity', staff_id: staffId }),
+      body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
     })
+    if (!res.ok) return null
     const enc = await res.json()
-    setActiveEncounterId(enc.id)
+    if (!enc?.id) return null
+    activeEncounterRef.current = enc.id
     return enc.id
   }
 
@@ -120,6 +123,7 @@ export default function MaternityPatientDetail() {
     setConsultSubmitting(true)
     try {
       const encId = await ensureEncounter()
+      if (!encId) { setConsultSubmitting(false); return }
       await fetch(`/api/encounters/${encId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
@@ -139,6 +143,7 @@ export default function MaternityPatientDetail() {
     setConsultSubmitting(true)
     try {
       const encId = await ensureEncounter()
+      if (!encId) { setConsultSubmitting(false); return }
       await fetch('/api/lab-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
@@ -154,6 +159,7 @@ export default function MaternityPatientDetail() {
     setConsultSubmitting(true)
     try {
       const encId = await ensureEncounter()
+      if (!encId) { setConsultSubmitting(false); return }
       await fetch('/api/radiology-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
@@ -169,6 +175,7 @@ export default function MaternityPatientDetail() {
     setConsultSubmitting(true)
     try {
       const encId = await ensureEncounter()
+      if (!encId) { setConsultSubmitting(false); return }
       await fetch('/api/prescriptions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
@@ -714,6 +721,7 @@ export default function MaternityPatientDetail() {
                 if (!record?.patient_id) return
                 try {
                   const encId = await ensureEncounter()
+                  if (!encId) return
                   const existing = await (await fetch(`/api/encounters/${encId}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })).json()
                   const current = Array.isArray(existing.diagnoses) ? existing.diagnoses : []
                   if (!current.some((d: any) => d.code === item.code)) {
