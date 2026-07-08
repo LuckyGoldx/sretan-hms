@@ -2863,6 +2863,7 @@ export default function PatientChart() {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  {maternityRecord.booking_code && <div className="col-span-2"><p className="text-xs text-slate-400">Booking Code</p><p className="font-mono text-xs font-medium text-primary">{maternityRecord.booking_code}</p></div>}
                   <div><p className="text-xs text-slate-400">EDD</p><p className="font-medium">{maternityRecord.edd?.slice(0, 10) || '—'}</p></div>
                   {maternityRecord.edd && <div><p className="text-xs text-slate-400">Gest. Age</p><p className="font-medium">{Math.max(0, 40 - Math.floor((new Date(maternityRecord.edd).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000)))} weeks</p></div>}
                   <div><p className="text-xs text-slate-400">Gravida/Para</p><p className="font-medium">G{maternityRecord.gravida} P{maternityRecord.para}</p></div>
