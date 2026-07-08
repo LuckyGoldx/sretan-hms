@@ -177,16 +177,16 @@ export default function MaternityBooking() {
                     onChange={(e) => setForm((p: any) => ({ ...p, edd: e.target.value }))}
                     className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
                 </div>
-                <div>
+                <div className="col-span-2 md:col-span-3">
                   <label className="block text-xs font-medium text-slate-500 mb-1">Gestational Age at Booking (weeks)</label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <input type="number" value={form.booking_gestational_age || ''}
                       onChange={(e) => setForm((p: any) => ({ ...p, booking_gestational_age: parseInt(e.target.value) || '' }))}
-                      className="flex-1 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none" />
+                      className="w-24 rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none" />
                     {form.lmp && ega.weeks > 0 && (
                       <button type="button" onClick={() => setForm((p: any) => ({ ...p, booking_gestational_age: ega.weeks }))}
                         className="flex items-center gap-1 px-3 py-2 rounded-xl bg-purple-50 border border-purple-200 text-purple-700 text-xs font-medium hover:bg-purple-100 whitespace-nowrap transition-colors">
-                        <ChevronRight size={12} /> Use EGA
+                        <ChevronRight size={12} /> Use EGA ({ega.weeks}w)
                       </button>
                     )}
                     {form.edd && (
@@ -196,7 +196,7 @@ export default function MaternityBooking() {
                         setForm((p: any) => ({ ...p, booking_gestational_age: gaFromEdd }))
                       }}
                         className="flex items-center gap-1 px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-xs font-medium hover:bg-blue-100 whitespace-nowrap transition-colors">
-                        <ChevronRight size={12} /> Use EDD
+                        <ChevronRight size={12} /> Use EDD ({(() => { const w = Math.max(0, 40 - Math.max(0, Math.floor((new Date(form.edd).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000)))); return `${w}w` })()})
                       </button>
                     )}
                   </div>
