@@ -37,6 +37,7 @@ export default function MaternityPatientDetail() {
   const [pendingDiagnoses, setPendingDiagnoses] = useState<{ code: string; label: string }[]>([])
   const [soapIcdSearch, setSoapIcdSearch] = useState('')
   const [soapIcdOpen, setSoapIcdOpen] = useState(false)
+  const diagnosesRef = useRef<HTMLDivElement>(null)
   const [icdSearch, setIcdSearch] = useState('')
   const [selectedIcd, setSelectedIcd] = useState('')
   const [selectedIcdLabel, setSelectedIcdLabel] = useState('')
@@ -444,7 +445,7 @@ export default function MaternityPatientDetail() {
               </div>
 
               {pendingDiagnoses.length > 0 && (
-                <div className="mt-3">
+                <div ref={diagnosesRef} className="mt-3">
                   <p className="text-xs font-medium text-slate-500 mb-1.5 flex items-center gap-1">
                     <Search size={12} /> Pending Diagnoses ({pendingDiagnoses.length})
                   </p>
@@ -781,6 +782,10 @@ export default function MaternityPatientDetail() {
                 if (!pendingDiagnoses.some((d) => d.code === item.code)) {
                   setPendingDiagnoses((prev) => [...prev, { code: item.code, label: item.label }])
                 }
+                setActiveConsultTab('soap')
+                setTimeout(() => {
+                  diagnosesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }, 100)
               }}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium hover:scale-[1.01] transition-transform">
                 <CheckCircle size={14} /> Confirm Diagnosis

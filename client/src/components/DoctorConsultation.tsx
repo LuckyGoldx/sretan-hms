@@ -168,6 +168,7 @@ export default function DoctorConsultation() {
   const [pendingDiagnoses, setPendingDiagnoses] = useState<{ code: string; label: string }[]>([])
   const [soapIcdSearch, setSoapIcdSearch] = useState('')
   const [soapIcdOpen, setSoapIcdOpen] = useState(false)
+  const diagnosesRef = useRef<HTMLDivElement>(null)
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => { setToast({ show: true, message, type }) }, [])
   const dismissToast = useCallback(() => { setToast((prev) => ({ ...prev, show: false })) }, [])
@@ -510,7 +511,7 @@ export default function DoctorConsultation() {
           </div>
 
           {pendingDiagnoses.length > 0 && (
-            <div className="mt-3">
+            <div ref={diagnosesRef} className="mt-3">
               <p className="text-xs font-medium text-slate-500 mb-1.5 flex items-center gap-1">Pending Diagnoses ({pendingDiagnoses.length})</p>
               <div className="flex flex-wrap gap-1.5">
                 {pendingDiagnoses.map((d, i) => (
@@ -1198,6 +1199,10 @@ export default function DoctorConsultation() {
                   setPendingDiagnoses((prev) => [...prev, { code: item.code, label: item.label }])
                   showToast(`Diagnosis added: ${item.code} — ${item.label}`, 'success')
                 }
+                setActiveTab('soap')
+                setTimeout(() => {
+                  diagnosesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+                }, 100)
               }}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
                 <CheckCircle size={14} /> Confirm Diagnosis
