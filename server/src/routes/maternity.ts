@@ -19,7 +19,8 @@ router.get('/api/maternity-patients', async (req: Request, res: Response) => {
       SELECT mp.*, p.full_name, p.hospital_number, p.dob, p.phone, p.sex,
         (SELECT COUNT(*) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as visit_count,
         (SELECT MAX(visit_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as last_visit_date,
-        (SELECT MAX(next_appointment_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as next_appointment_date
+        (SELECT MAX(next_appointment_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as next_appointment_date,
+        (SELECT COUNT(*) FROM maternity_patients mp2 WHERE mp2.patient_id = mp.patient_id AND mp2.created_at <= mp.created_at) as pregnancy_number
       FROM maternity_patients mp
       JOIN patients p ON p.id = mp.patient_id
       WHERE mp.tenant_id = $1
@@ -31,12 +32,13 @@ router.get('/api/maternity-patients', async (req: Request, res: Response) => {
       let afQuery = `
         SELECT p.id, p.full_name, p.hospital_number, p.dob, p.phone, p.sex, p.marital_status,
           p.blood_type, p.occupation, p.address, p.next_of_kin, p.emergency_contact_phone,
-          p.insurance, p.insurance_type
+          p.insurance, p.insurance_type,
+          (SELECT COUNT(*) FROM maternity_patients WHERE patient_id = p.id) as previous_pregnancies
         FROM patients p
         WHERE p.tenant_id = $1
           AND p.sex = 'Female'
           AND p.folder_activated IS DISTINCT FROM false
-          AND NOT EXISTS (SELECT 1 FROM maternity_patients mp2 WHERE mp2.patient_id = p.id AND mp2.status != 'anc_lost')
+          AND NOT EXISTS (SELECT 1 FROM maternity_patients mp2 WHERE mp2.patient_id = p.id AND mp2.status IN ('active', 'in_labour'))
       `;
       const afParams: any[] = [tenantId];
       let afIdx = 2;
@@ -241,12 +243,25 @@ router.post('/api/maternity-patients', async (req: Request, res: Response) => {
     }
 
     const activeCheck = await pool.query(
-      "SELECT id FROM maternity_patients WHERE patient_id = $1 AND status IN ('active', 'delivered')", [patient_id]
+      "SELECT id FROM maternity_patients WHERE patient_id = $1 AND status IN ('active', 'in_labour')", [patient_id]
     );
     if (activeCheck.rows.length > 0) {
-      res.status(409).json({ error: true, message: 'Patient already has a maternity record' });
+      res.status(409).json({ error: true, message: 'Patient already has an active pregnancy' });
       return;
     }
+
+    // Auto-increment gravida from previous pregnancies
+    const prevPreg = await pool.query(
+      "SELECT COUNT(*) as count FROM maternity_patients WHERE patient_id = $1", [patient_id]
+    );
+    const prevCount = parseInt(prevPreg.rows[0]?.count) || 0;
+    const autoGravida = prevCount + (parseInt(gravida) || 1);
+
+    // Auto-calculate para from previous deliveries
+    const prevDel = await pool.query(
+      "SELECT COALESCE(SUM(para), 0) as total_para FROM maternity_patients WHERE patient_id = $1 AND status = 'delivered'", [patient_id]
+    );
+    const autoPara = parseInt(prevDel.rows[0]?.total_para) || 0;
 
     const id = uuidv4();
     const result = await pool.query(
@@ -256,7 +271,7 @@ router.post('/api/maternity-patients', async (req: Request, res: Response) => {
         risk_level, risk_factors, booked_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *`,
       [id, tenantId, patient_id, lmp || null, edd || null, booking_gestational_age || null,
-       gravida || 1, para || 0, living_children || 0, miscarriages || 0, baby_alive || 0,
+       autoGravida, autoPara + (parseInt(para) || 0), living_children || 0, miscarriages || 0, baby_alive || 0,
        blood_group || null, genotype || null, rh_factor || null, hiv_status || null, hbv_status || null,
        risk_level || 'low', risk_factors || null, booked_by || null]
     );
@@ -273,7 +288,8 @@ router.get('/api/maternity-patients/:id', async (req: Request, res: Response) =>
       `SELECT mp.*, p.full_name, p.hospital_number, p.dob, p.phone, p.sex,
         (SELECT COUNT(*) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as visit_count,
         (SELECT MAX(visit_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as last_visit_date,
-        (SELECT MAX(next_appointment_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as next_appointment
+        (SELECT MAX(next_appointment_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as next_appointment,
+        (SELECT COUNT(*) FROM maternity_patients mp2 WHERE mp2.patient_id = mp.patient_id AND mp2.created_at <= mp.created_at) as pregnancy_number
        FROM maternity_patients mp
        JOIN patients p ON p.id = mp.patient_id
        WHERE mp.id = $1`, [id]
@@ -283,6 +299,38 @@ router.get('/api/maternity-patients/:id', async (req: Request, res: Response) =>
       return;
     }
     res.json(result.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// Get all pregnancies for a patient (pregnancy history)
+router.get('/api/maternity-patients/history/:patientId', async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    const { patientId } = req.params;
+    const result = await pool.query(
+      `SELECT mp.*, p.full_name, p.hospital_number,
+        (SELECT COUNT(*) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as visit_count,
+        (SELECT COUNT(*) FROM maternity_deliveries WHERE maternity_patient_id = mp.id AND status = 'completed') as delivery_count,
+        (SELECT created_at FROM maternity_deliveries WHERE maternity_patient_id = mp.id AND status = 'completed' ORDER BY created_at DESC LIMIT 1) as delivery_date
+       FROM maternity_patients mp
+       JOIN patients p ON p.id = mp.patient_id
+       WHERE mp.patient_id = $1 AND mp.tenant_id = $2
+       ORDER BY mp.created_at DESC`, [patientId, tenantId]
+    );
+    // Calculate interpregnancy intervals
+    const pregnancies = result.rows;
+    for (let i = 0; i < pregnancies.length; i++) {
+      const current = pregnancies[i];
+      const prev = pregnancies[i + 1]; // next row = previous pregnancy (DESC order)
+      if (prev && prev.delivery_date && current.lmp) {
+        const intervalMs = new Date(current.lmp).getTime() - new Date(prev.delivery_date).getTime();
+        const intervalMonths = Math.max(0, Math.round(intervalMs / (30.44 * 24 * 60 * 60 * 1000)));
+        current.interpregnancy_interval_months = intervalMonths;
+      }
+    }
+    res.json(pregnancies);
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }

@@ -360,6 +360,7 @@ export default function PatientChart() {
   const [modalEncData, setModalEncData] = useState<{ prescriptions: any[]; labOrders: any[]; labResultsMap: Record<string, any[]>; radiologyOrders: any[]; doctorName: string } | null>(null)
   const [staffCache, setStaffCache] = useState<Record<string, string>>({})
   const [maternityRecord, setMaternityRecord] = useState<any>(null)
+  const [previousPregnancies, setPreviousPregnancies] = useState<any[]>([])
   const [ancVisits, setAncVisits] = useState<any[]>([])
   const [maternityDelivery, setMaternityDelivery] = useState<any>(null)
   const [maternityNewborns, setMaternityNewborns] = useState<any[]>([])
@@ -593,6 +594,9 @@ export default function PatientChart() {
           if (Array.isArray(matData) && matData.length > 0) {
             const rec = matData[0]
             setMaternityRecord(rec)
+            // Load all pregnancies for history
+            fetch(`/api/maternity-patients/history/${patientId}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+              .then((r) => r.json()).then((pregs) => setPreviousPregnancies(Array.isArray(pregs) ? pregs : [])).catch(() => {})
             const ancRes = await fetch(`/api/antenatal-visits?maternity_patient_id=${rec.id}`, {
               headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
             })
@@ -2912,6 +2916,26 @@ export default function PatientChart() {
                   <p className="text-sm text-slate-400">Not yet delivered</p>
                 )}
               </div>
+
+              {/* Previous Pregnancies */}
+              {previousPregnancies.filter((p) => p.id !== maternityRecord.id).length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+                  <h3 className="font-semibold text-slate-800 flex items-center gap-2"><Baby size={16} className="text-slate-500" /> Previous Pregnancies ({previousPregnancies.filter((p) => p.id !== maternityRecord.id).length})</h3>
+                  <div className="space-y-2">
+                    {previousPregnancies.filter((p) => p.id !== maternityRecord.id).map((preg) => (
+                      <div key={preg.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl text-sm">
+                        <div>
+                          <span className="font-medium">Pregnancy #{preg.pregnancy_number}</span>
+                          <span className="text-slate-400 ml-2">{preg.status}</span>
+                          {preg.delivery_date && <span className="text-slate-400 ml-2">Delivered: {preg.delivery_date?.slice(0, 10)}</span>}
+                          {preg.interpregnancy_interval_months !== undefined && <span className="text-slate-400 ml-2">Interval: {preg.interpregnancy_interval_months}m</span>}
+                        </div>
+                        <a href={`/maternity/patients/${preg.id}`} className="text-xs text-primary font-medium hover:underline">View</a>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {maternityDelivery && (
                 <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">

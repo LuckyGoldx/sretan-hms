@@ -161,13 +161,17 @@ export default function MaternityPatientList() {
               </thead>
               <tbody>
                 {patients.map((p) => {
-                  const ga = gestAgeFromLMP(p.lmp)
+                  const isActive = p.status === 'active'
+                  const ga = isActive && p.lmp ? gestAgeFromLMP(p.lmp) : null
                   const dueIn = daysUntil(p.edd)
-                  const isOverdue = dueIn < 0
+                  const isOverdue = isActive && dueIn < 0
                   return (
                     <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="px-4 py-3">
-                        <p className="font-medium text-slate-800">{p.full_name}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium text-slate-800">{p.full_name}</p>
+                          {p.pregnancy_number > 1 && <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium">#{p.pregnancy_number}</span>}
+                        </div>
                         <p className="text-xs text-slate-400">{p.hospital_number}</p>
                       </td>
                       <td className="px-4 py-3">
@@ -178,10 +182,16 @@ export default function MaternityPatientList() {
                         ) : '—'}
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`text-xs font-medium ${isOverdue ? 'text-rose-600' : 'text-slate-600'}`}>
-                          {ga.text}
-                        </span>
-                        {isOverdue && <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">Overdue</span>}
+                        {ga ? (
+                          <>
+                            <span className={`text-xs font-medium ${isOverdue ? 'text-rose-600' : 'text-slate-600'}`}>{ga.text}</span>
+                            {isOverdue && <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">Overdue</span>}
+                          </>
+                        ) : p.status === 'delivered' ? (
+                          <span className="text-xs text-emerald-600 font-medium">Delivered</span>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-slate-600">G{p.gravida} P{p.para}</td>
                       <td className="px-4 py-3">

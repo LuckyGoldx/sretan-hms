@@ -54,7 +54,9 @@ export default function MaternityBooking() {
 
   function openBooking(patient: any) {
     setSelectedPatient(patient)
-    setForm({ gravida: 1, para: 0, living_children: 0, miscarriages: 0, baby_alive: 0, risk_level: 'low' })
+    const prevPregs = patient.previous_pregnancies || 0
+    const nextGravida = Math.max(1, prevPregs + 1)
+    setForm({ gravida: nextGravida, para: 0, living_children: 0, miscarriages: 0, baby_alive: 0, risk_level: 'low' })
     setShowModal(true)
   }
 
@@ -101,7 +103,7 @@ export default function MaternityBooking() {
         <div className="flex flex-col items-center py-20 text-slate-400">
           <Baby size={48} className="text-slate-300 mb-3" />
           <p className="text-sm font-medium">No available female patients</p>
-          <p className="text-xs mt-1">All female patients may already have a maternity record</p>
+          <p className="text-xs mt-1">All patients may already have an active pregnancy</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

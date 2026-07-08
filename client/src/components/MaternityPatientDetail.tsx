@@ -12,6 +12,7 @@ export default function MaternityPatientDetail() {
   const [delivery, setDelivery] = useState<any>(null)
   const [newborns, setNewborns] = useState<any[]>([])
   const [postnatalVisits, setPostnatalVisits] = useState<any[]>([])
+  const [previousPregnancies, setPreviousPregnancies] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState('profile')
   const [role, setRole] = useState('')
@@ -69,6 +70,11 @@ export default function MaternityPatientDetail() {
       ])
       const rec = await recRes.json()
       setRecord(rec)
+      // Load pregnancy history for this patient
+      if (rec?.patient_id) {
+        fetch(`/api/maternity-patients/history/${rec.patient_id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+          .then((r) => r.json()).then((pregs) => setPreviousPregnancies(Array.isArray(pregs) ? pregs : [])).catch(() => {})
+      }
       const v = await visitsRes.json()
       setVisits(Array.isArray(v) ? v : [])
       const d = await delRes.json()
@@ -263,37 +269,69 @@ export default function MaternityPatientDetail() {
       </div>
 
       {activeTab === 'profile' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
-          <h2 className="text-base font-semibold text-slate-800">Pregnancy Profile</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div><p className="text-xs text-slate-400">EDD</p><p className="text-sm font-medium text-slate-800">{formatDate(record.edd)}</p></div>
-            <div><p className="text-xs text-slate-400">Gestational Age (from LMP)</p><p className="text-sm font-bold text-purple-700">
-              {record.lmp ? (() => { const ms = Date.now() - new Date(record.lmp).getTime(); const w = Math.max(0, Math.floor(ms / (7 * 24 * 60 * 60 * 1000))); const d = Math.max(0, Math.floor((ms % (7 * 24 * 60 * 60 * 1000)) / (24 * 60 * 60 * 1000))); return `${w}w ${d}d` })() : '—'}
-            </p></div>
-            <div><p className="text-xs text-slate-400">LMP</p><p className="text-sm font-medium text-slate-800">{formatDate(record.lmp)}</p></div>
-            <div><p className="text-xs text-slate-400">Booking GA</p><p className="text-sm font-medium text-slate-800">{record.booking_gestational_age ? `${record.booking_gestational_age}w` : '—'}</p></div>
-            <div><p className="text-xs text-slate-400">Gravida / Para</p><p className="text-sm font-medium text-slate-800">G{record.gravida} P{record.para}</p></div>
-            <div><p className="text-xs text-slate-400">Living Children</p><p className="text-sm font-medium text-slate-800">{record.living_children}</p></div>
-            <div><p className="text-xs text-slate-400">Miscarriages</p><p className="text-sm font-medium text-slate-800">{record.miscarriages ?? 0}</p></div>
-            <div><p className="text-xs text-slate-400">Babies Alive</p><p className="text-sm font-medium text-slate-800">{record.baby_alive ?? 0}</p></div>
-            <div><p className="text-xs text-slate-400">Blood Group</p><p className="text-sm font-medium text-slate-800">{record.blood_group || '—'}</p></div>
-            <div><p className="text-xs text-slate-400">Genotype</p><p className="text-sm font-medium text-slate-800">{record.genotype || '—'}</p></div>
-            <div><p className="text-xs text-slate-400">Rh Factor</p><p className="text-sm font-medium text-slate-800">{record.rh_factor || '—'}</p></div>
-            <div><p className="text-xs text-slate-400">HIV Status</p><p className="text-sm font-medium text-slate-800">{record.hiv_status || '—'}</p></div>
-            <div><p className="text-xs text-slate-400">HBV Status</p><p className="text-sm font-medium text-slate-800">{record.hbv_status || '—'}</p></div>
-            <div>
-              <p className="text-xs text-slate-400">Risk Level</p>
-              <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium mt-1 ${
-                record.risk_level === 'high' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-              }`}>{record.risk_level}</span>
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+            <h2 className="text-base font-semibold text-slate-800">Pregnancy Profile</h2>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div><p className="text-xs text-slate-400">EDD</p><p className="text-sm font-medium text-slate-800">{formatDate(record.edd)}</p></div>
+              <div><p className="text-xs text-slate-400">Gestational Age (from LMP)</p><p className="text-sm font-bold text-purple-700">
+                {record.lmp ? (() => { const ms = Date.now() - new Date(record.lmp).getTime(); const w = Math.max(0, Math.floor(ms / (7 * 24 * 60 * 60 * 1000))); const d = Math.max(0, Math.floor((ms % (7 * 24 * 60 * 60 * 1000)) / (24 * 60 * 60 * 1000))); return `${w}w ${d}d` })() : '—'}
+              </p></div>
+              <div><p className="text-xs text-slate-400">LMP</p><p className="text-sm font-medium text-slate-800">{formatDate(record.lmp)}</p></div>
+              <div><p className="text-xs text-slate-400">Booking GA</p><p className="text-sm font-medium text-slate-800">{record.booking_gestational_age ? `${record.booking_gestational_age}w` : '—'}</p></div>
+              <div><p className="text-xs text-slate-400">Gravida / Para</p><p className="text-sm font-medium text-slate-800">G{record.gravida} P{record.para}</p></div>
+              <div><p className="text-xs text-slate-400">Living Children</p><p className="text-sm font-medium text-slate-800">{record.living_children}</p></div>
+              <div><p className="text-xs text-slate-400">Miscarriages</p><p className="text-sm font-medium text-slate-800">{record.miscarriages ?? 0}</p></div>
+              <div><p className="text-xs text-slate-400">Babies Alive</p><p className="text-sm font-medium text-slate-800">{record.baby_alive ?? 0}</p></div>
+              <div><p className="text-xs text-slate-400">Blood Group</p><p className="text-sm font-medium text-slate-800">{record.blood_group || '—'}</p></div>
+              <div><p className="text-xs text-slate-400">Genotype</p><p className="text-sm font-medium text-slate-800">{record.genotype || '—'}</p></div>
+              <div><p className="text-xs text-slate-400">Rh Factor</p><p className="text-sm font-medium text-slate-800">{record.rh_factor || '—'}</p></div>
+              <div><p className="text-xs text-slate-400">HIV Status</p><p className="text-sm font-medium text-slate-800">{record.hiv_status || '—'}</p></div>
+              <div><p className="text-xs text-slate-400">HBV Status</p><p className="text-sm font-medium text-slate-800">{record.hbv_status || '—'}</p></div>
+              <div>
+                <p className="text-xs text-slate-400">Risk Level</p>
+                <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium mt-1 ${
+                  record.risk_level === 'high' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                }`}>{record.risk_level}</span>
+              </div>
+            </div>
+            {record.risk_factors && (
+              <div><p className="text-xs text-slate-400 mb-1">Risk Factors</p><p className="text-sm text-slate-600 bg-slate-50 rounded-xl p-3">{record.risk_factors}</p></div>
+            )}
+            <div className="text-xs text-slate-400 pt-2 border-t border-slate-100">
+              Pregnancy #{record.pregnancy_number || 1} &middot; Booked: {formatDate(record.booked_at)} &middot; Status: <span className="font-medium">{record.status}</span>
             </div>
           </div>
-          {record.risk_factors && (
-            <div><p className="text-xs text-slate-400 mb-1">Risk Factors</p><p className="text-sm text-slate-600 bg-slate-50 rounded-xl p-3">{record.risk_factors}</p></div>
+
+          {/* Previous Pregnancies */}
+          {previousPregnancies.filter((p) => p.id !== record.id).length > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-3">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Baby size={16} className="text-slate-500" /> Previous Pregnancies ({previousPregnancies.filter((p) => p.id !== record.id).length})</h2>
+              <div className="space-y-3">
+                {previousPregnancies.filter((p) => p.id !== record.id).map((preg) => (
+                  <div key={preg.id} className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-semibold text-slate-700">Pregnancy #{preg.pregnancy_number || '—'}</span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                        preg.status === 'delivered' ? 'bg-green-100 text-green-700' :
+                        preg.status === 'anc_lost' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                      }`}>{preg.status}</span>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                      <div><span className="text-slate-400">Delivery:</span> <span className="font-medium">{preg.delivery_date?.slice(0, 10) || '—'}</span></div>
+                      {preg.interpregnancy_interval_months !== undefined && (
+                        <div><span className="text-slate-400">Interval:</span> <span className="font-medium">{preg.interpregnancy_interval_months} months</span></div>
+                      )}
+                      <div><span className="text-slate-400">Outcome:</span> <span className="font-medium">{preg.outcome || '—'}</span></div>
+                      <div><span className="text-slate-400">G/P:</span> <span className="font-medium">G{preg.gravida} P{preg.para}</span></div>
+                    </div>
+                    <button onClick={() => navigate(`/maternity/patients/${preg.id}`)}
+                      className="mt-2 text-xs text-primary font-medium hover:underline">View this pregnancy →</button>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
-          <div className="text-xs text-slate-400 pt-2 border-t border-slate-100">
-            Booked: {formatDate(record.booked_at)} &middot; Status: <span className="font-medium">{record.status}</span>
-          </div>
         </div>
       )}
 
