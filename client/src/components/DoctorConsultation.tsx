@@ -133,7 +133,7 @@ export default function DoctorConsultation() {
   const [labForm, setLabForm] = useState<LabOrderForm>({ test_name: '', doctor_comment: '' })
   const [radiologyForm, setRadiologyForm] = useState<RadiologyForm>({ imaging_type: '', doctor_comment: '' })
   const [prescription, setPrescription] = useState<PrescriptionForm>({ drug_name: '', dosage: '', quantity: '', instructions: '' })
-  const [activeEncounterId, setActiveEncounterId] = useState<string | null>(null)
+  const activeEncounterRef = useRef<string | null>(null)
   const [inventoryDrugs, setInventoryDrugs] = useState<string[]>([])
   const [showDrugSuggestions, setShowDrugSuggestions] = useState(false)
   const [staffCache, setStaffCache] = useState<Record<string, string>>({})
@@ -192,13 +192,16 @@ export default function DoctorConsultation() {
     }).catch(() => {})
   }, [])
 
-  const ensureEncounter = useCallback(async (): Promise<string> => {
-    if (activeEncounterId) return activeEncounterId
-    if (!patientId) throw new Error('No patient selected')
-    const encResponse = await api.post('/encounters', { patient_id: patientId, encounter_type: encounterType, chief_complaint: '', staff_id: currentStaffId })
-    setActiveEncounterId(encResponse.data.id)
-    return encResponse.data.id
-  }, [activeEncounterId, patientId, currentStaffId, encounterType])
+  const ensureEncounter = useCallback(async (): Promise<string | null> => {
+    if (activeEncounterRef.current) return activeEncounterRef.current
+    if (!patientId) return null
+    try {
+      const encResponse = await api.post('/encounters', { patient_id: patientId, encounter_type: encounterType, chief_complaint: '', staff_id: currentStaffId })
+      if (!encResponse.data?.id) return null
+      activeEncounterRef.current = encResponse.data.id
+      return encResponse.data.id
+    } catch { return null }
+  }, [patientId, currentStaffId, encounterType])
 
   useEffect(() => {
     if (!patientId) return
