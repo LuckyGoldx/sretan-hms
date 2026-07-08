@@ -121,7 +121,7 @@ export default function DoctorConsultation() {
   const navigate = useNavigate()
   const { patientId } = useParams<{ patientId: string }>()
   const urlParams = new URLSearchParams(window.location.search)
-  const encounterType = urlParams.get('type') || 'consultation'
+  const encounterTypeRef = useRef<string>(urlParams.get('type') || 'consultation')
   const [patient, setPatient] = useState<Patient | null>(null)
   const [encounters, setEncounters] = useState<Encounter[]>([])
   const [loading, setLoading] = useState(true)
@@ -200,12 +200,12 @@ export default function DoctorConsultation() {
     if (activeEncounterRef.current) return activeEncounterRef.current
     if (!patientId) return null
     try {
-      const encResponse = await api.post('/encounters', { patient_id: patientId, encounter_type: encounterType, chief_complaint: '', staff_id: currentStaffId })
+      const encResponse = await api.post('/encounters', { patient_id: patientId, encounter_type: encounterTypeRef.current, chief_complaint: '', staff_id: currentStaffId })
       if (!encResponse.data?.id) return null
       activeEncounterRef.current = encResponse.data.id
       return encResponse.data.id
     } catch { return null }
-  }, [patientId, currentStaffId, encounterType])
+  }, [patientId, currentStaffId])
 
   useEffect(() => {
     if (!patientId) return
@@ -247,6 +247,8 @@ export default function DoctorConsultation() {
           })
           const matData = await matRes.json()
           if (Array.isArray(matData) && matData.length > 0) {
+            const activeMat = matData.find((m: any) => m.status === 'active')
+            if (activeMat) encounterTypeRef.current = 'maternity'
             setMaternityRecord(matData[0])
             const ancRes = await fetch(`/api/antenatal-visits?maternity_patient_id=${matData[0].id}&limit=1`, {
               headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
@@ -291,7 +293,7 @@ export default function DoctorConsultation() {
       const encId = await ensureEncounter()
       if (!encId) { showToast('Failed to create encounter', 'error'); setSoapSubmitting(false); return }
       const diagnoses = pendingDiagnoses.map((d) => ({ code: d.code, label: d.label, diagnosed_at: new Date().toISOString() }))
-      await api.put(`/encounters/${encId}`, { encounter_type: encounterType, chief_complaint: soap.subjective.slice(0, 500), soap_notes: soap, diagnoses: diagnoses.length > 0 ? diagnoses : undefined })
+      await api.put(`/encounters/${encId}`, { encounter_type: encounterTypeRef.current, chief_complaint: soap.subjective.slice(0, 500), soap_notes: soap, diagnoses: diagnoses.length > 0 ? diagnoses : undefined })
       showToast('SOAP note saved successfully', 'success')
       setSoap(emptySoap)
       setPendingDiagnoses([])

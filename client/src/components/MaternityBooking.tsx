@@ -189,6 +189,16 @@ export default function MaternityBooking() {
                         <ChevronRight size={12} /> Use EGA
                       </button>
                     )}
+                    {form.edd && (
+                      <button type="button" onClick={() => {
+                        const weeksUntilEdd = Math.max(0, Math.floor((new Date(form.edd).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000)))
+                        const gaFromEdd = Math.max(0, 40 - weeksUntilEdd)
+                        setForm((p: any) => ({ ...p, booking_gestational_age: gaFromEdd }))
+                      }}
+                        className="flex items-center gap-1 px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 text-blue-700 text-xs font-medium hover:bg-blue-100 whitespace-nowrap transition-colors">
+                        <ChevronRight size={12} /> Use EDD
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div>

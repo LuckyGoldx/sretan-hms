@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Baby, ArrowLeft, Loader2, Activity, Calendar, Stethoscope, Heart, FileText, X, CheckCircle, Plus, PenLine, FlaskConical, ScanLine, Pill, Search, Clock, ChevronDown } from 'lucide-react'
+import { Baby, ArrowLeft, Loader2, Activity, Calendar, Stethoscope, Heart, FileText, X, CheckCircle, Plus, PenLine, FlaskConical, ScanLine, Pill, Search, Clock, ChevronDown, ClipboardList } from 'lucide-react'
 import { ICD11_CODES, Icd11Code } from '../data/icd11Codes'
 const icd11Codes = ICD11_CODES
 
@@ -231,6 +231,7 @@ export default function MaternityPatientDetail() {
     { id: 'profile', label: 'Profile', icon: Baby },
     { id: 'visits', label: `ANC Visits (${visits.length})`, icon: Calendar },
     { id: 'consultation', label: `Consultation`, icon: PenLine },
+    { id: 'encounters', label: `Encounters (${maternityEncounters.length})`, icon: ClipboardList },
     { id: 'delivery', label: delivery ? 'Delivery' : 'Delivery', icon: Stethoscope },
     { id: 'postnatal', label: `Postnatal (${postnatalVisits.length})`, icon: Heart },
   ]
@@ -245,6 +246,12 @@ export default function MaternityPatientDetail() {
           <p className="text-sm text-slate-400 truncate">{record.hospital_number} &middot; DOB: {record.dob?.slice(0, 10)}</p>
         </div>
         <div className="flex gap-2">
+          {isDoctor && (
+            <button onClick={() => setActiveTab('consultation')}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium">
+              <PenLine size={15} /> Consult
+            </button>
+          )}
           {record.status === 'active' && canEdit && (
             <button onClick={() => setShowAdmitModal(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium">
@@ -902,6 +909,69 @@ export default function MaternityPatientDetail() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'encounters' && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-4">
+          <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><ClipboardList size={16} className="text-slate-500" /> All Maternity Encounters ({maternityEncounters.length})</h2>
+          {maternityEncounters.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-6">No maternity encounters recorded yet</p>
+          ) : (
+            <div className="space-y-3 max-h-[500px] overflow-y-auto">
+              {maternityEncounters.map((enc) => {
+                const diagnoses = typeof enc.diagnoses === 'string' ? (() => { try { return JSON.parse(enc.diagnoses) } catch { return [] } })() : enc.diagnoses
+                const soapNotes = typeof enc.soap_notes === 'string' ? (() => { try { return JSON.parse(enc.soap_notes) } catch { return null } })() : enc.soap_notes
+                return (
+                  <div key={enc.id} className="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-semibold text-slate-600">
+                        {new Date(enc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                      {enc.staff_name && <span className="text-[10px] text-slate-400">by {enc.staff_name}</span>}
+                    </div>
+                    {soapNotes && (
+                      <div className="text-xs text-slate-600 space-y-1 mb-2">
+                        {soapNotes.subjective && <p><span className="text-slate-400 font-medium">S:</span> {soapNotes.subjective}</p>}
+                        {soapNotes.objective && <p><span className="text-slate-400 font-medium">O:</span> {soapNotes.objective}</p>}
+                        {soapNotes.assessment && <p><span className="text-slate-400 font-medium">A:</span> {soapNotes.assessment}</p>}
+                        {soapNotes.plan && <p><span className="text-slate-400 font-medium">P:</span> {soapNotes.plan}</p>}
+                      </div>
+                    )}
+                    {Array.isArray(diagnoses) && diagnoses.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mb-2">
+                        {diagnoses.map((d: any, i: number) => (
+                          <span key={i} className="px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 text-[10px] font-medium">
+                            {d.code && <span className="font-mono">{d.code} </span>}{d.label || d}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <button onClick={async () => {
+                      setSelectedEncounter(enc)
+                      setEncounterOrders({ lab: [], radiology: [], prescriptions: [] })
+                      try {
+                        const [labRes, radRes, rxRes] = await Promise.all([
+                          fetch(`/api/lab-orders?encounter_id=${enc.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+                          fetch(`/api/radiology-orders?encounter_id=${enc.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+                          fetch(`/api/prescriptions?encounter_id=${enc.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
+                        ])
+                        const labData = await labRes.json()
+                        const radData = await radRes.json()
+                        const rxData = await rxRes.json()
+                        setEncounterOrders({
+                          lab: Array.isArray(labData) ? labData : labData?.rows || [],
+                          radiology: Array.isArray(radData) ? radData : radData?.rows || [],
+                          prescriptions: Array.isArray(rxData) ? rxData : rxData?.rows || [],
+                        })
+                      } catch { setEncounterOrders({ lab: [], radiology: [], prescriptions: [] }) }
+                    }}
+                      className="text-xs text-primary font-medium hover:underline">View details →</button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 
