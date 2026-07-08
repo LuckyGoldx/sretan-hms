@@ -104,7 +104,8 @@ export default function MaternityPatientList() {
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+        <button onClick={() => { setSmartFilter(smartFilter === 'due_this_week' ? '' : 'due_this_week'); setPage(1); setStatusFilter('') }}
+          className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 text-left w-full hover:shadow-md transition-shadow">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center"><CalendarCheck size={18} className="text-amber-600" /></div>
             <div>
@@ -112,8 +113,9 @@ export default function MaternityPatientList() {
               <p className="text-xs text-slate-400">Due This Week</p>
             </div>
           </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+        </button>
+        <button onClick={() => { setSmartFilter(smartFilter === 'overdue_anc' ? '' : 'overdue_anc'); setPage(1); setStatusFilter('') }}
+          className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 text-left w-full hover:shadow-md transition-shadow">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center"><AlertTriangle size={18} className="text-rose-600" /></div>
             <div>
@@ -121,7 +123,7 @@ export default function MaternityPatientList() {
               <p className="text-xs text-slate-400">Overdue ANC</p>
             </div>
           </div>
-        </div>
+        </button>
       </div>
 
       <div className="flex flex-wrap gap-3 items-center">
@@ -227,8 +229,10 @@ export default function MaternityPatientList() {
                         <div className="flex gap-1.5">
                           <button onClick={() => navigate(`/maternity/patients/${p.id}`)}
                             className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium">View</button>
-                          <button onClick={() => navigate(p.status === 'active' ? `/consultation/${p.patient_id}?type=maternity` : `/consultation/${p.patient_id}`)}
-                            className="px-3 py-1.5 rounded-lg bg-purple-500 text-white text-xs font-medium flex items-center gap-1"><PenLine size={11} /> Consult</button>
+                          {p.status === 'active' && (
+                            <button onClick={() => navigate(`/consultation/${p.patient_id}?type=maternity`)}
+                              className="px-3 py-1.5 rounded-lg bg-purple-500 text-white text-xs font-medium flex items-center gap-1"><PenLine size={11} /> Consult</button>
+                          )}
                         </div>
                       </td>
                     </tr>
