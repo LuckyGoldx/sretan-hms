@@ -173,6 +173,7 @@ export default function MaternityPatientList() {
                           {p.pregnancy_number > 1 && <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium">#{p.pregnancy_number}</span>}
                         </div>
                         <p className="text-xs text-slate-400">{p.hospital_number}</p>
+                        {p.booking_code && <p className="text-[10px] font-mono text-primary">{p.booking_code}</p>}
                       </td>
                       <td className="px-4 py-3">
                         {p.edd ? (

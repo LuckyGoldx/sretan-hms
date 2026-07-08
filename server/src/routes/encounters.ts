@@ -13,7 +13,7 @@ function getTenantId(): string {
 router.get('/api/encounters', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { patient_id, encounter_type } = req.query;
+    const { patient_id, encounter_type, maternity_patient_id } = req.query;
     let query = `SELECT e.*, s.name as staff_name FROM encounters e LEFT JOIN staff_users s ON s.id = e.staff_id WHERE e.tenant_id = $1`;
     const params: any[] = [tenantId];
     let paramIndex = 2;
@@ -27,6 +27,11 @@ router.get('/api/encounters', async (req: Request, res: Response) => {
     if (encounter_type) {
       query += ` AND e.encounter_type = $${paramIndex}`;
       params.push(encounter_type);
+      paramIndex++;
+    }
+    if (maternity_patient_id) {
+      query += ` AND e.maternity_patient_id = $${paramIndex}`;
+      params.push(maternity_patient_id);
       paramIndex++;
     }
 
@@ -65,7 +70,7 @@ router.post('/api/encounters', async (req: Request, res: Response) => {
     await clockGuard(pool, 'encounters');
 
     const tenantId = getTenantId();
-    const { patient_id, encounter_type, chief_complaint, soap_notes, staff_id, diagnoses } = req.body;
+    const { patient_id, encounter_type, chief_complaint, soap_notes, staff_id, diagnoses, maternity_patient_id } = req.body;
 
     if (!patient_id || !encounter_type) {
       res.status(400).json({ error: true, message: 'patient_id and encounter_type are required' });
@@ -74,10 +79,10 @@ router.post('/api/encounters', async (req: Request, res: Response) => {
 
     const id = uuidv4();
     const result = await pool.query(
-      `INSERT INTO encounters (id, tenant_id, patient_id, staff_id, encounter_type, chief_complaint, soap_notes, diagnoses)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO encounters (id, tenant_id, patient_id, staff_id, encounter_type, chief_complaint, soap_notes, diagnoses, maternity_patient_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING *`,
-      [id, tenantId, patient_id, staff_id || null, encounter_type, chief_complaint || null, soap_notes ? JSON.stringify(soap_notes) : null, diagnoses ? JSON.stringify(diagnoses) : null]
+      [id, tenantId, patient_id, staff_id || null, encounter_type, chief_complaint || null, soap_notes ? JSON.stringify(soap_notes) : null, diagnoses ? JSON.stringify(diagnoses) : null, maternity_patient_id || null]
     );
 
     res.status(201).json(result.rows[0]);

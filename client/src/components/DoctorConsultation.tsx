@@ -134,6 +134,7 @@ export default function DoctorConsultation() {
   const [radiologyForm, setRadiologyForm] = useState<RadiologyForm>({ imaging_type: '', doctor_comment: '' })
   const [prescription, setPrescription] = useState<PrescriptionForm>({ drug_name: '', dosage: '', quantity: '', instructions: '' })
   const activeEncounterRef = useRef<string | null>(null)
+  const maternityPatientIdRef = useRef<string | null>(null)
   const [inventoryDrugs, setInventoryDrugs] = useState<string[]>([])
   const [showDrugSuggestions, setShowDrugSuggestions] = useState(false)
   const [staffCache, setStaffCache] = useState<Record<string, string>>({})
@@ -200,7 +201,9 @@ export default function DoctorConsultation() {
     if (activeEncounterRef.current) return activeEncounterRef.current
     if (!patientId) return null
     try {
-      const encResponse = await api.post('/encounters', { patient_id: patientId, encounter_type: encounterTypeRef.current, chief_complaint: '', staff_id: currentStaffId })
+      const encBody: any = { patient_id: patientId, encounter_type: encounterTypeRef.current, chief_complaint: '', staff_id: currentStaffId }
+      if (maternityPatientIdRef.current) encBody.maternity_patient_id = maternityPatientIdRef.current
+      const encResponse = await api.post('/encounters', encBody)
       if (!encResponse.data?.id) return null
       activeEncounterRef.current = encResponse.data.id
       return encResponse.data.id
@@ -248,7 +251,10 @@ export default function DoctorConsultation() {
           const matData = await matRes.json()
           if (Array.isArray(matData) && matData.length > 0) {
             const activeMat = matData.find((m: any) => m.status === 'active')
-            if (activeMat) encounterTypeRef.current = 'maternity'
+            if (activeMat) {
+              encounterTypeRef.current = 'maternity'
+              maternityPatientIdRef.current = activeMat.id
+            }
             setMaternityRecord(matData[0])
             const ancRes = await fetch(`/api/antenatal-visits?maternity_patient_id=${matData[0].id}&limit=1`, {
               headers: { 'x-master-token': 'sretan-emr-master-token-2026' }

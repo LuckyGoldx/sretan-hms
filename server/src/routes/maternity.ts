@@ -264,16 +264,22 @@ router.post('/api/maternity-patients', async (req: Request, res: Response) => {
     const autoPara = parseInt(prevDel.rows[0]?.total_para) || 0;
 
     const id = uuidv4();
+    const year = new Date().getFullYear();
+    const seqRes = await pool.query(
+      `SELECT COALESCE(MAX(SUBSTRING(booking_code FROM 'ANC-${year}-(\\d+)')::int), 0) + 1 AS next_seq FROM maternity_patients WHERE booking_code ~ '^ANC-${year}-'`
+    );
+    const seq = seqRes.rows[0]?.next_seq || 1;
+    const bookingCode = `ANC-${year}-${String(seq).padStart(5, '0')}`;
     const result = await pool.query(
       `INSERT INTO maternity_patients (id, tenant_id, patient_id, lmp, edd, booking_gestational_age,
         gravida, para, living_children, miscarriages, baby_alive,
         blood_group, genotype, rh_factor, hiv_status, hbv_status,
-        risk_level, risk_factors, booked_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) RETURNING *`,
+        risk_level, risk_factors, booked_by, booking_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING *`,
       [id, tenantId, patient_id, lmp || null, edd || null, booking_gestational_age || null,
        autoGravida, autoPara + (parseInt(para) || 0), living_children || 0, miscarriages || 0, baby_alive || 0,
        blood_group || null, genotype || null, rh_factor || null, hiv_status || null, hbv_status || null,
-       risk_level || 'low', risk_factors || null, booked_by || null]
+       risk_level || 'low', risk_factors || null, booked_by || null, bookingCode]
     );
     res.status(201).json(result.rows[0]);
   } catch (err: any) {

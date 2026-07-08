@@ -87,9 +87,9 @@ export default function MaternityPatientDetail() {
         const pn = await pnRes.json()
         setPostnatalVisits(Array.isArray(pn) ? pn : [])
       }
-      // Load maternity encounters + catalog data
-      if (rec?.patient_id) {
-        fetch(`/api/encounters?patient_id=${rec.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+      // Load maternity encounters tied to this pregnancy
+      if (rec?.id) {
+        fetch(`/api/encounters?maternity_patient_id=${rec.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
           .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
       }
     } catch {} finally { setLoading(false) }
@@ -118,7 +118,7 @@ export default function MaternityPatientDetail() {
     const res = await fetch('/api/encounters', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-      body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId }),
+      body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId, maternity_patient_id: id }),
     })
     if (!res.ok) return null
     const enc = await res.json()
@@ -305,8 +305,11 @@ export default function MaternityPatientDetail() {
             {record.risk_factors && (
               <div><p className="text-xs text-slate-400 mb-1">Risk Factors</p><p className="text-sm text-slate-600 bg-slate-50 rounded-xl p-3">{record.risk_factors}</p></div>
             )}
-            <div className="text-xs text-slate-400 pt-2 border-t border-slate-100">
-              Pregnancy #{record.pregnancy_number || 1} &middot; Booked: {formatDate(record.booked_at)} &middot; Status: <span className="font-medium">{record.status}</span>
+            <div className="text-xs text-slate-400 pt-2 border-t border-slate-100 flex flex-wrap gap-x-3 gap-y-1">
+              <span>Pregnancy #{record.pregnancy_number || 1}</span>
+              {record.booking_code && <span className="font-mono text-primary font-medium">{record.booking_code}</span>}
+              <span>Booked: {formatDate(record.booked_at)}</span>
+              <span>Status: <span className="font-medium">{record.status}</span></span>
             </div>
           </div>
 
