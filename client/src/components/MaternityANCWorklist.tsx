@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Calendar, Search, Loader2, ArrowLeft, Plus, X, CheckCircle, Activity, AlertTriangle, Baby, Clock, Users } from 'lucide-react'
+import { Calendar, Search, Loader2, ArrowLeft, Plus, X, CheckCircle, Activity, AlertTriangle, Baby, Clock, Users, PenLine, Stethoscope, FlaskConical, ScanLine, Pill } from 'lucide-react'
 
 function daysUntil(date: string): number {
   if (!date) return 999
@@ -20,6 +20,8 @@ export default function MaternityANCWorklist() {
   const [showHistoryModal, setShowHistoryModal] = useState(false)
   const [selectedPatient, setSelectedPatient] = useState<any>(null)
   const [patientVisits, setPatientVisits] = useState<any[]>([])
+  const [patientEncounters, setPatientEncounters] = useState<any[]>([])
+  const [combinedTimeline, setCombinedTimeline] = useState<any[]>([])
   const [ancForm, setAncForm] = useState<any>({})
   const [ancSubmitting, setAncSubmitting] = useState(false)
   const [stats, setStats] = useState<any>({})
@@ -56,11 +58,19 @@ export default function MaternityANCWorklist() {
   async function openVisitHistory(patient: any) {
     setSelectedPatient(patient)
     try {
-      const res = await fetch(`/api/antenatal-visits?maternity_patient_id=${patient.id}`, {
-        headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
-      })
-      const data = await res.json()
-      setPatientVisits(Array.isArray(data) ? data : [])
+      const visitsJson = await (await fetch(`/api/antenatal-visits?maternity_patient_id=${patient.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })).json()
+      const encsJson = await (await fetch(`/api/encounters?maternity_patient_id=${patient.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })).json()
+      const visits = Array.isArray(visitsJson) ? visitsJson : []
+      const encs = Array.isArray(encsJson) ? encsJson : []
+      setPatientVisits(visits)
+      setPatientEncounters(encs)
+      // Build combined timeline sorted by date
+      const timeline: any[] = [
+        ...visits.map((v: any) => ({ ...v, _type: 'anc', _date: v.visit_date || v.created_at })),
+        ...encs.map((e: any) => ({ ...e, _type: 'encounter', _date: e.created_at })),
+      ]
+      timeline.sort((a, b) => new Date(b._date).getTime() - new Date(a._date).getTime())
+      setCombinedTimeline(timeline)
       setShowHistoryModal(true)
     } catch {}
   }
@@ -230,44 +240,99 @@ export default function MaternityANCWorklist() {
         </>
       )}
 
-      {/* Visit History Modal */}
+      {/* Visit History Modal — Comprehensive */}
       {showHistoryModal && selectedPatient && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowHistoryModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-2xl mx-4 max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
-              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Calendar size={16} className="text-purple-500" /> ANC Visits — {selectedPatient.full_name}</h2>
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Calendar size={16} className="text-purple-500" /> Care History — {selectedPatient.full_name}</h2>
               <button onClick={() => setShowHistoryModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
             <div className="overflow-y-auto flex-1 p-6">
-              {patientVisits.length === 0 ? (
+              {combinedTimeline.length === 0 ? (
                 <div className="text-center py-10 text-slate-400">
                   <Calendar size={36} className="mx-auto mb-2 text-slate-300" />
-                  <p className="text-sm">No ANC visits recorded</p>
+                  <p className="text-sm">No ANC visits or consultations recorded</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {patientVisits.map((v: any) => (
-                    <div key={v.id} className="bg-slate-50 rounded-xl p-4 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-slate-600">Visit #{v.visit_number} — {v.visit_date?.slice(0, 10)}</span>
-                        {v.gestational_age_weeks && <span className="text-[10px] text-slate-400">{v.gestational_age_weeks}w</span>}
+                  {combinedTimeline.map((item: any, idx: number) => (
+                    item._type === 'anc' ? (
+                      /* ANC Visit Card */
+                      <div key={item.id || idx} className="border-l-2 border-purple-300 pl-4 pb-2">
+                        <div className="bg-purple-50 rounded-xl p-4 space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Calendar size={13} className="text-purple-500" />
+                              <span className="text-xs font-semibold text-purple-700">ANC Visit #{item.visit_number} — {item.visit_date?.slice(0, 10)}</span>
+                            </div>
+                            {item.gestational_age_weeks && <span className="text-[10px] text-purple-500">{item.gestational_age_weeks}w</span>}
+                          </div>
+                          <div className="grid grid-cols-3 gap-1.5 text-[11px]">
+                            {item.weight && <div><span className="text-slate-400">WT:</span> {item.weight}kg</div>}
+                            {item.systolic_bp && <div><span className="text-slate-400">BP:</span> {item.systolic_bp}/{item.diastolic_bp || '—'}</div>}
+                            {item.fundal_height && <div><span className="text-slate-400">FH:</span> {item.fundal_height}cm</div>}
+                            {item.fetal_heart_rate && <div><span className="text-slate-400">FHR:</span> {item.fetal_heart_rate}</div>}
+                            {item.fetal_presentation && <div><span className="text-slate-400">Pres:</span> {item.fetal_presentation}</div>}
+                            {item.hemoglobin && <div><span className="text-slate-400">Hb:</span> {item.hemoglobin}g/dL</div>}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5 text-[10px]">
+                            {item.iycf_given && <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Iron/Folate</span>}
+                            {item.tt_dose && <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">TT {item.tt_dose}</span>}
+                            {item.next_appointment_date && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Next: {item.next_appointment_date?.slice(0, 10)}</span>}
+                          </div>
+                          {item.notes && <p className="text-[11px] text-slate-500 mt-1">{item.notes}</p>}
+                        </div>
                       </div>
-                      <div className="grid grid-cols-3 gap-1.5 text-[11px]">
-                        {v.weight && <div><span className="text-slate-400">WT:</span> {v.weight}kg</div>}
-                        {v.systolic_bp && <div><span className="text-slate-400">BP:</span> {v.systolic_bp}/{v.diastolic_bp || '—'}</div>}
-                        {v.fundal_height && <div><span className="text-slate-400">FH:</span> {v.fundal_height}cm</div>}
-                        {v.fetal_heart_rate && <div><span className="text-slate-400">FHR:</span> {v.fetal_heart_rate}</div>}
-                        {v.fetal_presentation && <div><span className="text-slate-400">Pres:</span> {v.fetal_presentation}</div>}
-                        {v.hemoglobin && <div><span className="text-slate-400">Hb:</span> {v.hemoglobin}g/dL</div>}
+                    ) : (
+                      /* Encounter Card */
+                      <div key={item.id || idx} className="border-l-2 border-blue-300 pl-4 pb-2">
+                        <div className="bg-blue-50 rounded-xl p-4 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <PenLine size={13} className="text-blue-500" />
+                              <span className="text-xs font-semibold text-blue-700">
+                                Consultation — {new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            {item.staff_name && <span className="text-[10px] text-slate-400">by {item.staff_name}</span>}
+                          </div>
+                          {/* SOAP Notes */}
+                          {(() => {
+                            const sn = typeof item.soap_notes === 'string' ? (() => { try { return JSON.parse(item.soap_notes) } catch { return null } })() : item.soap_notes
+                            return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan) ? (
+                              <div className="space-y-1 text-xs">
+                                {sn.subjective && <p><span className="text-slate-400 font-medium">S:</span> {sn.subjective}</p>}
+                                {sn.objective && <p><span className="text-slate-400 font-medium">O:</span> {sn.objective}</p>}
+                                {sn.assessment && <p><span className="text-slate-400 font-medium">A:</span> {sn.assessment}</p>}
+                                {sn.plan && <p><span className="text-slate-400 font-medium">P:</span> {sn.plan}</p>}
+                              </div>
+                            ) : null
+                          })()}
+                          {/* Diagnoses */}
+                          {(() => {
+                            const diag = typeof item.diagnoses === 'string' ? (() => { try { return JSON.parse(item.diagnoses) } catch { return [] } })() : item.diagnoses
+                            return Array.isArray(diag) && diag.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {diag.map((d: any, i: number) => (
+                                  <span key={i} className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-medium">
+                                    {d.code && <span className="font-mono">{d.code} </span>}{d.label || d}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null
+                          })()}
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-1.5 text-[10px]">
-                        {v.iycf_given && <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">Iron/Folate</span>}
-                        {v.tt_dose && <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700">TT {v.tt_dose}</span>}
-                        {v.next_appointment_date && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Next: {v.next_appointment_date?.slice(0, 10)}</span>}
-                      </div>
-                      {v.notes && <p className="text-[11px] text-slate-500 mt-1">{v.notes}</p>}
-                    </div>
+                    )
                   ))}
+                </div>
+              )}
+              {/* Summary */}
+              {combinedTimeline.length > 0 && (
+                <div className="mt-6 pt-4 border-t border-slate-100 flex flex-wrap gap-x-6 gap-y-1 text-xs text-slate-500">
+                  <span>Total ANC visits: <strong>{patientVisits.length}</strong></span>
+                  <span>Total consultations: <strong>{patientEncounters.length}</strong></span>
                 </div>
               )}
             </div>
