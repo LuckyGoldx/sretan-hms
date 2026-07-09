@@ -422,6 +422,50 @@ router.get('/api/antenatal-visits', async (req: Request, res: Response) => {
   }
 });
 
+// Comprehensive per-date ANC visits with all encounters, orders, prescriptions grouped
+router.get('/api/antenatal-visits/comprehensive/:maternity_patient_id', async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    const { maternity_patient_id } = req.params;
+    const result = await pool.query(`
+      WITH visit_dates AS (
+        SELECT DISTINCT visit_date FROM antenatal_visits WHERE maternity_patient_id = $1
+      ),
+      date_encounters AS (
+        SELECT e.*, s.name as staff_name,
+          vd.visit_date
+        FROM visit_dates vd
+        JOIN encounters e ON e.maternity_patient_id = $1 AND e.created_at::date = vd.visit_date
+        LEFT JOIN staff_users s ON s.id = e.staff_id
+      ),
+      date_anc AS (
+        SELECT av.*, s.name as staff_name
+        FROM antenatal_visits av
+        LEFT JOIN staff_users s ON s.id = av.staff_id
+        WHERE av.maternity_patient_id = $1
+      )
+      SELECT
+        vd.visit_date as date,
+        COALESCE((SELECT json_agg(row_to_json(da.*)) FROM date_anc da WHERE da.visit_date = vd.visit_date), '[]'::json) as anc_visits,
+        COALESCE((SELECT json_agg(row_to_json(de.*)) FROM date_encounters de WHERE de.visit_date = vd.visit_date), '[]'::json) as encounters,
+        COALESCE((SELECT json_agg(json_build_object('id', lo.id, 'test_name', lo.test_name, 'status', lo.status, 'doctor_comment', lo.doctor_comment, 'created_at', lo.created_at))
+          FROM encounters e2 JOIN lab_orders lo ON lo.encounter_id = e2.id
+          WHERE e2.maternity_patient_id = $1 AND e2.created_at::date = vd.visit_date), '[]'::json) as lab_orders,
+        COALESCE((SELECT json_agg(json_build_object('id', ro.id, 'imaging_type', ro.imaging_type, 'status', ro.status, 'doctor_comment', ro.doctor_comment, 'created_at', ro.created_at))
+          FROM encounters e2 JOIN radiology_orders ro ON ro.encounter_id = e2.id
+          WHERE e2.maternity_patient_id = $1 AND e2.created_at::date = vd.visit_date), '[]'::json) as radiology_orders,
+        COALESCE((SELECT json_agg(json_build_object('id', p.id, 'drug_name', p.drug_name, 'dosage', p.dosage, 'quantity', p.quantity, 'instructions', p.instructions, 'status', p.status, 'created_at', p.created_at))
+          FROM encounters e2 JOIN prescriptions p ON p.encounter_id = e2.id
+          WHERE e2.maternity_patient_id = $1 AND e2.created_at::date = vd.visit_date), '[]'::json) as prescriptions
+      FROM visit_dates vd
+      ORDER BY vd.visit_date DESC
+    `, [maternity_patient_id]);
+    res.json(result.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
 router.post('/api/antenatal-visits', async (req: Request, res: Response) => {
   try {
     const {
