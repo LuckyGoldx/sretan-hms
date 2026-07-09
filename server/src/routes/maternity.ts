@@ -436,6 +436,7 @@ router.get('/api/antenatal-visits/comprehensive/:maternity_patient_id', async (r
           vd.visit_date
         FROM visit_dates vd
         JOIN encounters e ON e.maternity_patient_id = $1 AND e.created_at::date = vd.visit_date
+          AND e.soap_notes IS NOT NULL AND e.soap_notes != '{}'::jsonb
         LEFT JOIN staff_users s ON s.id = e.staff_id
       ),
       date_anc AS (

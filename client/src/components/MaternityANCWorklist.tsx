@@ -291,7 +291,10 @@ export default function MaternityANCWorklist() {
                           </div>
                         ))}
                         {/* Encounter Cards */}
-                        {group.encounters?.map((enc: any, idx: number) => (
+                        {group.encounters?.filter((enc: any) => {
+                          const sn = typeof enc.soap_notes === 'string' ? (() => { try { return JSON.parse(enc.soap_notes) } catch { return null } })() : enc.soap_notes
+                          return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan)
+                        }).map((enc: any, idx: number) => (
                           <div key={enc.id || idx} className="bg-blue-50 rounded-xl p-4 space-y-2 border border-blue-100">
                             <div className="flex items-center justify-between">
                               <div className="flex items-center gap-2">

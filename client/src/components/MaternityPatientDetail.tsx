@@ -436,7 +436,10 @@ export default function MaternityPatientDetail() {
               ))}
 
               {/* Encounters / Consultations */}
-              {selectedVisitDay.encounters?.map((enc: any) => (
+              {selectedVisitDay.encounters?.filter((enc: any) => {
+                const sn = typeof enc.soap_notes === 'string' ? (() => { try { return JSON.parse(enc.soap_notes) } catch { return null } })() : enc.soap_notes
+                return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan)
+              }).map((enc: any) => (
                 <div key={enc.id} className="bg-blue-50 rounded-xl p-4 border border-blue-100">
                   <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-2">
                     <PenLine size={12} /> Consultation {enc.staff_name ? `— ${enc.staff_name}` : ''}
@@ -451,7 +454,7 @@ export default function MaternityPatientDetail() {
                         {sn.assessment && <p><span className="text-slate-400 font-medium">A:</span> {sn.assessment}</p>}
                         {sn.plan && <p><span className="text-slate-400 font-medium">P:</span> {sn.plan}</p>}
                       </div>
-                    ) : <p className="text-xs text-slate-400 italic mt-1">No SOAP notes</p>
+                    ) : null
                   })()}
                   {(() => {
                     const diag = typeof enc.diagnoses === 'string' ? (() => { try { return JSON.parse(enc.diagnoses) } catch { return [] } })() : enc.diagnoses
