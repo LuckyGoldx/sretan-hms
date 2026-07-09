@@ -214,7 +214,7 @@ export default function DoctorConsultation() {
   }, [patientId, currentStaffId])
 
   function maybePromptAnc(encId: string) {
-    if (maternityPatientIdRef.current && !ancPromptedRef.current) {
+    if (maternityPatientIdRef.current) {
       ancEncounterIdRef.current = encId
       setShowAncModal(true)
     }
@@ -1259,12 +1259,10 @@ export default function DoctorConsultation() {
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
               <button onClick={async () => {
                 setShowAncModal(false)
-                ancPromptedRef.current = true
               }}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100">No, skip</button>
               <button onClick={async () => {
                 setShowAncModal(false)
-                ancPromptedRef.current = true
                 const encId = ancEncounterIdRef.current
                 if (!encId || !maternityPatientIdRef.current) return
                 try {
