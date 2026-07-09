@@ -369,7 +369,7 @@ export default function MaternityPatientDetail() {
           {canEdit && (
             <button onClick={() => setShowANCModal(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium">
-              <Plus size={15} /> Record ANC Visit
+              <Plus size={15} /> Record ANC Vitals
             </button>
           )}
           {comprehensiveVisits.length === 0 ? (
@@ -388,7 +388,7 @@ export default function MaternityPatientDetail() {
                       <span className="text-sm font-semibold text-slate-800">{new Date(day.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
                     </div>
                     <div className="flex gap-2 text-[10px]">
-                      {day.anc_visits?.length > 0 && <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">{day.anc_visits.length} ANC</span>}
+                      {day.anc_visits?.length > 0 && <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">{day.anc_visits.length} ANC Vitals</span>}
                       {day.encounters?.length > 0 && <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">{day.encounters.length} Consult</span>}
                       {day.lab_orders?.length > 0 && <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">{day.lab_orders.length} Lab</span>}
                       {day.radiology_orders?.length > 0 && <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 font-medium">{day.radiology_orders.length} Rad</span>}
@@ -1269,7 +1269,7 @@ export default function MaternityPatientDetail() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!ancSubmitting) setShowANCModal(false) }}>
           <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Calendar size={18} className="text-primary" /> Record ANC Visit</h2>
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Calendar size={18} className="text-primary" /> Record ANC Vitals</h2>
               <button onClick={() => setShowANCModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
             <div className="p-6 space-y-4 overflow-y-auto">
@@ -1328,7 +1328,7 @@ export default function MaternityPatientDetail() {
               <button onClick={handleANCSubmit} disabled={ancSubmitting}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium disabled:opacity-50">
                 {ancSubmitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                {ancSubmitting ? 'Saving...' : 'Save Visit'}
+                {ancSubmitting ? 'Saving...' : 'Save Vitals'}
               </button>
             </div>
           </div>
