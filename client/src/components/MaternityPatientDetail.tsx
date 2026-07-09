@@ -419,10 +419,16 @@ export default function MaternityPatientDetail() {
               <button onClick={() => setSelectedVisitDay(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
             <div className="overflow-y-auto flex-1 p-6 space-y-4">
-              {/* ANC Visits */}
-              {selectedVisitDay.anc_visits?.map((v: any) => (
+              {/* ANC Vitals */}
+              {selectedVisitDay.anc_visits?.sort((a: any, b: any) => new Date(b.created_at || b.visit_date).getTime() - new Date(a.created_at || a.visit_date).getTime()).map((v: any, vi: number) => (
                 <div key={v.id} className="bg-purple-50 rounded-xl p-4 border border-purple-100">
-                  <p className="text-xs font-semibold text-purple-700 mb-2">ANC Visit #{v.visit_number}</p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-purple-700">ANC Vitals {vi + 1}</p>
+                    <div className="flex items-center gap-2 text-[10px] text-purple-500">
+                      {v.created_at && <span>{new Date(v.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>}
+                      {v.staff_name && <span>by {v.staff_name}</span>}
+                    </div>
+                  </div>
                   <div className="grid grid-cols-3 gap-2 text-xs">
                     {v.weight && <div><span className="text-slate-400">Weight:</span> {v.weight}kg</div>}
                     {v.systolic_bp && <div><span className="text-slate-400">BP:</span> {v.systolic_bp}/{v.diastolic_bp}</div>}

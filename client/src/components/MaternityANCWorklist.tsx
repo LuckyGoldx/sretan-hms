@@ -267,12 +267,15 @@ export default function MaternityANCWorklist() {
                         </div>
                       </div>
                       <div className="space-y-2 pl-4">
-                        {/* ANC Visit Cards */}
-                        {group.anc_visits?.map((v: any, idx: number) => (
-                          <div key={v.id || idx} className="bg-purple-50 rounded-xl p-4 space-y-1.5 border border-purple-100">
+                        {/* ANC Vitals Cards */}
+                        {group.anc_visits?.sort((a: any, b: any) => new Date(b.created_at || b.visit_date).getTime() - new Date(a.created_at || a.visit_date).getTime()).map((v: any, vi: number) => (
+                          <div key={v.id || vi} className="bg-purple-50 rounded-xl p-4 space-y-1.5 border border-purple-100">
                             <div className="flex items-center justify-between">
-                              <span className="text-xs font-semibold text-purple-700">ANC Visit #{v.visit_number}</span>
-                              {v.gestational_age_weeks && <span className="text-[10px] text-purple-500">{v.gestational_age_weeks}w</span>}
+                              <span className="text-xs font-semibold text-purple-700">ANC Vitals {vi + 1}</span>
+                              <div className="flex items-center gap-2 text-[10px] text-purple-500">
+                                {v.created_at && <span>{new Date(v.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>}
+                                {v.staff_name && <span>by {v.staff_name}</span>}
+                              </div>
                             </div>
                             <div className="grid grid-cols-3 gap-1.5 text-[11px]">
                               {v.weight && <div><span className="text-slate-400">WT:</span> {v.weight}kg</div>}
