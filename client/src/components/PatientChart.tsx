@@ -3130,26 +3130,11 @@ export default function PatientChart() {
                 if (!maternityRecord) return
                 setAncSubmitting(true)
                 try {
-                  const visitDate = (ancForm as any).visit_date || new Date().toISOString().slice(0, 10)
-                  const existingRes = await fetch(`/api/antenatal-visits?maternity_patient_id=${maternityRecord.id}&date_from=${visitDate}&date_to=${visitDate}`, {
-                    headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+                  await fetch('/api/antenatal-visits', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                    body: JSON.stringify({ ...ancForm, maternity_patient_id: maternityRecord.id, staff_id: currentUser?.id }),
                   })
-                  const existing = await existingRes.json()
-                  const existingVisit = Array.isArray(existing) && existing.length > 0 ? existing[0] : null
-                  if (existingVisit) {
-                    const { visit_date, visit_number, _type, ...vitals } = ancForm as any
-                    await fetch(`/api/antenatal-visits/${existingVisit.id}`, {
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-                      body: JSON.stringify({ ...vitals, staff_id: currentUser?.id }),
-                    })
-                  } else {
-                    await fetch('/api/antenatal-visits', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-                      body: JSON.stringify({ ...ancForm, maternity_patient_id: maternityRecord.id, staff_id: currentUser?.id }),
-                    })
-                  }
                   setShowANCVisitModal(false)
                   setAncForm({})
                   window.location.reload()

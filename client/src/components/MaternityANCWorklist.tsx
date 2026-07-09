@@ -93,26 +93,11 @@ export default function MaternityANCWorklist() {
     if (!selectedPatient) return
     setAncSubmitting(true)
     try {
-      const visitDate = ancForm.visit_date || new Date().toISOString().slice(0, 10)
-      const existingRes = await fetch(`/api/antenatal-visits?maternity_patient_id=${selectedPatient.id}&date_from=${visitDate}&date_to=${visitDate}`, {
-        headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+      await fetch('/api/antenatal-visits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+        body: JSON.stringify({ ...ancForm, maternity_patient_id: selectedPatient.id, staff_id: staffId }),
       })
-      const existing = await existingRes.json()
-      const existingVisit = Array.isArray(existing) && existing.length > 0 ? existing[0] : null
-      if (existingVisit) {
-        const { visit_date, visit_number, _type, ...vitals } = ancForm
-        await fetch(`/api/antenatal-visits/${existingVisit.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-          body: JSON.stringify({ ...vitals, staff_id: staffId }),
-        })
-      } else {
-        await fetch('/api/antenatal-visits', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-          body: JSON.stringify({ ...ancForm, maternity_patient_id: selectedPatient.id, staff_id: staffId }),
-        })
-      }
       setShowVisitModal(false)
       setAncForm({})
       loadPatients()
@@ -319,16 +304,28 @@ export default function MaternityANCWorklist() {
                                 {item.next_appointment_date && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Next: {item.next_appointment_date?.slice(0, 10)}</span>}
                               </div>
                               {item.notes && <p className="text-[11px] text-slate-500 mt-1">{item.notes}</p>}
-                              {/* SOAP notes on ANC visit */}
+                              {/* SOAP notes on ANC visit (from direct or linked encounter) */}
                               {(() => {
                                 const sn = typeof item.soap_notes === 'string' ? (() => { try { return JSON.parse(item.soap_notes) } catch { return null } })() : item.soap_notes
-                                return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan) ? (
+                                const encSn = typeof item.encounter_soap_notes === 'string' ? (() => { try { return JSON.parse(item.encounter_soap_notes) } catch { return null } })() : item.encounter_soap_notes
+                                const diag = typeof item.encounter_diagnoses === 'string' ? (() => { try { return JSON.parse(item.encounter_diagnoses) } catch { return [] } })() : item.encounter_diagnoses
+                                const activeSn = sn || encSn
+                                return activeSn && (activeSn.subjective || activeSn.objective || activeSn.assessment || activeSn.plan) ? (
                                   <div className="mt-2 pt-2 border-t border-purple-200 space-y-1 text-[11px]">
                                     <p className="text-[10px] font-semibold text-purple-600 uppercase">Doctor's SOAP</p>
-                                    {sn.subjective && <p><span className="text-slate-400">S:</span> {sn.subjective}</p>}
-                                    {sn.objective && <p><span className="text-slate-400">O:</span> {sn.objective}</p>}
-                                    {sn.assessment && <p><span className="text-slate-400">A:</span> {sn.assessment}</p>}
-                                    {sn.plan && <p><span className="text-slate-400">P:</span> {sn.plan}</p>}
+                                    {activeSn.subjective && <p><span className="text-slate-400">S:</span> {activeSn.subjective}</p>}
+                                    {activeSn.objective && <p><span className="text-slate-400">O:</span> {activeSn.objective}</p>}
+                                    {activeSn.assessment && <p><span className="text-slate-400">A:</span> {activeSn.assessment}</p>}
+                                    {activeSn.plan && <p><span className="text-slate-400">P:</span> {activeSn.plan}</p>}
+                                    {Array.isArray(diag) && diag.length > 0 && (
+                                      <div className="flex flex-wrap gap-1 pt-1 border-t border-purple-200">
+                                        {diag.map((d: any, i: number) => (
+                                          <span key={i} className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-medium">
+                                            {d.code && <span className="font-mono">{d.code} </span>}{d.label || d}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 ) : null
                               })()}

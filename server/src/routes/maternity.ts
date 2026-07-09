@@ -386,9 +386,13 @@ router.get('/api/antenatal-visits', async (req: Request, res: Response) => {
   try {
     const { maternity_patient_id, date_from, date_to, limit: limitStr } = req.query;
     let query = `
-      SELECT av.*, s.name as staff_name
+      SELECT av.*, s.name as staff_name,
+        e.soap_notes as encounter_soap_notes,
+        e.diagnoses as encounter_diagnoses,
+        e.chief_complaint as encounter_chief_complaint
       FROM antenatal_visits av
       LEFT JOIN staff_users s ON s.id = av.staff_id
+      LEFT JOIN encounters e ON e.id = av.encounter_id
       WHERE 1=1
     `;
     const params: any[] = [];

@@ -216,30 +216,11 @@ export default function MaternityPatientDetail() {
     if (!id) return
     setAncSubmitting(true)
     try {
-      const visitDate = ancForm.visit_date || new Date().toISOString().slice(0, 10)
-      // Check for existing ANC visit on same day for this pregnancy
-      const existingRes = await fetch(`/api/antenatal-visits?maternity_patient_id=${id}&date_from=${visitDate}&date_to=${visitDate}`, {
-        headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+      await fetch('/api/antenatal-visits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+        body: JSON.stringify({ ...ancForm, maternity_patient_id: id, staff_id: staffId }),
       })
-      const existing = await existingRes.json()
-      const existingVisit = Array.isArray(existing) && existing.length > 0 ? existing[0] : null
-
-      if (existingVisit) {
-        // Update existing visit with new vitals
-        const { visit_date, visit_number, _type, ...vitals } = ancForm
-        await fetch(`/api/antenatal-visits/${existingVisit.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-          body: JSON.stringify({ ...vitals, staff_id: staffId }),
-        })
-      } else {
-        // Create new visit
-        await fetch('/api/antenatal-visits', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-          body: JSON.stringify({ ...ancForm, maternity_patient_id: id, staff_id: staffId }),
-        })
-      }
       setShowANCModal(false)
       setAncForm({})
       loadData()
@@ -419,10 +400,22 @@ export default function MaternityPatientDetail() {
                   </div>
                   {(() => {
                     const sn = typeof v.soap_notes === 'string' ? (() => { try { return JSON.parse(v.soap_notes) } catch { return null } })() : v.soap_notes
-                    return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan) ? (
+                    const encSn = typeof v.encounter_soap_notes === 'string' ? (() => { try { return JSON.parse(v.encounter_soap_notes) } catch { return null } })() : v.encounter_soap_notes
+                    const diag = typeof v.encounter_diagnoses === 'string' ? (() => { try { return JSON.parse(v.encounter_diagnoses) } catch { return [] } })() : v.encounter_diagnoses
+                    const activeSn = sn || encSn
+                    return activeSn && (activeSn.subjective || activeSn.objective || activeSn.assessment || activeSn.plan) ? (
                       <div className="mt-2 bg-purple-50 rounded-xl p-3 border border-purple-100 space-y-1">
                         <p className="text-[10px] font-semibold text-purple-600 uppercase">Doctor's SOAP Notes</p>
-                        {(['subjective', 'objective', 'assessment', 'plan'] as const).map((f) => sn[f] ? <p key={f} className="text-xs text-slate-600"><span className="text-purple-500 font-medium uppercase text-[10px]">{f}:</span> {sn[f]}</p> : null)}
+                        {(['subjective', 'objective', 'assessment', 'plan'] as const).map((f) => activeSn[f] ? <p key={f} className="text-xs text-slate-600"><span className="text-purple-500 font-medium uppercase text-[10px]">{f}:</span> {activeSn[f]}</p> : null)}
+                        {Array.isArray(diag) && diag.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1 pt-1 border-t border-purple-200">
+                            {diag.map((d: any, i: number) => (
+                              <span key={i} className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-medium">
+                                {d.code && <span className="font-mono">{d.code} </span>}{d.label || d}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ) : null
                   })()}
