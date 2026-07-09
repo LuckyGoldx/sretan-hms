@@ -17,7 +17,7 @@ router.get('/api/maternity-patients', async (req: Request, res: Response) => {
     const { status, search, patient_id, edd_before, edd_after, risk_level, available_female, page, limit, smart_filter } = req.query;
     let query = `
       SELECT mp.*, p.full_name, p.hospital_number, p.dob, p.phone, p.sex,
-        (SELECT COUNT(*) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as visit_count,
+        (SELECT COUNT(DISTINCT visit_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as visit_count,
         (SELECT MAX(visit_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as last_visit_date,
         (SELECT MAX(next_appointment_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as next_appointment_date,
         (SELECT COUNT(*) FROM maternity_patients mp2 WHERE mp2.patient_id = mp.patient_id AND mp2.created_at <= mp.created_at) as pregnancy_number
@@ -298,7 +298,7 @@ router.get('/api/maternity-patients/:id', async (req: Request, res: Response) =>
     const { id } = req.params;
     const result = await pool.query(
       `SELECT mp.*, p.full_name, p.hospital_number, p.dob, p.phone, p.sex,
-        (SELECT COUNT(*) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as visit_count,
+        (SELECT COUNT(DISTINCT visit_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as visit_count,
         (SELECT MAX(visit_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as last_visit_date,
         (SELECT MAX(next_appointment_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as next_appointment,
         (SELECT COUNT(*) FROM maternity_patients mp2 WHERE mp2.patient_id = mp.patient_id AND mp2.created_at <= mp.created_at) as pregnancy_number
@@ -323,7 +323,7 @@ router.get('/api/maternity-patients/history/:patientId', async (req: Request, re
     const { patientId } = req.params;
     const result = await pool.query(
       `SELECT mp.*, p.full_name, p.hospital_number,
-        (SELECT COUNT(*) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as visit_count,
+        (SELECT COUNT(DISTINCT visit_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as visit_count,
         (SELECT COUNT(*) FROM maternity_deliveries WHERE maternity_patient_id = mp.id AND status = 'completed') as delivery_count,
         (SELECT created_at FROM maternity_deliveries WHERE maternity_patient_id = mp.id AND status = 'completed' ORDER BY created_at DESC LIMIT 1) as delivery_date
        FROM maternity_patients mp

@@ -248,7 +248,7 @@ export default function MaternityPatientDetail() {
 
   const tabs = [
     { id: 'profile', label: 'Profile', icon: Baby },
-    { id: 'visits', label: `ANC Visits (${visits.length})`, icon: Calendar },
+    { id: 'visits', label: `ANC Vitals (${comprehensiveVisits.length || visits.length})`, icon: Calendar },
     { id: 'consultation', label: `Consultation`, icon: PenLine },
     { id: 'encounters', label: `Encounters (${maternityEncounters.length})`, icon: ClipboardList },
     { id: 'delivery', label: delivery ? 'Delivery' : 'Delivery', icon: Stethoscope },
