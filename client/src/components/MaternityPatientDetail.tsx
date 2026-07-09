@@ -103,7 +103,15 @@ export default function MaternityPatientDetail() {
     } catch {} finally { setLoading(false) }
   }
 
-  useEffect(() => { loadData() }, [id])
+  useEffect(() => { loadData()   }, [id])
+
+  // Auto-open ANC vitals modal if ?record_anc=true in URL
+  useEffect(() => {
+    if (record && new URLSearchParams(window.location.search).get('record_anc') === 'true') {
+      setActiveTab('visits')
+      setShowANCModal(true)
+    }
+  }, [record])
 
   const canEdit = role === 'Doctor' || role === 'Nurse' || role === 'Admin'
   const isRecords = role === 'Records'
@@ -388,7 +396,7 @@ export default function MaternityPatientDetail() {
                       <span className="text-sm font-semibold text-slate-800">{new Date(day.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
                     </div>
                     <div className="flex gap-2 text-[10px]">
-                      {day.anc_visits?.length > 0 && <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">{day.anc_visits.length} ANC Vitals</span>}
+                      {(day.anc_visits?.filter((v: any) => v.weight || v.systolic_bp || v.fundal_height || v.fetal_heart_rate || v.hemoglobin || v.urine_protein || v.notes)?.length || 0) > 0 && <span className="px-2 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">{(day.anc_visits?.filter((v: any) => v.weight || v.systolic_bp || v.fundal_height || v.fetal_heart_rate || v.hemoglobin || v.urine_protein || v.notes)?.length || 0)} ANC Vitals</span>}
                       {day.encounters?.length > 0 && <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">{day.encounters.length} Consult</span>}
                       {day.lab_orders?.length > 0 && <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-700 font-medium">{day.lab_orders.length} Lab</span>}
                       {day.radiology_orders?.length > 0 && <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 font-medium">{day.radiology_orders.length} Rad</span>}
@@ -420,10 +428,12 @@ export default function MaternityPatientDetail() {
             </div>
             <div className="overflow-y-auto flex-1 p-6 space-y-4">
               {/* ANC Vitals */}
-              {selectedVisitDay.anc_visits?.filter((v: any) => v.weight || v.systolic_bp || v.fundal_height || v.fetal_heart_rate || v.hemoglobin || v.urine_protein || v.notes).sort((a: any, b: any) => new Date(a.created_at || a.visit_date).getTime() - new Date(b.created_at || b.visit_date).getTime()).map((v: any, vi: number) => (
+              {selectedVisitDay.anc_visits?.filter((v: any) => v.weight || v.systolic_bp || v.fundal_height || v.fetal_heart_rate || v.hemoglobin || v.urine_protein || v.notes)
+                .sort((a: any, b: any) => new Date(a.created_at || a.visit_date).getTime() - new Date(b.created_at || b.visit_date).getTime())
+                .map((v: any, vi: number, arr: any[]) => (
                 <div key={v.id} className="bg-purple-50 rounded-xl p-4 border border-purple-100">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-xs font-semibold text-purple-700">ANC Vitals {vi + 1}</p>
+                    <p className="text-xs font-semibold text-purple-700">ANC Vitals{arr.length > 1 ? ` ${vi + 1}` : ''}</p>
                     <div className="flex items-center gap-2 text-[10px] text-purple-500">
                       {v.created_at && <span>{new Date(v.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>}
                       {v.staff_name && <span>by {v.staff_name}</span>}

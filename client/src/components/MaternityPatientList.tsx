@@ -187,7 +187,7 @@ export default function MaternityPatientList() {
                     <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <p className="font-medium text-slate-800">{p.full_name}</p>
+                          <p onClick={() => navigate(`/maternity/patients/${p.id}`)} className="font-medium text-slate-800 cursor-pointer hover:text-primary transition-colors">{p.full_name}</p>
                           {p.pregnancy_number > 1 && <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium">#{p.pregnancy_number}</span>}
                         </div>
                         <p className="text-xs text-slate-400">{p.hospital_number}</p>
@@ -228,14 +228,14 @@ export default function MaternityPatientList() {
                       <td className="px-4 py-3">
                         <div className="flex gap-1.5">
                           <button onClick={() => navigate(`/maternity/patients/${p.id}`)}
-                            className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium">View</button>
+                            className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium">Chart</button>
                           {p.status === 'active' && (
                             role === 'Doctor' ? (
                               <button onClick={() => navigate(`/consultation/${p.patient_id}?type=maternity`)}
                                 className="px-3 py-1.5 rounded-lg bg-purple-500 text-white text-xs font-medium flex items-center gap-1"><PenLine size={11} /> Consult</button>
                             ) : (
                               role === 'Nurse' && (
-                                <button onClick={() => navigate(`/maternity/patients/${p.id}?tab=visits`)}
+                                <button onClick={() => navigate(`/maternity/patients/${p.id}?record_anc=true`)}
                                   className="px-3 py-1.5 rounded-lg bg-pink-500 text-white text-xs font-medium flex items-center gap-1"><PenLine size={11} /> ANC Vitals</button>
                               )
                             )

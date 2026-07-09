@@ -179,7 +179,7 @@ export default function MaternityANCWorklist() {
                     return (
                       <tr key={p.id} className="border-b border-slate-100 hover:bg-slate-50">
                         <td className="px-4 py-3">
-                          <p className="font-medium text-slate-800">{p.full_name}</p>
+                          <p onClick={() => navigate(`/maternity/patients/${p.id}`)} className="font-medium text-slate-800 cursor-pointer hover:text-primary transition-colors">{p.full_name}</p>
                           <p className="text-xs text-slate-400">{p.hospital_number}</p>
                         </td>
                         <td className="px-4 py-3">
@@ -259,7 +259,7 @@ export default function MaternityANCWorklist() {
                         <div className="w-2 h-2 rounded-full bg-primary" />
                         <span className="text-xs font-bold text-slate-700">{new Date(group.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
                         <div className="flex gap-1.5 ml-auto">
-                          {group.anc_visits?.length > 0 && <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-medium">{group.anc_visits.length} ANC Vitals</span>}
+                                                    {group.anc_visits?.filter((v: any) => v.weight || v.systolic_bp || v.fundal_height || v.fetal_heart_rate || v.hemoglobin || v.urine_protein || v.notes).length > 0 && <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-medium">{group.anc_visits?.filter((v: any) => v.weight || v.systolic_bp || v.fundal_height || v.fetal_heart_rate || v.hemoglobin || v.urine_protein || v.notes).length} ANC Vitals</span>}
                           {group.encounters?.length > 0 && <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] font-medium">{group.encounters.length} Consult</span>}
                           {group.lab_orders?.length > 0 && <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-medium">{group.lab_orders.length} Lab</span>}
                           {group.radiology_orders?.length > 0 && <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-medium">{group.radiology_orders.length} Rad</span>}
@@ -268,10 +268,12 @@ export default function MaternityANCWorklist() {
                       </div>
                       <div className="space-y-2 pl-4">
                         {/* ANC Vitals Cards */}
-                        {group.anc_visits?.filter((v: any) => v.weight || v.systolic_bp || v.fundal_height || v.fetal_heart_rate || v.hemoglobin || v.urine_protein || v.notes).sort((a: any, b: any) => new Date(a.created_at || a.visit_date).getTime() - new Date(b.created_at || b.visit_date).getTime()).map((v: any, vi: number) => (
+                        {group.anc_visits?.filter((v: any) => v.weight || v.systolic_bp || v.fundal_height || v.fetal_heart_rate || v.hemoglobin || v.urine_protein || v.notes)
+                          .sort((a: any, b: any) => new Date(a.created_at || a.visit_date).getTime() - new Date(b.created_at || b.visit_date).getTime())
+                          .map((v: any, vi: number, arr: any[]) => (
                           <div key={v.id || vi} className="bg-purple-50 rounded-xl p-4 space-y-1.5 border border-purple-100">
                             <div className="flex items-center justify-between">
-                              <span className="text-xs font-semibold text-purple-700">ANC Vitals {vi + 1}</span>
+                              <span className="text-xs font-semibold text-purple-700">ANC Vitals{arr.length > 1 ? ` ${vi + 1}` : ''}</span>
                               <div className="flex items-center gap-2 text-[10px] text-purple-500">
                                 {v.created_at && <span>{new Date(v.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>}
                                 {v.staff_name && <span>by {v.staff_name}</span>}
