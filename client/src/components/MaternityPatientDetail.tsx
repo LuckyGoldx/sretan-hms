@@ -216,16 +216,30 @@ export default function MaternityPatientDetail() {
     if (!id) return
     setAncSubmitting(true)
     try {
-      const { subjective, objective, assessment, plan, ...rest } = ancForm
-      const body: any = { ...rest, maternity_patient_id: id, staff_id: staffId }
-      if (subjective || objective || assessment || plan) {
-        body.soap_notes = { subjective: subjective || '', objective: objective || '', assessment: assessment || '', plan: plan || '' }
-      }
-      await fetch('/api/antenatal-visits', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-        body: JSON.stringify(body),
+      const visitDate = ancForm.visit_date || new Date().toISOString().slice(0, 10)
+      // Check for existing ANC visit on same day for this pregnancy
+      const existingRes = await fetch(`/api/antenatal-visits?maternity_patient_id=${id}&date_from=${visitDate}&date_to=${visitDate}`, {
+        headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
       })
+      const existing = await existingRes.json()
+      const existingVisit = Array.isArray(existing) && existing.length > 0 ? existing[0] : null
+
+      if (existingVisit) {
+        // Update existing visit with new vitals
+        const { visit_date, visit_number, _type, ...vitals } = ancForm
+        await fetch(`/api/antenatal-visits/${existingVisit.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+          body: JSON.stringify({ ...vitals, staff_id: staffId }),
+        })
+      } else {
+        // Create new visit
+        await fetch('/api/antenatal-visits', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+          body: JSON.stringify({ ...ancForm, maternity_patient_id: id, staff_id: staffId }),
+        })
+      }
       setShowANCModal(false)
       setAncForm({})
       loadData()
@@ -1208,18 +1222,7 @@ export default function MaternityPatientDetail() {
                   Iron/Folate Given
                 </label>
               </div>
-              {isDoctor && (
-                <div className="col-span-2 bg-purple-50 rounded-xl p-4 border border-purple-100 space-y-3">
-                  <p className="text-xs font-semibold text-purple-700 flex items-center gap-1"><PenLine size={12} /> SOAP Notes (Doctor's Assessment)</p>
-                  {(['subjective', 'objective', 'assessment', 'plan'] as const).map((f) => (
-                    <div key={f}>
-                      <label className="block text-xs font-medium text-purple-600 mb-0.5 capitalize">{f}</label>
-                      <textarea rows={2} value={ancForm[f] || ''} onChange={(e) => setAncForm((p: any) => ({ ...p, [f]: e.target.value }))}
-                        className="w-full rounded-xl border border-purple-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-purple-400 resize-none bg-white" />
-                    </div>
-                  ))}
-                </div>
-              )}
+
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">Next Appointment Date</label>
                 <input type="date" value={ancForm.next_appointment_date || ''}

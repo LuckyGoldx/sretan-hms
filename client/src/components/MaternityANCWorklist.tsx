@@ -93,11 +93,26 @@ export default function MaternityANCWorklist() {
     if (!selectedPatient) return
     setAncSubmitting(true)
     try {
-      await fetch('/api/antenatal-visits', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
-        body: JSON.stringify({ ...ancForm, maternity_patient_id: selectedPatient.id, staff_id: staffId }),
+      const visitDate = ancForm.visit_date || new Date().toISOString().slice(0, 10)
+      const existingRes = await fetch(`/api/antenatal-visits?maternity_patient_id=${selectedPatient.id}&date_from=${visitDate}&date_to=${visitDate}`, {
+        headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
       })
+      const existing = await existingRes.json()
+      const existingVisit = Array.isArray(existing) && existing.length > 0 ? existing[0] : null
+      if (existingVisit) {
+        const { visit_date, visit_number, _type, ...vitals } = ancForm
+        await fetch(`/api/antenatal-visits/${existingVisit.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+          body: JSON.stringify({ ...vitals, staff_id: staffId }),
+        })
+      } else {
+        await fetch('/api/antenatal-visits', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+          body: JSON.stringify({ ...ancForm, maternity_patient_id: selectedPatient.id, staff_id: staffId }),
+        })
+      }
       setShowVisitModal(false)
       setAncForm({})
       loadPatients()
