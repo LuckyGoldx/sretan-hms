@@ -3114,7 +3114,7 @@ export default function PatientChart() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">Next Appointment Date</label>
-                <input type="date" value={(ancForm as any).next_appointment_date || ''}
+                <input type="date" value={(ancForm as any).next_appointment_date || ''} min={new Date().toISOString().slice(0, 10)}
                   onChange={(e) => setAncForm((p: any) => ({ ...p, next_appointment_date: e.target.value }))}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
               </div>

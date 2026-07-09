@@ -261,13 +261,16 @@ router.post('/api/maternity-patients', async (req: Request, res: Response) => {
       "SELECT COUNT(*) as count FROM maternity_patients WHERE patient_id = $1", [patient_id]
     );
     const prevCount = parseInt(prevPreg.rows[0]?.count) || 0;
-    const autoGravida = prevCount + (parseInt(gravida) || 1);
+    const enteredGravida = parseInt(gravida) || 1;
+    const autoGravida = prevCount > 0 && (!gravida || gravida <= prevCount) ? prevCount + 1 : enteredGravida;
 
     // Auto-calculate para from previous deliveries
     const prevDel = await pool.query(
       "SELECT COALESCE(SUM(para), 0) as total_para FROM maternity_patients WHERE patient_id = $1 AND status = 'delivered'", [patient_id]
     );
-    const autoPara = parseInt(prevDel.rows[0]?.total_para) || 0;
+    const totalPrevPara = parseInt(prevDel.rows[0]?.total_para) || 0;
+    const enteredPara = parseInt(para) || 0;
+    const autoPara = totalPrevPara + enteredPara;
 
     const id = uuidv4();
     const year = new Date().getFullYear();

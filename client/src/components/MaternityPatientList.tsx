@@ -230,8 +230,15 @@ export default function MaternityPatientList() {
                           <button onClick={() => navigate(`/maternity/patients/${p.id}`)}
                             className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium">View</button>
                           {p.status === 'active' && (
-                            <button onClick={() => navigate(`/consultation/${p.patient_id}?type=maternity`)}
-                              className="px-3 py-1.5 rounded-lg bg-purple-500 text-white text-xs font-medium flex items-center gap-1"><PenLine size={11} /> Consult</button>
+                            role === 'Doctor' ? (
+                              <button onClick={() => navigate(`/consultation/${p.patient_id}?type=maternity`)}
+                                className="px-3 py-1.5 rounded-lg bg-purple-500 text-white text-xs font-medium flex items-center gap-1"><PenLine size={11} /> Consult</button>
+                            ) : (
+                              role === 'Nurse' && (
+                                <button onClick={() => navigate(`/maternity/patients/${p.id}?tab=visits`)}
+                                  className="px-3 py-1.5 rounded-lg bg-pink-500 text-white text-xs font-medium flex items-center gap-1"><PenLine size={11} /> ANC Vitals</button>
+                              )
+                            )
                           )}
                         </div>
                       </td>

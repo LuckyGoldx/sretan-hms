@@ -268,12 +268,12 @@ export default function MaternityANCWorklist() {
                       </div>
                       <div className="space-y-2 pl-4">
                         {/* ANC Vitals Cards */}
-                        {group.anc_visits?.sort((a: any, b: any) => new Date(b.created_at || b.visit_date).getTime() - new Date(a.created_at || a.visit_date).getTime()).map((v: any, vi: number) => (
+                        {group.anc_visits?.filter((v: any) => v.weight || v.systolic_bp || v.fundal_height || v.fetal_heart_rate || v.hemoglobin || v.urine_protein || v.notes).sort((a: any, b: any) => new Date(a.created_at || a.visit_date).getTime() - new Date(b.created_at || b.visit_date).getTime()).map((v: any, vi: number) => (
                           <div key={v.id || vi} className="bg-purple-50 rounded-xl p-4 space-y-1.5 border border-purple-100">
                             <div className="flex items-center justify-between">
                               <span className="text-xs font-semibold text-purple-700">ANC Vitals {vi + 1}</span>
                               <div className="flex items-center gap-2 text-[10px] text-purple-500">
-                                {v.created_at && <span>{new Date(v.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>}
+                                {v.created_at && <span>{new Date(v.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>}
                                 {v.staff_name && <span>by {v.staff_name}</span>}
                               </div>
                             </div>
@@ -437,7 +437,7 @@ export default function MaternityANCWorklist() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">Next Appointment Date</label>
-                <input type="date" value={ancForm.next_appointment_date || ''}
+                <input type="date" value={ancForm.next_appointment_date || ''} min={new Date().toISOString().slice(0, 10)}
                   onChange={(e) => setAncForm((p: any) => ({ ...p, next_appointment_date: e.target.value }))}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary" />
               </div>
