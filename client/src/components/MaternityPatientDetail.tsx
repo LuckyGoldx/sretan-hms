@@ -256,11 +256,11 @@ export default function MaternityPatientDetail() {
 
   const tabs = [
     { id: 'profile', label: 'Profile', icon: Baby },
-    { id: 'visits', label: `ANC Vitals (${comprehensiveVisits.length || visits.length})`, icon: Calendar },
+    { id: 'visits', label: `${(comprehensiveVisits.length || visits.length) > 1 ? `ANC Visits (${comprehensiveVisits.length || visits.length})` : 'ANC Visit'}`, icon: Calendar },
     { id: 'consultation', label: `Consultation`, icon: PenLine },
-    { id: 'encounters', label: `Encounters (${maternityEncounters.length})`, icon: ClipboardList },
+    { id: 'encounters', label: maternityEncounters.length > 1 ? `Encounters (${maternityEncounters.length})` : 'Encounters', icon: ClipboardList },
     { id: 'delivery', label: delivery ? 'Delivery' : 'Delivery', icon: Stethoscope },
-    { id: 'postnatal', label: `Postnatal (${postnatalVisits.length})`, icon: Heart },
+    { id: 'postnatal', label: postnatalVisits.length > 1 ? `Postnatal (${postnatalVisits.length})` : 'Postnatal', icon: Heart },
   ]
 
   return (
@@ -277,6 +277,12 @@ export default function MaternityPatientDetail() {
             <button onClick={() => setActiveTab('consultation')}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium">
               <PenLine size={15} /> Consult
+            </button>
+          )}
+          {role === 'Nurse' && (
+            <button onClick={() => { setActiveTab('visits'); setShowANCModal(true) }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-pink-500 text-white text-sm font-medium">
+              <Calendar size={15} /> ANC Vitals
             </button>
           )}
           {record.status === 'active' && canEdit && (
