@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
-  Search, X, Loader2, Receipt, Plus, Trash2, Printer, CreditCard, Building2, Landmark, Smartphone, CheckCircle, ArrowLeft, User, Banknote, FileText, Clock, Package, FlaskConical, Scan, Pill, Home, ShoppingCart,
+  Search, X, Loader2, Receipt, Plus, Trash2, Printer, CreditCard, Building2, Landmark, Smartphone, CheckCircle, ArrowLeft, User, Banknote, FileText, Clock, Package, FlaskConical, Scan, Pill, Home, ShoppingCart, Shield,
 } from 'lucide-react'
 
 interface CartItem {
@@ -47,6 +47,11 @@ export default function PaypointCheckout() {
   const [allFilter, setAllFilter] = useState('')
   const [detailItem, setDetailItem] = useState<any | null>(null)
   const [showCartModal, setShowCartModal] = useState(false)
+  const [insuranceInfo, setInsuranceInfo] = useState<any>(null)
+  const [billToInsurance, setBillToInsurance] = useState(false)
+  const [coPayAmount, setCoPayAmount] = useState(0)
+  const [coPayLoading, setCoPayLoading] = useState(false)
+  const [insuredCoverage, setInsuredCoverage] = useState<any>(null)
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
@@ -74,9 +79,24 @@ export default function PaypointCheckout() {
 
   async function selectAndLoadPending(p: any) {
     setSelectedPatient(p)
+    setBillToInsurance(false)
+    setCoPayAmount(0)
     try {
+      // Check if patient has active insurance
+      try {
+        const insRes = await api.get(`/insurance/active-case/${p.id}`)
+        setInsuranceInfo(insRes.data?.hasActiveCase ? insRes.data.case : null)
+        // Fetch co-pay amount
+        if (insRes.data?.hasActiveCase) {
+          try {
+            const coRes = await api.get(`/insurance/co-pay/${p.id}`)
+            setCoPayAmount(coRes.data?.co_pay_amount || 0)
+          } catch { setCoPayAmount(0) }
+        }
+      } catch { setInsuranceInfo(null); setCoPayAmount(0) }
       const res = await api.get(`/payments/pending/${p.id}`)
       var items = res.data?.items || []
+      setInsuredCoverage(res.data?.insured || null)
       setPendingItems(items)
       setCart(items.map(function(item: any) { return { ...item } }))
     } catch {}
@@ -100,18 +120,87 @@ export default function PaypointCheckout() {
     if (cart.length === 0) return
     setSubmitting(true)
     try {
-      var payload: any = {
-        items: cart.map((c) => ({ service_type: c.service_type, service_id: c.service_id, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
-        payment_method: paymentMethod, notes: notes || null, created_by: currentUser?.id,
+      if (billToInsurance && insuranceInfo && selectedPatient) {
+        // Split checkout: collect co-pay + bill remaining to insurance
+        const items = cart.map((c) => ({
+          service_type: c.service_type,
+          description: c.description,
+          quantity: c.quantity,
+          unit_price: c.unit_price,
+        }))
+        const totalBill = cart.reduce((s, c) => s + c.unit_price * c.quantity, 0)
+        const patientCoPay = Math.min(coPayAmount, totalBill)
+        const insuranceBilled = totalBill - patientCoPay
+
+        // Collect co-pay from patient
+        let coPayReceipt = null
+        if (patientCoPay > 0) {
+          try {
+            const coRes = await api.post('/insurance/co-pay/pay', {
+              patientId: selectedPatient.id,
+              caseId: insuranceInfo.id,
+              amount: patientCoPay,
+              paymentMethod: paymentMethod,
+            })
+            coPayReceipt = coRes.data.receipt_number
+          } catch (err: any) {
+            alert('Co-pay collection failed: ' + (err.response?.data?.message || err.message))
+            setSubmitting(false)
+            return
+          }
+        }
+
+        // Bill remaining to insurance
+        let insuranceRes = null
+        if (insuranceBilled > 0) {
+          try {
+            insuranceRes = await api.post('/insurance/bill-to-insurance', {
+              patientId: selectedPatient.id,
+              caseId: insuranceInfo.id,
+              items,
+              source: 'paypoint',
+              created_by: currentUser?.id,
+            })
+          } catch (err: any) {
+            alert('Insurance billing failed: ' + (err.response?.data?.message || err.message))
+            setSubmitting(false)
+            return
+          }
+        }
+
+        setReceipt({
+          receipt_number: coPayReceipt || `INS-${insuranceInfo.case_number}`,
+          patient_name: selectedPatient.full_name,
+          hospital_number: selectedPatient.hospital_number,
+          total_amount: totalBill,
+          co_pay_amount: patientCoPay,
+          insurance_amount: insuranceBilled,
+          items: items.map((c: any) => ({ description: c.description, total_price: (c.quantity || 1) * (c.unit_price || 0) })),
+          payment_method: `Split: Co-pay ₦${patientCoPay.toLocaleString()} (${paymentMethod}) + Insurance ₦${insuranceBilled.toLocaleString()} to ${insuranceInfo.provider_name}`,
+          created_at: new Date().toISOString(),
+          staff_name: currentUser?.name,
+        })
+        setShowReceipt(true); setCart([]); setNotes('')
+        setBillToInsurance(false); setCoPayAmount(0)
+        if (selectedPatient) {
+          const pending = await api.get(`/payments/pending/${selectedPatient.id}`)
+          setPendingItems(pending.data?.items || [])
+        }
+        loadPendingSummary()
+      } else {
+        var payload: any = {
+          items: cart.map((c) => ({ service_type: c.service_type, service_id: c.service_id, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
+          payment_method: paymentMethod, notes: notes || null, created_by: currentUser?.id,
+        }
+        if (selectedPatient) { payload.patient_id = selectedPatient.id }
+        const res = await api.post('/payments', payload)
+        setReceipt(res.data); setShowReceipt(true); setCart([]); setNotes('')
+        if (selectedPatient) {
+          const pending = await api.get(`/payments/pending/${selectedPatient.id}`)
+          setPendingItems(pending.data?.items || [])
+        }
+        loadPendingSummary()
       }
-      if (selectedPatient) { payload.patient_id = selectedPatient.id }
-      const res = await api.post('/payments', payload)
-      setReceipt(res.data); setShowReceipt(true); setCart([]); setNotes('')
-      if (selectedPatient) {
-        const pending = await api.get(`/payments/pending/${selectedPatient.id}`)
-        setPendingItems(pending.data?.items || [])
-      }
-      loadPendingSummary()
     } catch (err: any) { alert(err.response?.data?.message || 'Payment failed')
     } finally { setSubmitting(false) }
   }
@@ -185,22 +274,61 @@ export default function PaypointCheckout() {
               <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center gap-3">
-                    <button onClick={() => { setSelectedPatient(null); setPendingItems([]); setCart([]) }} className="p-1.5 rounded-lg hover:bg-slate-100"><ArrowLeft size={16} className="text-slate-500" /></button>
+                    <button onClick={() => { setSelectedPatient(null); setPendingItems([]); setCart([]); setInsuranceInfo(null); setBillToInsurance(false) }} className="p-1.5 rounded-lg hover:bg-slate-100"><ArrowLeft size={16} className="text-slate-500" /></button>
                     <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center"><User size={16} className="text-primary" /></div>
                     <div>
                       <p className="text-sm font-semibold text-slate-800">{selectedPatient.full_name}</p>
                       <p className="text-xs text-slate-400">{selectedPatient.hospital_number}</p>
                     </div>
                   </div>
+                  {insuranceInfo && (
+                    <button onClick={() => setBillToInsurance(!billToInsurance)}
+                      className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-medium transition-all ${
+                        billToInsurance
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                      }`}>
+                      <Shield size={14} />
+                      {billToInsurance ? `Billing to ${insuranceInfo.provider_name}` : `Bill to Insurance (${insuranceInfo.provider_name})`}
+                    </button>
+                  )}
                 </div>
+                {billToInsurance && insuranceInfo && (
+                  <div className="mb-3 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-700">
+                    <strong>Billing to insurance:</strong> {insuranceInfo.provider_name} · Case {insuranceInfo.case_number}
+                    {insuranceInfo.auth_code && <span> · Auth: {insuranceInfo.auth_code}</span>}
+                    {coPayAmount > 0 && (
+                      <span className="block mt-1">
+                        Split: Patient co-pay <strong>₦{coPayAmount.toLocaleString()}</strong> + Insurance covers the rest
+                      </span>
+                    )}
+                  </div>
+                )}
                 {pendingItems.length > 0 ? (
                   <div className="space-y-2">
                     {pendingItems.map((item, i) => (
-                      <div key={i} className="px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
+                      <div key={i} className={`px-4 py-3 rounded-xl border ${item.coverage_pct > 0 ? 'bg-emerald-50/50 border-emerald-200' : 'bg-slate-50 border-slate-100'}`}>
                         <div className="flex items-center justify-between">
                           <div className="min-w-0 flex-1">
                             <p className="text-sm font-medium text-slate-700 truncate">{item.description}</p>
-                            <p className="text-xs text-slate-400 capitalize">{item.service_type.replace('_', ' ')}{item.unit_price > 0 ? ` · ₦${Number(item.unit_price).toLocaleString()}` : ''}</p>
+                            <p className="text-xs text-slate-400 capitalize">
+                              {item.service_type.replace('_', ' ')}
+                              {item.unit_price > 0 ? ` · ₦${Number(item.unit_price).toLocaleString()}` : ''}
+                              {item.original_price ? ` (was ₦${Number(item.original_price).toLocaleString()})` : ''}
+                            </p>
+                            {item.coverage_pct > 0 && (
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-medium">
+                                  <Shield size={10} /> {item.coverage_pct}% covered
+                                </span>
+                                {item.patient_owes > 0 && (
+                                  <span className="text-[10px] text-amber-600 font-medium">Patient pays ₦{Number(item.patient_owes).toLocaleString()}</span>
+                                )}
+                                {item.insurance_covered > 0 && (
+                                  <span className="text-[10px] text-emerald-600 font-medium">Insurance covers ₦{Number(item.insurance_covered).toLocaleString()}</span>
+                                )}
+                              </div>
+                            )}
                           </div>
                           {item.unit_price > 0 ? (
                             <span className="text-xs text-emerald-600 font-medium flex items-center gap-1 flex-shrink-0 ml-3"><CheckCircle size={12} /> ₦{Number(item.unit_price).toLocaleString()}</span>

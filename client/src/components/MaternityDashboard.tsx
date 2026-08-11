@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Baby, Users, Calendar, Stethoscope, Heart, Loader2, UserPlus, Activity,
-  AlertTriangle, ChevronRight, TrendingUp, ListChecks, BabyIcon
+  AlertTriangle, ChevronRight, TrendingUp, ListChecks, BabyIcon, Shield
 } from 'lucide-react'
 
 function daysUntil(date: string): number {
@@ -105,7 +105,14 @@ export default function MaternityDashboard() {
                   <button key={p.id} onClick={() => navigate(`/maternity/patients/${p.id}`)}
                     className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors text-left">
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-slate-800 truncate">{p.full_name}</p>
+                      <p className="text-sm font-medium text-slate-800 truncate flex items-center gap-2">
+                        {p.full_name}
+                        {p.primary_provider && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium flex-shrink-0">
+                            <Shield size={10} /> {p.primary_provider}
+                          </span>
+                        )}
+                      </p>
                       <p className="text-xs text-slate-400">{p.hospital_number} · EDD: {p.edd?.slice(0, 10)}</p>
                     </div>
                     <span className={`ml-3 px-2 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap ${
@@ -137,7 +144,14 @@ export default function MaternityDashboard() {
                 <button key={p.id} onClick={() => navigate(`/maternity/patients/${p.id}`)}
                   className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors text-left">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-800 truncate">{p.full_name}</p>
+                    <p className="text-sm font-medium text-slate-800 truncate flex items-center gap-2">
+                      {p.full_name}
+                      {p.primary_provider && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium flex-shrink-0">
+                          <Shield size={10} /> {p.primary_provider}
+                        </span>
+                      )}
+                    </p>
                     <p className="text-xs text-slate-400">{p.hospital_number} · Last: {p.last_appointment?.slice(0, 10) || 'Never'}</p>
                   </div>
                   <ChevronRight size={14} className="text-slate-300 flex-shrink-0 ml-2" />
@@ -167,7 +181,14 @@ export default function MaternityDashboard() {
                 <button key={i} onClick={() => navigate(`/maternity/patients/${d.maternity_patient_id}`)}
                   className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors text-left">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-slate-800 truncate">{d.full_name}</p>
+                    <p className="text-sm font-medium text-slate-800 truncate flex items-center gap-2">
+                      {d.full_name}
+                      {d.primary_provider && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium flex-shrink-0">
+                          <Shield size={10} /> {d.primary_provider}
+                        </span>
+                      )}
+                    </p>
                     <p className="text-xs text-slate-400">
                       {d.delivery_date?.slice(0, 10)} · {d.delivery_type || '—'} · {d.outcome || '—'}
                     </p>

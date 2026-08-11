@@ -33,6 +33,7 @@ export interface Patient {
   insurance?: string
   insurance_type?: string
   insurance_sub_type?: string
+  primary_provider?: string
   blood_type?: string
   status: string
   folder_activated?: boolean

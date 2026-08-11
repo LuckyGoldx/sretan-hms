@@ -138,10 +138,15 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
     await clockGuard(pool, 'inventory_items');
 
     const tenantId = getTenantId();
-    const { prescription_id, quantity_dispensed } = req.body;
+    const { prescription_id, quantity_dispensed, bill_to_insurance, created_by } = req.body;
 
     if (!prescription_id) {
       res.status(400).json({ error: true, message: 'prescription_id is required' });
+      return;
+    }
+
+    if (quantity_dispensed !== undefined && quantity_dispensed <= 0) {
+      res.status(400).json({ error: true, message: 'Quantity to dispense must be greater than 0' });
       return;
     }
 
@@ -157,11 +162,61 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
 
     const prescription = prescResult.rows[0];
 
-    if (!prescription.is_paid) {
+    const qty = quantity_dispensed || prescription.quantity || 1;
+
+    // Determine drug unit price for insurance billing
+    let drugUnitPrice = 0;
+    try {
+      const priceRes = await pool.query(
+        `SELECT price, selling_price FROM inventory_items WHERE drug_name = $1 AND tenant_id = $2 AND category = 'pharmacy' LIMIT 1`,
+        [prescription.drug_name, tenantId]
+      );
+      if (priceRes.rows.length > 0) {
+        const item = priceRes.rows[0];
+        drugUnitPrice = parseFloat(item.selling_price ?? item.price ?? 0) || 0;
+      }
+    } catch {}
+
+    // If billing to insurance, add drug charge to the active insurance case and allow dispensing without cash payment
+    if (bill_to_insurance) {
+      const encounterRes = await pool.query('SELECT patient_id FROM encounters WHERE id = $1', [prescription.encounter_id]);
+      const patientId = encounterRes.rows[0]?.patient_id;
+      if (!patientId) {
+        res.status(400).json({ error: true, message: 'Could not determine patient for this prescription' });
+        return;
+      }
+      const activeCase = await pool.query(
+        `SELECT id, tenant_id FROM insurance_cases WHERE patient_id = $1 AND status = 'active' ORDER BY created_at DESC LIMIT 1`,
+        [patientId]
+      );
+      if (activeCase.rows.length === 0) {
+        res.status(400).json({ error: true, message: 'Patient has no active insurance case. Create one first.' });
+        return;
+      }
+      const caseId = activeCase.rows[0].id;
+      const caseTenant = activeCase.rows[0].tenant_id;
+      // Check if drug already added to this case (by source prescription)
+      const exists = await pool.query(
+        `SELECT id FROM insurance_case_services WHERE case_id = $1 AND source_type = 'prescription' AND source_id = $2`,
+        [caseId, prescription_id]
+      );
+      if (exists.rows.length === 0) {
+        const svcId = uuidv4();
+        const total = qty * drugUnitPrice;
+        await pool.query(
+          `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, source_type, source_id, added_by)
+           VALUES ($1, $2, $3, 'pharmacy', $4, $5, $6, $7, 'prescription', $8, $9)`,
+          [svcId, caseTenant, caseId, prescription.drug_name, qty, drugUnitPrice, total, prescription_id, created_by || null]
+        );
+        await pool.query(
+          'UPDATE insurance_cases SET total_billed = (SELECT COALESCE(SUM(total_price),0) FROM insurance_case_services WHERE case_id = $1) WHERE id = $1',
+          [caseId]
+        );
+      }
+    } else if (!prescription.is_paid) {
       res.status(402).json({ error: true, message: 'Payment required: Prescription has not been paid for' });
       return;
     }
-    const qty = quantity_dispensed || prescription.quantity || 1;
 
     const inventoryResult = await pool.query(
       `SELECT * FROM inventory_items WHERE drug_name = $1 AND tenant_id = $2 AND category = 'pharmacy' AND stock_count > 0

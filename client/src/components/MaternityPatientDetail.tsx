@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Baby, ArrowLeft, Loader2, Activity, Calendar, Stethoscope, Heart, FileText, X, CheckCircle, Plus, PenLine, FlaskConical, ScanLine, Pill, Search, Clock, ChevronDown, ClipboardList } from 'lucide-react'
+import { Baby, ArrowLeft, Loader2, Activity, Calendar, Stethoscope, Heart, FileText, X, CheckCircle, Plus, PenLine, FlaskConical, ScanLine, Pill, Search, Clock, ChevronDown, ClipboardList, HeartPulse } from 'lucide-react'
 import { ICD11_CODES, Icd11Code } from '../data/icd11Codes'
 const icd11Codes = ICD11_CODES
 
@@ -282,7 +282,7 @@ export default function MaternityPatientDetail() {
           {role === 'Nurse' && (
             <button onClick={() => { setActiveTab('visits'); setShowANCModal(true) }}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-pink-500 text-white text-sm font-medium">
-              <Calendar size={15} /> ANC Vitals
+              <HeartPulse size={15} /> Record ANC Vitals
             </button>
           )}
           {record.status === 'active' && canEdit && (

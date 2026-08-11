@@ -4,7 +4,7 @@ import api from '../hooks/useAxios'
 import type { Patient } from '../types'
 import {
   Users, Search, Stethoscope, Pill, Beaker, Activity, Loader2,
-  ChevronRight, Eye, Calendar
+  ChevronRight, Eye, Calendar, Shield
 } from 'lucide-react'
 
 export default function DoctorDashboard() {
@@ -128,7 +128,14 @@ export default function DoctorDashboard() {
             {filtered.slice(0, 10).map((patient) => (
               <div key={patient.id} className="px-5 py-3.5 flex items-center justify-between hover:bg-slate-50 transition-colors">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-800 truncate">{patient.full_name}</p>
+                  <p className="text-sm font-medium text-slate-800 truncate flex items-center gap-2">
+                    {patient.full_name}
+                    {patient.primary_provider && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium flex-shrink-0">
+                        <Shield size={10} /> {patient.primary_provider}
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-slate-400">{patient.sex} &middot; {patient.dob?.slice(0, 10) || '—'} &middot; {patient.phone || '—'}</p>
                 </div>
                 <div className="flex items-center gap-2 ml-3">

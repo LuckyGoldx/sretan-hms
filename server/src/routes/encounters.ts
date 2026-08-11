@@ -85,6 +85,13 @@ router.post('/api/encounters', async (req: Request, res: Response) => {
       [id, tenantId, patient_id, staff_id || null, encounter_type, chief_complaint || null, soap_notes ? JSON.stringify(soap_notes) : null, diagnoses ? JSON.stringify(diagnoses) : null, maternity_patient_id || null]
     );
 
+    // Audit log INSERT
+    await pool.query(
+      `INSERT INTO audit_logs (tenant_id, action, table_name, record_id, performed_by, new_data)
+       VALUES ($1, 'INSERT', 'encounters', $2, $3, $4)`,
+      [tenantId, id, staff_id || null, JSON.stringify(result.rows[0])]
+    );
+
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
@@ -113,6 +120,16 @@ router.put('/api/encounters/:id', async (req: Request, res: Response) => {
     if (result.rows.length === 0) {
       res.status(404).json({ error: true, message: 'Encounter not found' });
       return;
+    }
+
+    // Audit log UPDATE — get old data first
+    const oldEnc = await pool.query('SELECT * FROM encounters WHERE id = $1', [id]);
+    if (oldEnc.rows.length > 0) {
+      await pool.query(
+        `INSERT INTO audit_logs (tenant_id, action, table_name, record_id, performed_by, old_data, new_data)
+         VALUES ($1, 'UPDATE', 'encounters', $2, $3, $4, $5)`,
+        [tenantId, id, req.body.staff_id || null, JSON.stringify(oldEnc.rows[0]), JSON.stringify(result.rows[0])]
+      );
     }
 
     res.json(result.rows[0]);

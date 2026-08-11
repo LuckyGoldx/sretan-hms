@@ -10,6 +10,42 @@ function getTenantId(): string {
   return readClinicProfile().GLOBAL_SAAS_TENANT_ID;
 }
 
+function validateVitalRanges(fields: any): string | null {
+  const t = fields.temperature;
+  if (t !== undefined && t !== null && t !== '' && (parseFloat(t) < 32 || parseFloat(t) > 43)) {
+    return `Temperature ${t}°C is outside the clinically acceptable range (32°C–43°C). Please verify and correct.`;
+  }
+  const s = fields.spo2;
+  if (s !== undefined && s !== null && s !== '' && (parseFloat(s) < 0 || parseFloat(s) > 100)) {
+    return `SpO2 ${s}% is outside the valid range (0%–100%). Please verify and correct.`;
+  }
+  const sys = fields.systolic_bp;
+  if (sys !== undefined && sys !== null && sys !== '' && (parseFloat(sys) < 60 || parseFloat(sys) > 250)) {
+    return `Systolic BP ${sys} mmHg is outside the clinically acceptable range (60–250 mmHg). Please verify.`;
+  }
+  const dia = fields.diastolic_bp;
+  if (dia !== undefined && dia !== null && dia !== '' && (parseFloat(dia) < 30 || parseFloat(dia) > 150)) {
+    return `Diastolic BP ${dia} mmHg is outside the clinically acceptable range (30–150 mmHg). Please verify.`;
+  }
+  const p = fields.pulse;
+  if (p !== undefined && p !== null && p !== '' && (parseFloat(p) < 30 || parseFloat(p) > 250)) {
+    return `Pulse ${p} bpm is outside the clinically acceptable range (30–250 bpm). Please verify.`;
+  }
+  const rr = fields.respiration_rate;
+  if (rr !== undefined && rr !== null && rr !== '' && (parseFloat(rr) < 5 || parseFloat(rr) > 60)) {
+    return `Respiratory rate ${rr} is outside the clinically acceptable range (5–60). Please verify.`;
+  }
+  const negFields = ['weight', 'height', 'fluid_intake', 'fluid_output', 'fetal_heart_rate',
+    'fundal_height', 'hemoglobin', 'pcv', 'gestational_age_weeks'];
+  for (const f of negFields) {
+    const v = (fields as any)[f];
+    if (v !== undefined && v !== null && v !== '' && parseFloat(v) < 0) {
+      return `${f.replace(/_/g, ' ')} cannot be negative (value: ${v}). Please correct.`;
+    }
+  }
+  return null;
+}
+
 router.post('/api/vitals', async (req: Request, res: Response) => {
   try {
     await clockGuard(pool, 'vitals');
@@ -26,6 +62,12 @@ router.post('/api/vitals', async (req: Request, res: Response) => {
 
     if (!encounter_id) {
       res.status(400).json({ error: true, message: 'encounter_id is required' });
+      return;
+    }
+
+    const valError = validateVitalRanges(req.body);
+    if (valError) {
+      res.status(400).json({ error: true, message: valError });
       return;
     }
 
@@ -59,6 +101,14 @@ router.post('/api/vitals', async (req: Request, res: Response) => {
        LEFT JOIN staff_users s ON s.id = v.recorded_by
        WHERE v.id = $1`, [id]
     );
+
+    // Audit log
+    await pool.query(
+      `INSERT INTO audit_logs (tenant_id, action, table_name, record_id, performed_by, new_data)
+       VALUES ($1, 'INSERT', 'vitals', $2, $3, $4)`,
+      [tenantId, id, recorded_by || null, JSON.stringify(enriched.rows[0])]
+    );
+
     res.status(201).json(enriched.rows[0]);
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
@@ -111,6 +161,12 @@ router.put('/api/vitals/:id', async (req: Request, res: Response) => {
 
     if (vital.recorded_by !== edited_by) {
       res.status(403).json({ error: true, message: 'Only the staff who recorded these vitals can edit them' });
+      return;
+    }
+
+    const valError = validateVitalRanges(req.body);
+    if (valError) {
+      res.status(400).json({ error: true, message: valError });
       return;
     }
 
@@ -203,6 +259,14 @@ router.delete('/api/vitals/:id', async (req: Request, res: Response) => {
       'UPDATE vitals SET deleted_at = NOW(), deleted_by = $1 WHERE id = $2',
       [deleted_by, id]
     );
+
+    // Audit log
+    await pool.query(
+      `INSERT INTO audit_logs (tenant_id, action, table_name, record_id, performed_by, old_data)
+       VALUES ($1, 'DELETE', 'vitals', $2, $3, $4)`,
+      [vital.tenant_id, id, deleted_by || null, JSON.stringify(vital)]
+    );
+
     res.json({ ok: true, message: 'Vitals deleted successfully' });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });

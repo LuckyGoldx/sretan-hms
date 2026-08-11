@@ -9,6 +9,15 @@ const apiClient = axios.create({
 
 apiClient.interceptors.request.use((config) => {
   config.headers['x-master-token'] = 'sretan-emr-master-token-2026'
+  try {
+    const stored = localStorage.getItem('sretan_user')
+    if (stored) {
+      const user = JSON.parse(stored)
+      if (user.role) config.headers['x-user-role'] = user.role
+      if (user.user_type) config.headers['x-user-type'] = user.user_type
+      if (user.provider_id) config.headers['x-user-provider-id'] = user.provider_id
+    }
+  } catch {}
   return config
 })
 

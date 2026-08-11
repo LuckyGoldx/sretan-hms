@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 import api from '../hooks/useAxios'
 import type { Prescription } from '../types'
 import {
-  Pill, ClipboardList, CheckCircle, Loader2, AlertTriangle, X, ArrowLeft, Stethoscope
+  Pill, ClipboardList, CheckCircle, Loader2, AlertTriangle, X, ArrowLeft, Stethoscope, Shield
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
 interface PendingPrescription extends Prescription {
+  patient_id?: string
   patient_name?: string
   doctor_name?: string
 }
@@ -20,6 +21,9 @@ export default function Dispensing() {
   })
   const [dispensing, setDispensing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [insuranceInfo, setInsuranceInfo] = useState<any>(null)
+  const [billToInsurance, setBillToInsurance] = useState(false)
+  const [insuranceLoading, setInsuranceLoading] = useState(false)
 
   const fetch = useCallback(async () => {
     setLoading(true)
@@ -37,7 +41,7 @@ export default function Dispensing() {
                 doctorName = docResp.data?.name || ''
               } catch {}
             }
-            return { ...rx, patient_name: patResp.data.full_name, doctor_name: doctorName }
+            return { ...rx, patient_id: patResp.data.id, patient_name: patResp.data.full_name, doctor_name: doctorName }
           } catch { return { ...rx, patient_name: 'Unknown', doctor_name: '' } }
         })
       )
@@ -47,13 +51,31 @@ export default function Dispensing() {
 
   useEffect(() => { fetch() }, [fetch])
 
+  async function openDispenseModal(rx: PendingPrescription) {
+    setModal({ open: true, rx, quantity: rx.quantity })
+    setError(null)
+    setBillToInsurance(false)
+    setInsuranceInfo(null)
+    if (rx.patient_id) {
+      setInsuranceLoading(true)
+      try {
+        const res = await api.get(`/insurance/active-case/${rx.patient_id}`)
+        setInsuranceInfo(res.data?.hasActiveCase ? res.data.case : null)
+      } catch { setInsuranceInfo(null) }
+      finally { setInsuranceLoading(false) }
+    }
+  }
+
   async function handleDispense() {
     if (!modal.rx || modal.quantity <= 0) { setError('Quantity must be greater than 0'); return }
     setDispensing(true); setError(null)
     try {
-      await api.post('/dispense', { prescription_id: modal.rx.id, quantity_dispensed: modal.quantity })
+      const payload: any = { prescription_id: modal.rx.id, quantity_dispensed: modal.quantity }
+      if (billToInsurance) payload.bill_to_insurance = true
+      await api.post('/dispense', payload)
       setPrescriptions((prev) => prev.filter((p) => p.id !== modal.rx!.id))
       setModal({ open: false, rx: null, quantity: 0 })
+      setInsuranceInfo(null); setBillToInsurance(false)
     } catch (err: any) {
       setError(err.response?.data?.message || 'Dispense failed')
     } finally { setDispensing(false) }
@@ -96,7 +118,7 @@ export default function Dispensing() {
                 {rx.doctor_name && <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><Stethoscope size={11} /> Prescribed by: <strong>{rx.doctor_name}</strong></p>}
               </div>
               <button
-                onClick={() => setModal({ open: true, rx, quantity: rx.quantity })}
+                onClick={() => openDispenseModal(rx)}
                 className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 hover:scale-[1.01] transition-transform flex-shrink-0 ml-4"
               >
                 <Pill size={15} /> Dispense
@@ -127,6 +149,24 @@ export default function Dispensing() {
                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
                 <p className="text-xs text-slate-400 mt-1">Prescribed quantity: {modal.rx.quantity}</p>
               </div>
+              {insuranceLoading ? (
+                <div className="flex items-center gap-2 text-xs text-slate-400"><Loader2 size={12} className="animate-spin" /> Checking insurance...</div>
+              ) : insuranceInfo ? (
+                <button onClick={() => setBillToInsurance(!billToInsurance)}
+                  className={`w-full flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-medium transition-all ${
+                    billToInsurance
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                  }`}>
+                  <Shield size={14} />
+                  {billToInsurance ? `Billing to ${insuranceInfo.provider_name}` : `Bill to Insurance (${insuranceInfo.provider_name})`}
+                </button>
+              ) : (
+                <p className="text-xs text-slate-400 flex items-center gap-1"><Shield size={12} /> No active insurance case</p>
+              )}
+              {billToInsurance && (
+                <p className="text-xs text-emerald-600">This drug will be billed to {insuranceInfo?.provider_name} — patient will not be charged cash at pharmacy.</p>
+              )}
               {error && <p className="text-xs text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> {error}</p>}
             </div>
             <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-3">

@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, ScrollText, ClipboardList, Pill, Microscope, Scan, Search, Clock, X, Plus,
   ChevronDown, CheckCircle, XCircle, AlertTriangle, Loader2, Syringe, FlaskConical, Activity, Mic, Baby,
-  FileText, FileImage,
+  FileText, FileImage, Shield,
 } from 'lucide-react'
 import api from '../hooks/useAxios'
 import DoctorComment from './DoctorComment'
@@ -168,6 +168,7 @@ export default function DoctorConsultation() {
   const [radModalImage, setRadModalImage] = useState<string | null>(null)
   const [maternityRecord, setMaternityRecord] = useState<any>(null)
   const [lastANCVisit, setLastANCVisit] = useState<any>(null)
+  const [insuranceCoverage, setInsuranceCoverage] = useState<any>(null)
   const [icdConfirmModal, setIcdConfirmModal] = useState<{ code: string; label: string; chapter: string } | null>(null)
   const [pendingDiagnoses, setPendingDiagnoses] = useState<{ code: string; label: string }[]>([])
   const [soapIcdSearch, setSoapIcdSearch] = useState('')
@@ -271,6 +272,16 @@ export default function DoctorConsultation() {
             })
             const ancData = await ancRes.json()
             if (Array.isArray(ancData) && ancData.length > 0) setLastANCVisit(ancData[0])
+          }
+        } catch {}
+        // Fetch insurance coverage for consultation banner
+        try {
+          const covRes = await fetch(`/api/insurance/patient-coverage/${patientId}`, {
+            headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+          })
+          const covData = await covRes.json()
+          if (covData?.hasActiveCoverage) {
+            setInsuranceCoverage(covData)
           }
         } catch {}
         } catch { showToast('Failed to load patient data', 'error') } finally { setLoading(false) }
@@ -392,7 +403,15 @@ export default function DoctorConsultation() {
         <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center"><ClipboardList className="w-5 h-5 text-primary" /></div>
         <div>
           <h1 className="text-xl font-semibold text-slate-800">Doctor Consultation</h1>
-          <p className="text-sm text-slate-400">{patient.full_name} &middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; {patient.blood_type || 'Blood type N/A'}</p>
+          <p className="text-sm text-slate-400 flex items-center gap-2 flex-wrap">
+            {patient.full_name}
+            {patient.primary_provider && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium flex-shrink-0">
+                <Shield size={10} /> {patient.primary_provider}
+              </span>
+            )}
+            <span>&middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; {patient.blood_type || 'Blood type N/A'}</span>
+          </p>
         </div>
       </div>
 
@@ -442,6 +461,57 @@ export default function DoctorConsultation() {
               className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-purple-700 bg-white border border-purple-200 rounded-xl hover:bg-purple-50">
               View Full Chart
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Insurance Coverage Banner */}
+      {insuranceCoverage?.primaryPolicy && (
+        <div className="bg-gradient-to-r from-emerald-50 to-green-50 border border-emerald-200 rounded-2xl p-4">
+          <div className="flex items-start gap-3 flex-wrap">
+            <div className="w-8 h-8 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
+              <Shield className="w-4 h-4 text-emerald-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-emerald-800">
+                  {insuranceCoverage.primaryPolicy.provider_name}
+                  <span className="ml-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-emerald-200 text-emerald-800 text-[10px] font-bold">
+                    {insuranceCoverage.promoted ? '↑ Primary' : 'Primary'}
+                  </span>
+                </p>
+                {insuranceCoverage.secondaryPolicies?.length > 0 && (
+                  <div className="relative group">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium cursor-help">
+                      + {insuranceCoverage.secondaryPolicies.length} Secondary
+                    </span>
+                    <div className="absolute z-50 bottom-full left-0 mb-2 hidden group-hover:block">
+                      <div className="bg-white rounded-xl shadow-xl border border-slate-200 p-3 w-64">
+                        <p className="text-xs font-semibold text-slate-600 mb-2">Secondary Coverage</p>
+                        {insuranceCoverage.secondaryPolicies.map((sp: any) => (
+                          <div key={sp.id} className="text-xs space-y-0.5 py-1.5 border-b border-slate-100 last:border-0">
+                            <p className="font-medium text-slate-700">{sp.provider_name}</p>
+                            {sp.policy_number && <p className="text-[10px] text-slate-400">Policy: {sp.policy_number}</p>}
+                            {sp.end_date && <p className="text-[10px] text-slate-400">Valid Until: {sp.end_date}</p>}
+                            {!sp.end_date && <p className="text-[10px] text-slate-400">Coverage: Ongoing</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-emerald-700">
+                {insuranceCoverage.primaryPolicy.policy_number && <span>Policy: {insuranceCoverage.primaryPolicy.policy_number}</span>}
+                {insuranceCoverage.activeCase && <span>Case: {insuranceCoverage.activeCase.case_number}</span>}
+                {insuranceCoverage.activeCase?.auth_code && <span>Auth: {insuranceCoverage.activeCase.auth_code}</span>}
+                {insuranceCoverage.primaryPolicy.end_date ? (
+                  <span>Valid Until: {insuranceCoverage.primaryPolicy.end_date}</span>
+                ) : (
+                  <span>Coverage: Ongoing</span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

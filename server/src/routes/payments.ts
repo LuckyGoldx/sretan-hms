@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
+import { getCoverageForService, getPatientPrimaryInsurance } from '../utils/coverageLookup';
 
 const router = Router();
 
@@ -11,6 +12,47 @@ function generateReceiptNumber(): string {
   const d = String(date.getDate()).padStart(2, '0');
   const rand = Math.floor(Math.random() * 9000) + 1000;
   return `RCP-${y}${m}${d}-${rand}`;
+}
+
+// Helper: add a service to an insurance case (auto-coverage billing)
+async function autoBillToCase(caseId: string, tenantId: string, item: any, amount: number, sourceId: string | null, svcType: string): Promise<void> {
+  try {
+    // For dedup, use sourceId or a deterministic compound key for items without an order ID
+    const dedupKey = sourceId || `auto_${caseId}_${svcType}_${item.description?.slice(0, 50) || 'unknown'}`;
+    const existing = await pool.query(
+      `SELECT id FROM insurance_case_services WHERE case_id = $1 AND source_type = 'coverage_auto' AND source_id = $2`,
+      [caseId, dedupKey]
+    );
+    if (existing.rows.length > 0) return;
+
+    const svcId = uuidv4();
+    await pool.query(
+      `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, source_type, source_id, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'coverage_auto', $9, 'pending')`,
+      [svcId, tenantId, caseId, svcType, item.description || 'Service', item.quantity || 1, item.unit_price || 0, amount, dedupKey]
+    );
+  } catch {}
+}
+
+// Helper: mark a source order as paid (prescriptions, lab_orders, radiology_orders, admissions)
+async function markOrderAsPaid(item: any): Promise<void> {
+  try {
+    if (!item.service_id) {
+      // Items without a source order (e.g., folder_activation) cannot be marked paid in an order table.
+      // They are excluded from pending after being auto-billed by the above dedup logic.
+      return;
+    }
+    const tableMap: Record<string, string> = {
+      prescription: 'prescriptions',
+      lab: 'lab_orders',
+      radiology: 'radiology_orders',
+      admission: 'admissions',
+    };
+    const table = tableMap[item.service_type];
+    if (table) {
+      await pool.query(`UPDATE ${table} SET is_paid = true WHERE id = $1`, [item.service_id]);
+    }
+  } catch {}
 }
 
 // --- Get pending/unpaid services for a patient ---
@@ -75,7 +117,52 @@ router.get('/api/payments/pending/:patientId', async (req: Request, res: Respons
       items.push({ service_type: 'admission', service_id: r.id, description: `Admission: ${r.ward_name}`, quantity: 1, unit_price: 0, needsPrice: true });
     });
 
-    res.json({ items, patient_name: '', hospital_number: '' });
+    // --- Auto-apply insurance coverage for insured patients ---
+    let insuredCoverage: any = { active: false };
+    try {
+      insuredCoverage = (await getPatientPrimaryInsurance(String(patientId))) || { active: false };
+      if (insuredCoverage.active && insuredCoverage.caseId) {
+        const cid = insuredCoverage.caseId;
+        const caseTenant = await pool.query('SELECT tenant_id FROM insurance_cases WHERE id = $1', [cid]);
+        const tenantId = caseTenant.rows[0]?.tenant_id || '00000000-0000-0000-0000-000000000000';
+
+        const filteredItems: any[] = [];
+        for (const item of items) {
+          const itemName = item.description?.split(': ')[1]?.split(' ×')[0] || item.description || '';
+          const svcType = item.service_type === 'prescription' ? 'pharmacy' : item.service_type;
+          const coveragePct = await getCoverageForService(insuredCoverage.providerId, svcType, itemName);
+          const totalPrice = (item.unit_price || 0) * (item.quantity || 1);
+          const insurancePortion = Math.round(totalPrice * coveragePct) / 100;
+          const patientPortion = Math.round((totalPrice - insurancePortion) * 100) / 100;
+
+          if (coveragePct === 100) {
+            // Fully covered — auto-bill to insurance, mark source as paid, skip Paypoint
+            await autoBillToCase(cid, tenantId, item, totalPrice, item.service_id, svcType);
+            await markOrderAsPaid(item);
+          } else if (coveragePct > 0) {
+            // Partially covered — bill insurance portion to case, patient pays the rest at Paypoint
+            if (insurancePortion > 0) {
+              await autoBillToCase(cid, tenantId, item, insurancePortion, item.service_id, svcType);
+            }
+            filteredItems.push({
+              ...item,
+              unit_price: Math.round(patientPortion / (item.quantity || 1)),
+              original_price: item.unit_price,
+              coverage_pct: coveragePct,
+              insurance_covered: insurancePortion,
+              patient_owes: patientPortion,
+              coverage_label: `${coveragePct}% covered by ${insuredCoverage.providerName}`,
+            });
+          } else {
+            // Not covered — patient pays full at Paypoint
+            filteredItems.push({ ...item, coverage_pct: 0, coverage_label: 'Not covered by insurance' });
+          }
+        }
+        items = filteredItems;
+      }
+    } catch {}
+
+    res.json({ items, patient_name: '', hospital_number: '', insured: insuredCoverage });
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
@@ -86,6 +173,13 @@ router.post('/api/payments', async (req: Request, res: Response) => {
     if ((!items || items.length === 0)) {
       res.status(400).json({ error: true, message: 'At least one item is required' });
       return;
+    }
+
+    for (const item of items) {
+      if ((item.unit_price !== undefined && item.unit_price < 0) || (item.quantity !== undefined && item.quantity <= 0)) {
+        res.status(400).json({ error: true, message: 'Payment items cannot have negative price or zero/negative quantity.' });
+        return;
+      }
     }
 
     var totalAmount = items.reduce((sum: number, i: any) => sum + ((i.unit_price || 0) * (i.quantity || 1)), 0);

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Baby, Search, Loader2, UserPlus, ArrowLeft, HeartPulse, CalendarCheck, AlertTriangle, PenLine } from 'lucide-react'
+import { Baby, Search, Loader2, UserPlus, ArrowLeft, HeartPulse, CalendarCheck, AlertTriangle, PenLine, Shield } from 'lucide-react'
 
 export default function MaternityPatientList() {
   const navigate = useNavigate()
@@ -188,6 +188,11 @@ export default function MaternityPatientList() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <p onClick={() => navigate(`/maternity/patients/${p.id}`)} className="font-medium text-slate-800 cursor-pointer hover:text-primary transition-colors">{p.full_name}</p>
+                          {p.primary_provider && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium">
+                              <Shield size={10} /> {p.primary_provider}
+                            </span>
+                          )}
                           {p.pregnancy_number > 1 && <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium">#{p.pregnancy_number}</span>}
                         </div>
                         <p className="text-xs text-slate-400">{p.hospital_number}</p>

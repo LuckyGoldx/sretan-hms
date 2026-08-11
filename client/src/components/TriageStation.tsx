@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Heart, Activity, Thermometer, Weight, Droplets, FileText, Users, AlertTriangle, CheckCircle, Clock, Search, Loader2, Stethoscope, Mic } from 'lucide-react'
+import { ArrowLeft, Heart, Activity, Thermometer, Weight, Droplets, FileText, Users, AlertTriangle, CheckCircle, Clock, Search, Loader2, Stethoscope, Mic, Shield } from 'lucide-react'
 import api from '../hooks/useAxios'
 import type { Patient } from '../types/index'
 
@@ -225,7 +225,14 @@ export default function TriageStation() {
                   <div className="flex items-center gap-3 mb-3">
                     <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center"><Users size={18} className="text-amber-600" /></div>
                     <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-slate-800 truncate">{patient.full_name}</p>
+                       <p className="text-sm font-semibold text-slate-800 truncate flex items-center gap-2">
+                         {patient.full_name}
+                         {patient.primary_provider && (
+                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium flex-shrink-0">
+                             <Shield size={10} /> {patient.primary_provider}
+                           </span>
+                         )}
+                       </p>
                       <p className="text-xs text-slate-400">{patient.sex} &middot; {patient.dob?.slice(0, 10) || '—'}</p>
                     </div>
                   </div>
@@ -342,7 +349,14 @@ export default function TriageStation() {
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center"><Users size={18} className="text-amber-600" /></div>
                     <div>
-                      <p className="text-sm font-semibold text-slate-800">{patient.full_name}</p>
+                       <p className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                         {patient.full_name}
+                         {patient.primary_provider && (
+                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium">
+                             <Shield size={10} /> {patient.primary_provider}
+                           </span>
+                         )}
+                       </p>
                       <p className="text-xs text-slate-400">{patient.sex} &middot; {patient.phone || '—'}</p>
                     </div>
                   </div>

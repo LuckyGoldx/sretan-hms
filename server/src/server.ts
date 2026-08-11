@@ -30,6 +30,13 @@ import recordsRouter from './routes/records';
 import setupConsoleRouter from './setup/setupConsole';
 import paymentsRouter from './routes/payments';
 import maternityRouter from './routes/maternity';
+import insuranceAuthRouter from './routes/insuranceAuth';
+import insuranceProvidersRouter from './routes/insuranceProviders';
+import insuranceStaffRouter from './routes/insuranceStaff';
+import insuranceCasesRouter from './routes/insuranceCases';
+import insuranceInvoicesRouter from './routes/insuranceInvoices';
+import insuranceReportsRouter from './routes/insuranceReports';
+import insuranceCoverageRouter from './routes/insuranceCoverage';
 
 declare global {
   var clockTampered: boolean | undefined;
@@ -64,6 +71,13 @@ app.use(setupRouter);
 app.use(setupConsoleRouter);
 app.use(paymentsRouter);
 app.use(maternityRouter);
+app.use(insuranceAuthRouter);
+app.use(insuranceProvidersRouter);
+app.use(insuranceStaffRouter);
+app.use(insuranceCasesRouter);
+app.use(insuranceInvoicesRouter);
+app.use(insuranceReportsRouter);
+app.use(insuranceCoverageRouter);
 
 app.use(errorHandler);
 

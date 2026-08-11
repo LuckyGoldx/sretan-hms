@@ -17,6 +17,9 @@ router.get('/api/maternity-patients', async (req: Request, res: Response) => {
     const { status, search, patient_id, edd_before, edd_after, risk_level, available_female, page, limit, smart_filter } = req.query;
     let query = `
       SELECT mp.*, p.full_name, p.hospital_number, p.dob, p.phone, p.sex,
+        (SELECT pr.name FROM patient_insurance_policies pp JOIN insurance_providers pr ON pp.provider_id = pr.id
+         WHERE pp.patient_id = mp.patient_id AND pp.is_active = true AND pp.coverage_type = 'primary'
+           AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider,
         (SELECT COUNT(DISTINCT visit_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as visit_count,
         (SELECT MAX(visit_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as last_visit_date,
         (SELECT MAX(next_appointment_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as next_appointment_date,
@@ -33,6 +36,9 @@ router.get('/api/maternity-patients', async (req: Request, res: Response) => {
         SELECT p.id, p.full_name, p.hospital_number, p.dob, p.phone, p.sex, p.marital_status,
           p.blood_type, p.occupation, p.address, p.next_of_kin, p.emergency_contact_phone,
           p.insurance, p.insurance_type,
+          (SELECT pr.name FROM patient_insurance_policies pp JOIN insurance_providers pr ON pp.provider_id = pr.id
+           WHERE pp.patient_id = p.id AND pp.is_active = true AND pp.coverage_type = 'primary'
+             AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider,
           (SELECT COUNT(*) FROM maternity_patients WHERE patient_id = p.id) as previous_pregnancies
         FROM patients p
         WHERE p.tenant_id = $1
@@ -177,7 +183,10 @@ router.get('/api/maternity-patients/stats', async (_req: Request, res: Response)
 
     try {
       const dueListRes = await pool.query(`
-        SELECT mp.id, mp.edd, p.full_name, p.hospital_number
+        SELECT mp.id, mp.edd, p.full_name, p.hospital_number,
+          (SELECT pr.name FROM patient_insurance_policies pp JOIN insurance_providers pr ON pp.provider_id = pr.id
+           WHERE pp.patient_id = mp.patient_id AND pp.is_active = true AND pp.coverage_type = 'primary'
+             AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider
         FROM maternity_patients mp
         JOIN patients p ON p.id = mp.patient_id
         WHERE mp.tenant_id = $1 AND mp.status = 'active' AND mp.edd BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'
@@ -188,6 +197,9 @@ router.get('/api/maternity-patients/stats', async (_req: Request, res: Response)
     try {
       const overdueListRes = await pool.query(`
         SELECT mp.id, p.full_name, p.hospital_number,
+          (SELECT pr.name FROM patient_insurance_policies pp JOIN insurance_providers pr ON pp.provider_id = pr.id
+           WHERE pp.patient_id = mp.patient_id AND pp.is_active = true AND pp.coverage_type = 'primary'
+             AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider,
           (SELECT MAX(next_appointment_date) FROM antenatal_visits WHERE maternity_patient_id = mp.id) as last_appointment
         FROM maternity_patients mp
         JOIN patients p ON p.id = mp.patient_id
@@ -200,7 +212,10 @@ router.get('/api/maternity-patients/stats', async (_req: Request, res: Response)
     try {
       const recentDelRes = await pool.query(`
         SELECT md.delivery_date, md.delivery_type, md.outcome, md.status as delivery_status,
-          p.full_name, p.hospital_number, mp.id as maternity_patient_id
+          p.full_name, p.hospital_number, mp.id as maternity_patient_id,
+          (SELECT pr.name FROM patient_insurance_policies pp JOIN insurance_providers pr ON pp.provider_id = pr.id
+           WHERE pp.patient_id = mp.patient_id AND pp.is_active = true AND pp.coverage_type = 'primary'
+             AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider
         FROM maternity_deliveries md
         JOIN maternity_patients mp ON mp.id = md.maternity_patient_id
         JOIN patients p ON p.id = mp.patient_id
@@ -676,9 +691,9 @@ router.post('/api/maternity-admit-labour', async (req: Request, res: Response) =
     // Create admission record
     const admissionId = uuidv4();
     await pool.query(
-      `INSERT INTO admissions (id, patient_id, ward_id, notes, admitted_by, status)
-       VALUES ($1, $2, $3, $4, $5, 'active')`,
-      [admissionId, patientId, maternityWardId, notes || null, admitted_by || null]
+      `INSERT INTO admissions (id, tenant_id, patient_id, ward_id, notes, admitted_by, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'active')`,
+      [admissionId, tenantId, patientId, maternityWardId, notes || null, admitted_by || null]
     );
 
     // Create delivery record

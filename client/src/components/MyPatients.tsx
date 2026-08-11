@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Users, Clock, Activity, UserCheck, Stethoscope, LogOut, RefreshCw, FileText, Plus, X, Loader2, Bed, Home, Heart, ArrowLeft, Mic, CheckCircle } from 'lucide-react'
+import { Search, Users, Clock, Activity, UserCheck, Stethoscope, LogOut, RefreshCw, FileText, Plus, X, Loader2, Bed, Home, Heart, ArrowLeft, Mic, CheckCircle, Shield } from 'lucide-react'
 import api from '../hooks/useAxios'
 import type { Patient } from '../types/index'
 
@@ -343,8 +343,13 @@ export default function MyPatients() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <h3 className="text-base font-semibold text-slate-800 truncate">
+                    <h3 className="text-base font-semibold text-slate-800 truncate flex items-center gap-2">
                       {patient.full_name}
+                      {patient.primary_provider && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium flex-shrink-0">
+                          <Shield size={10} /> {patient.primary_provider}
+                        </span>
+                      )}
                     </h3>
                     <p className="text-xs font-mono text-slate-400 truncate mt-0.5">
                       {patient.id}

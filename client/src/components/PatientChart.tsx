@@ -3,10 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import DoctorComment from './DoctorComment'
 import type { Patient, Encounter } from '../types'
+import { Trash2 } from 'lucide-react'
 import {
   User, Clock, Pill, Beaker, Scan, Activity, Loader2, Bed, Search, ClipboardList, ChevronDown, Info,
   AlertTriangle, ChevronRight, ArrowLeft, Stethoscope, FlaskConical, Droplets, XCircle,
-  FileText, X, Plus, CheckCircle, Edit2, Mic, Printer, FileImage, Baby, Calendar as CalIcon, Heart, PenLine
+  FileText, X, Plus, CheckCircle, Edit2, Mic, Printer, FileImage, Baby, Calendar as CalIcon, Heart, PenLine, Shield
 } from 'lucide-react'
 
 const PER_PAGE = 15
@@ -137,6 +138,24 @@ async function fetchDoctorName(staffId: string): Promise<string> {
 export default function PatientChart() {
   const { patientId } = useParams<{ patientId: string }>()
   const navigate = useNavigate()
+
+  function openAddPolicy() {
+    setPolicyForm({ provider_id: '', policy_number: '', coverage_type: 'primary', co_pay_percentage: '', start_date: '', end_date: '' })
+    setShowAddPolicyModal(true)
+  }
+
+  async function removePolicy(policyId: string) {
+    if (!confirm('Remove this insurance policy?')) return
+    try {
+      await fetch(`/api/insurance/policies/${policyId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+        body: JSON.stringify({ is_active: false }),
+      })
+      setPatientInsPolicies((prev: any) => prev.filter((p: any) => p.id !== policyId))
+    } catch {}
+  }
+
   const [patient, setPatient] = useState<Patient | null>(null)
   const [encounters, setEncounters] = useState<any[]>([])
   const [rxList, setRxList] = useState<any[]>([])
@@ -367,6 +386,11 @@ export default function PatientChart() {
   const [postnatalVisits, setPostnatalVisits] = useState<any[]>([])
   const [showMaternityBooking, setShowMaternityBooking] = useState(false)
   const [maternityBookingForm, setMaternityBookingForm] = useState<any>({})
+  const [patientInsPolicies, setPatientInsPolicies] = useState<any[] | null>(null)
+  const [showAddPolicyModal, setShowAddPolicyModal] = useState(false)
+  const [policyForm, setPolicyForm] = useState({ provider_id: '', policy_number: '', coverage_type: 'primary', co_pay_percentage: '', start_date: '', end_date: '' })
+  const [policyProviders, setPolicyProviders] = useState<any[]>([])
+  const [policySaving, setPolicySaving] = useState(false)
   const [showANCVisitModal, setShowANCVisitModal] = useState(false)
   const [ancForm, setAncForm] = useState<any>({})
   const [ancSubmitting, setAncSubmitting] = useState(false)
@@ -382,6 +406,7 @@ export default function PatientChart() {
   const isDoctor = currentUser?.role === 'Doctor'
   const isAdmin = currentUser?.role === 'Admin'
   const isRecords = currentUser?.role === 'Records'
+  const canManagePolicies = isAdmin || isRecords
 
   async function fetchDoctorNameWithCache(staffId: string): Promise<string> {
     if (staffCache[staffId]) return staffCache[staffId]
@@ -622,6 +647,24 @@ export default function PatientChart() {
           }
         } catch {}
 
+        // Fetch insurance policies
+        try {
+          const polRes = await fetch(`/api/insurance/policies/${patientId}`, {
+            headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+          })
+          const polData = await polRes.json()
+          setPatientInsPolicies(Array.isArray(polData) ? polData : [])
+        } catch { setPatientInsPolicies([]) }
+
+        // Fetch providers for add policy modal
+        try {
+          const provRes = await fetch(`/api/insurance/providers`, {
+            headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+          })
+          const provData = await provRes.json()
+          setPolicyProviders(Array.isArray(provData) ? provData : [])
+        } catch {}
+
         if (patientId) {
           const [notesRes, txRes, fbRes, sessRes] = await Promise.all([
             api.get(`/nurse-notes?patient_id=${patientId}`).catch(() => ({ data: [] })),
@@ -715,6 +758,7 @@ export default function PatientChart() {
     { id: 'treatment_summary', label: `Tx Summary (${treatments.length})`, icon: ClipboardList },
     { id: 'fluid_balance', label: fluidSessions.length > 0 ? `Fluid (${fluidSessions.length})` : 'Fluid', icon: Droplets },
     { id: 'maternity', label: 'Maternity', icon: Baby },
+    { id: 'insurance', label: 'Insurance', icon: Shield },
     { id: 'nurse_clinical_notes', label: nurseOnlyNotes.length > 0 ? `Nurses Clin. Notes (${nurseOnlyNotes.length})` : 'Nurses Clin. Notes', icon: FileText },
     { id: 'doctor_clinical_notes', label: (doctorNotes.length + soapEncounters.length) > 0 ? `Doctors Cli. Notes (${doctorNotes.length + soapEncounters.length})` : 'Doctors Cli. Notes', icon: Stethoscope },
   ]
@@ -729,7 +773,15 @@ export default function PatientChart() {
         <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5"><User className="w-5 h-5 text-primary" /></div>
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold text-slate-800 truncate">Patient Chart</h1>
-          <p className="text-sm text-slate-400 truncate">{patient.full_name} &middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; {patient.blood_type || 'N/A'}</p>
+          <p className="text-sm text-slate-400 truncate flex items-center gap-2">
+            {patient.full_name}
+            {patient.primary_provider && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium flex-shrink-0">
+                <Shield size={10} /> {patient.primary_provider}
+              </span>
+            )}
+            <span>&middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; {patient.blood_type || 'N/A'}</span>
+          </p>
         </div>
         {isNurse || isDoctor ? (
           <div className="w-full lg:w-auto flex items-center gap-2 lg:ml-auto pt-2 lg:pt-0">
@@ -774,7 +826,11 @@ export default function PatientChart() {
                 { label: 'DOB', value: patient.dob?.slice(0, 10) || '—' },
                 { label: 'Blood Type', value: patient.blood_type || '—' },
                 { label: 'Phone', value: patient.phone || '—' },
-                { label: 'Insurance', value: patient.insurance ? patient.insurance + (patient.insurance_type ? ' - ' + patient.insurance_type.replace('_', ' ') : '') + (patient.insurance_sub_type ? ' (' + patient.insurance_sub_type + ')' : '') : '—' },
+                { label: 'Insurance', value: (() => {
+                  const primary = patientInsPolicies?.find((p: any) => p.coverage_type === 'primary' && p.is_active)
+                  if (primary) return primary.provider_name + ' (Primary)'
+                  return patient.insurance_type ? patient.insurance_type + (patient.insurance && patient.insurance !== '__other__' ? ' (' + patient.insurance + ')' : '') : patient.insurance || '—'
+                })() },
                 { label: 'Next of Kin', value: patient.next_of_kin || '—' },
                 { label: 'Hospital No.', value: patient.hospital_number || '—' },
               ].map((f) => (
@@ -819,6 +875,49 @@ export default function PatientChart() {
     </div>
   )
 })()}
+
+            {/* Insurance Policies Section */}
+            {patientInsPolicies !== null && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Insurance Policies</h3>
+                  {canManagePolicies && (
+                    <button onClick={openAddPolicy} className="flex items-center gap-1 text-xs font-medium text-emerald-600 hover:text-emerald-700 transition-all">
+                      <Plus size={14} /> Add Policy
+                    </button>
+                  )}
+                </div>
+                {patientInsPolicies.length === 0 ? (
+                  <p className="text-xs text-slate-400">No insurance policies on file.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {patientInsPolicies.map((pol: any) => (
+                      <div key={pol.id} className="flex items-center justify-between bg-slate-50 rounded-xl px-4 py-3 border border-slate-200">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-medium text-slate-800">{pol.provider_name || pol.provider_code || 'Unknown'}</span>
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${pol.coverage_type === 'primary' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                              {pol.coverage_type}
+                            </span>
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${pol.policy_status === 'active' ? 'bg-emerald-100 text-emerald-700' : pol.policy_status === 'expired' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>
+                              {pol.policy_status}
+                            </span>
+                          </div>
+                          {pol.policy_number && <p className="text-xs text-slate-500 mt-0.5">Policy: {pol.policy_number}</p>}
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                          {canManagePolicies && (
+                            <button onClick={() => removePolicy(pol.id)} className="p-1 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-500 transition-all">
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -2843,6 +2942,52 @@ export default function PatientChart() {
         </div>
       )}
 
+      {/* Insurance Tab */}
+      {activeSection === 'insurance' && (
+        <div className="max-w-3xl mx-auto space-y-4">
+          <div className="bg-white rounded-xl border border-slate-200 p-6">
+            <h2 className="text-sm font-semibold text-slate-700 mb-4">Insurance Information</h2>
+            {patient?.insurance_type ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div><p className="text-xs text-slate-400">Provider</p><p className="font-medium text-slate-700">{patient.insurance_type}</p></div>
+                  <div><p className="text-xs text-slate-400">Category</p><p className="font-medium text-slate-700">{patient.insurance === '__other__' ? 'Other' : patient.insurance || '—'}</p></div>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-4">
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Active Policies</h3>
+                  {patientInsPolicies !== null && patientInsPolicies.length > 0 ? (
+                    <div className="space-y-2">
+                      {patientInsPolicies.map((pol: any) => (
+                        <div key={pol.id} className="flex items-center justify-between text-sm">
+                          <div>
+                            <span className="font-medium text-slate-700">{pol.provider_name || pol.provider_code}</span>
+                            <span className="text-xs text-slate-400 ml-2">{pol.policy_number}</span>
+                          </div>
+                          <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${pol.coverage_type === 'primary' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {pol.coverage_type} {pol.is_active ? '' : '(inactive)'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400">No policies on file.</p>
+                  )}
+                </div>
+                <a href={`/insurance/patients/${patientId}`}
+                  className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 transition-all">
+                  <Shield className="w-4 h-4" /> View Full Insurance Details
+                </a>
+              </div>
+            ) : (
+              <div className="text-center py-6 text-slate-400">
+                <Shield className="w-10 h-10 mx-auto mb-2 text-slate-200" />
+                <p className="text-sm">No insurance information on file.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Maternity Tab */}
       {activeSection === 'maternity' && (
         <div className="space-y-4">
@@ -3061,6 +3206,99 @@ export default function PatientChart() {
                   window.location.reload()
                 } catch { alert('Failed to book pregnancy') }
               }} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Insurance Policy Modal */}
+      {showAddPolicyModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAddPolicyModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800">Add Insurance Policy</h2>
+              <button onClick={() => setShowAddPolicyModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Provider</label>
+                <select value={policyForm.provider_id} onChange={(e) => setPolicyForm(p => ({ ...p, provider_id: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-emerald-500">
+                  <option value="">Select provider...</option>
+                  {policyProviders
+                    .filter((p: any) => p.is_active)
+                    .filter((p: any) => {
+                      const oppositeType = policyForm.coverage_type === 'primary' ? 'secondary' : 'primary'
+                      const used = (patientInsPolicies || []).find((pol: any) => pol.provider_id === p.id && pol.is_active && pol.coverage_type === oppositeType)
+                      return !used
+                    })
+                    .map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Policy Number</label>
+                <input type="text" value={policyForm.policy_number} onChange={(e) => setPolicyForm(p => ({ ...p, policy_number: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" placeholder="e.g. GPH-78901" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Coverage Type</label>
+                <select value={policyForm.coverage_type} onChange={(e) => setPolicyForm(p => ({ ...p, coverage_type: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-emerald-500">
+                  <option value="primary">Primary</option>
+                  <option value="secondary">Secondary</option>
+                  <option value="tertiary">Tertiary</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Start Date</label>
+                  <input type="date" value={policyForm.start_date} onChange={(e) => setPolicyForm(p => ({ ...p, start_date: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">End Date</label>
+                  <input type="date" value={policyForm.end_date} onChange={(e) => setPolicyForm(p => ({ ...p, end_date: e.target.value }))}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Co-pay % (optional)</label>
+                <input type="number" min="0" max="100" value={policyForm.co_pay_percentage} onChange={(e) => setPolicyForm(p => ({ ...p, co_pay_percentage: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setShowAddPolicyModal(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium">Cancel</button>
+              <button onClick={async () => {
+                if (!policyForm.provider_id || !policyForm.policy_number) { alert('Provider and policy number are required'); return }
+                setPolicySaving(true)
+                try {
+                  await fetch('/api/insurance/policies', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
+                    body: JSON.stringify({
+                      patient_id: patientId,
+                      provider_id: policyForm.provider_id,
+                      policy_number: policyForm.policy_number,
+                      coverage_type: policyForm.coverage_type,
+                      start_date: policyForm.start_date || null,
+                      end_date: policyForm.end_date || null,
+                      co_pay_percentage: policyForm.co_pay_percentage ? parseFloat(policyForm.co_pay_percentage) : 0,
+                    }),
+                  })
+                  setShowAddPolicyModal(false)
+                  setPolicyForm({ provider_id: '', policy_number: '', coverage_type: 'primary', co_pay_percentage: '', start_date: '', end_date: '' })
+                  // Reload policies
+                  const polRes = await fetch(`/api/insurance/policies/${patientId}`, {
+                    headers: { 'x-master-token': 'sretan-emr-master-token-2026' }
+                  })
+                  const polData = await polRes.json()
+                  setPatientInsPolicies(Array.isArray(polData) ? polData : [])
+                } catch { alert('Failed to add policy') }
+                finally { setPolicySaving(false) }
+              }} disabled={policySaving} className="px-5 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 flex items-center gap-2">
+                {policySaving && <Loader2 size={14} className="animate-spin" />} Add Policy
+              </button>
             </div>
           </div>
         </div>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import { validatePhone } from '../utils/validatePhone'
 import {
-  Search, X, Loader2, Users, UserPlus, ArrowLeft, FileText, Edit2, Save, ChevronLeft, ChevronRight, Clock,
+  Search, X, Loader2, Users, UserPlus, ArrowLeft, FileText, Edit2, Save, ChevronLeft, ChevronRight, Clock, Shield, Plus, AlertTriangle,
 } from 'lucide-react'
 import { COUNTRIES, NIGERIA_STATES, NIGERIA_LGAS, OCCUPATIONS, RELATIONSHIPS } from '../data/formData'
 import SearchableSelect from './SearchableSelect'
@@ -21,10 +21,56 @@ export default function RecordsPatientList() {
   const [phoneErrors, setPhoneErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
   const [customTypes, setCustomTypes] = useState<any[]>([])
+  const [insuranceProviders, setInsuranceProviders] = useState<any[]>([])
+  const [editPolicies, setEditPolicies] = useState<any[]>([])
+  const [editPolicyForm, setEditPolicyForm] = useState({ provider_id: '', policy_number: '', coverage_type: 'primary', co_pay_percentage: '', start_date: '', end_date: '' })
+  const [showPolicyForm, setShowPolicyForm] = useState(false)
+  const [policySaving, setPolicySaving] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<any>(null)
+  const [confirmDeleteStep, setConfirmDeleteStep] = useState(1)
+  const [policyFormErrors, setPolicyFormErrors] = useState<Record<string, string>>({})
+  const [currentUser, setCurrentUser] = useState<any>(null)
   const perPage = 20
   const editBodyRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { loadPatients(); api.get('/insurance-types').then((r) => setCustomTypes(r.data || [])).catch(() => {}) }, [])
+  useEffect(() => {
+    try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
+    loadPatients()
+    api.get('/insurance-types').then((r) => setCustomTypes(r.data || [])).catch(() => {})
+    api.get('/insurance/providers').then((r) => setInsuranceProviders(Array.isArray(r.data) ? r.data : [])).catch(() => {})
+  }, [])
+
+  async function loadPolicies(patientId: string) {
+    try {
+      const res = await api.get(`/insurance/policies/${patientId}`)
+      setEditPolicies(Array.isArray(res.data) ? res.data : [])
+    } catch { setEditPolicies([]) }
+  }
+
+  async function addPolicyForEdit() {
+    const errs: Record<string, string> = {}
+    if (!editPolicyForm.provider_id) errs.provider_id = 'Required'
+    if (!editPolicyForm.policy_number?.trim()) errs.policy_number = 'Required'
+    if (!editPolicyForm.coverage_type) errs.coverage_type = 'Required'
+    if (Object.keys(errs).length > 0) { setPolicyFormErrors(errs); return }
+    setPolicyFormErrors({})
+    setPolicySaving(true)
+    try {
+      await api.post('/insurance/policies', { ...editPolicyForm, patient_id: editPatient.id, co_pay_percentage: editPolicyForm.co_pay_percentage ? parseFloat(editPolicyForm.co_pay_percentage) : undefined, start_date: editPolicyForm.start_date || null, end_date: editPolicyForm.end_date || null })
+      setEditPolicyForm({ provider_id: '', policy_number: '', coverage_type: 'primary', co_pay_percentage: '', start_date: '', end_date: '' })
+      setShowPolicyForm(false)
+      await loadPolicies(editPatient.id)
+    } catch (err: any) { alert(err.response?.data?.message || 'Failed to add policy') }
+    finally { setPolicySaving(false) }
+  }
+
+  async function removePolicyFromEdit(policyId: string) {
+    try {
+      await api.put(`/insurance/policies/${policyId}`, { is_active: false, co_pay_percentage: 0 })
+      setConfirmDelete(null)
+      await loadPolicies(editPatient.id)
+    } catch {}
+  }
 
   async function loadPatients() {
     setLoading(true)
@@ -119,6 +165,11 @@ export default function RecordsPatientList() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1">
                     <span className="text-base font-semibold text-slate-800">{p.full_name}</span>
+                    {p.primary_provider && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium">
+                        <Shield size={10} /> {p.primary_provider}
+                      </span>
+                    )}
                     <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${p.status === 'checked_in' ? 'bg-blue-100 text-blue-700' : p.status === 'in_triage' ? 'bg-amber-100 text-amber-700' : p.status === 'with_doctor' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>{p.status?.replace('_', ' ')}</span>
                   </div>
                   <p className="text-xs text-slate-400 mb-2">{p.hospital_number} &middot; {p.sex} &middot; DOB: {fmtDate(p.dob)} &middot; {p.blood_type || 'N/A'}</p>
@@ -130,7 +181,7 @@ export default function RecordsPatientList() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <button onClick={(e) => { e.stopPropagation(); setEditPatient(p); setEditErrors({}); setPhoneErrors({}); setEditForm({ full_name: p.full_name, dob: fmtDate(p.dob), sex: p.sex, phone: p.phone, email: p.email || '', address: p.address || '', nationality: p.nationality || '', state_of_origin: p.state_of_origin || '', lga: p.lga || '', occupation: p.occupation || '', marital_status: p.marital_status || '', next_of_kin: p.next_of_kin || '', next_of_kin_phone: p.next_of_kin_phone || '', relationship: p.relationship || '', next_of_kin_address: p.next_of_kin_address || '', emergency_contact_name: p.emergency_contact_name || '', emergency_contact_phone: p.emergency_contact_phone || '', insurance: p.insurance || '', insurance_type: p.insurance_type || '', insurance_sub_type: p.insurance_sub_type || '', blood_type: p.blood_type || '' }) }}
+                  <button onClick={(e) => { e.stopPropagation(); setEditPatient(p); setEditErrors({}); setPhoneErrors({}); loadPolicies(p.id); setEditPolicies([]); setEditForm({ full_name: p.full_name, dob: fmtDate(p.dob), sex: p.sex, phone: p.phone, email: p.email || '', address: p.address || '', nationality: p.nationality || '', state_of_origin: p.state_of_origin || '', lga: p.lga || '', occupation: p.occupation || '', marital_status: p.marital_status || '', next_of_kin: p.next_of_kin || '', next_of_kin_phone: p.next_of_kin_phone || '', relationship: p.relationship || '', next_of_kin_address: p.next_of_kin_address || '', emergency_contact_name: p.emergency_contact_name || '', emergency_contact_phone: p.emergency_contact_phone || '', insurance: p.insurance || '', insurance_type: p.insurance_type || '', insurance_sub_type: p.insurance_sub_type || '', blood_type: p.blood_type || '' }) }}
                     className="p-2 rounded-lg bg-slate-50 text-slate-500 hover:bg-primary/10 hover:text-primary transition-colors"><Edit2 size={14} /></button>
                   <button onClick={(e) => { e.stopPropagation(); navigate(`/records/patients/${p.id}`) }}
                     className="p-2 rounded-lg bg-slate-50 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 transition-colors"><FileText size={14} /></button>
@@ -261,35 +312,190 @@ export default function RecordsPatientList() {
                       className={"w-full rounded-xl border px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none " + (editErrors.blood_type ? 'border-rose-300 bg-rose-50' : 'border-slate-200')}>
                       <option value="">Select...</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select>
                     {editErrors.blood_type && <p className="text-xs text-rose-500 mt-1">{editErrors.blood_type}</p>}</div>
-                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Insurance</label>
-                    <select value={editForm.insurance || ''} onChange={(e) => setEditForm((p: any) => ({ ...p, insurance: e.target.value, insurance_type: '', insurance_sub_type: '' }))}
-                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                      <option value="">Select...</option><option>Private</option><option>HMO</option><option>NHIA</option><option>Retainership</option><option value="__other__">Other</option></select></div>
-                </div>
-                {['HMO', 'Retainership'].includes(editForm.insurance) && (
-                  <div className="mt-2">
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Type</label>
-                    <select value={editForm.insurance_type || ''} onChange={(e) => setEditForm((p: any) => ({ ...p, insurance_type: e.target.value }))}
-                      className="flex-1 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white">
-                      <option value="">Select...</option>
-                      {editForm.insurance === 'Retainership' && <><option value="CBN">Central Bank of Nigeria (CBN)</option><option value="Zenith Bank">Zenith Bank</option></>}
-                      {customTypes.filter(function(c) { return c.provider === editForm.insurance }).map(function(c) { return <option key={c.id} value={c.type_name}>{c.type_name}</option> })}
-                      <option value="Other">Other</option>
-                    </select>
-                    {editForm.insurance_type === 'Other' && (
-                      <input type="text" placeholder="Enter type..." value={editForm.insurance_sub_type || ''} onChange={(e) => setEditForm((p: any) => ({ ...p, insurance_sub_type: e.target.value }))}
-                        className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  {/* Unified Insurance Provider & Policies */}
+                  <div className="col-span-2 mt-4 pt-4 border-t border-slate-100">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <Shield size={13} /> Insurance Policies
+                      </h3>
+                      {!showPolicyForm && (
+                        <button onClick={() => {
+                          setShowPolicyForm(true)
+                          setPolicyFormErrors({})
+                          setEditPolicyForm(p => ({ ...p, provider_id: editForm.insurance_type ? insuranceProviders.find(pr => pr.name === editForm.insurance_type)?.id || '' : '', policy_number: '', coverage_type: editPolicies.some(pol => pol.coverage_type === 'primary' && pol.is_active) ? 'secondary' : 'primary', co_pay_percentage: '', start_date: '', end_date: '' }))
+                        }} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-medium hover:bg-emerald-100 transition-all">
+                          <Plus size={13} /> {editPolicies.some(pol => pol.coverage_type === 'primary' && pol.is_active) ? 'Add Secondary' : 'Add Insurance'}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Policy Cards */}
+                    {editPolicies.filter((p: any) => p.policy_status !== 'deactivated' || p.is_active).length > 0 && (
+                      <div className="space-y-2 mb-3">
+                        {editPolicies.filter((p: any) => p.policy_status !== 'deactivated' || p.is_active).map((pol: any) => (
+                          <div key={pol.id} className={`relative rounded-xl border p-3 pr-10 transition-all ${pol.policy_status === 'active' ? 'border-emerald-200 bg-gradient-to-r from-emerald-50/50 to-white' : pol.policy_status === 'expired' ? 'border-amber-200 bg-gradient-to-r from-amber-50/50 to-white' : 'border-slate-200 bg-slate-50'}`}>
+                            <div className="flex items-center gap-2 mb-1.5">
+                              <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${pol.policy_status === 'active' ? 'bg-emerald-100' : pol.policy_status === 'expired' ? 'bg-amber-100' : 'bg-slate-200'}`}>
+                                <Shield size={13} className={pol.policy_status === 'active' ? 'text-emerald-600' : pol.policy_status === 'expired' ? 'text-amber-600' : 'text-slate-500'} />
+                              </div>
+                              <span className="text-sm font-semibold text-slate-800">{pol.provider_name}</span>
+                              <span className={`ml-auto inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${pol.coverage_type === 'primary' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'}`}>
+                                {pol.coverage_type === 'primary' ? '● Primary' : '○ Secondary'}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs ml-9">
+                              {pol.policy_number && <p><span className="text-slate-400">Policy:</span> <span className="font-mono font-medium text-slate-700">{pol.policy_number}</span></p>}
+                              <p>
+                                <span className="text-slate-400">Status:</span>
+                                <span className={`ml-1 font-medium ${pol.policy_status === 'active' ? 'text-emerald-600' : pol.policy_status === 'expired' ? 'text-amber-600' : 'text-rose-600'}`}>{pol.policy_status}</span>
+                              </p>
+                              {(pol.start_date || pol.end_date) && <p className="col-span-2"><span className="text-slate-400">Valid:</span> <span className="font-medium text-slate-600">{pol.start_date || '—'} → {pol.end_date || 'Ongoing'}</span></p>}
+                              {(pol.co_pay_percentage > 0) && <p><span className="text-slate-400">Co-pay:</span> <span className="font-medium text-slate-600">{pol.co_pay_percentage}%</span></p>}
+                            </div>
+                            <button onClick={() => { setConfirmDelete(pol); setConfirmDeleteStep(1) }}
+                              className="absolute top-3 right-3 p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-600 border border-transparent hover:border-rose-200 transition-all">
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Add Policy Form */}
+                    {showPolicyForm && (
+                      <div className="bg-gradient-to-br from-slate-50 to-emerald-50/30 rounded-xl border border-slate-200 p-4 space-y-3">
+                        <div>
+                           <label className="block text-xs font-medium text-slate-600 mb-1">Insurance Provider <span className="text-rose-500">*</span></label>
+                          <select value={editPolicyForm.provider_id} onChange={e => {
+                            const prov = insuranceProviders.find((p: any) => p.id === e.target.value)
+                            setEditPolicyForm(p => ({ ...p, provider_id: e.target.value }))
+                            if (prov) setEditForm((p: any) => ({ ...p, insurance_type: prov.name, insurance: prov.category || 'Other', insurance_sub_type: prov.name }))
+                            setPolicyFormErrors(prev => { const n = { ...prev }; delete n.provider_id; return n })
+                          }} className={`w-full rounded-xl border px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all ${policyFormErrors.provider_id ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}>
+                            <option value="">Choose provider... *</option>
+                            {insuranceProviders
+                              .filter((p: any) => p.is_active)
+                              .filter((p: any) => {
+                                // Prevent same provider as both primary AND secondary
+                                const oppositeType = editPolicyForm.coverage_type === 'primary' ? 'secondary' : 'primary'
+                                const used = editPolicies.find((pol: any) => pol.provider_id === p.id && pol.is_active && pol.coverage_type === oppositeType)
+                                return !used
+                              })
+                              .map((p: any) => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
+                          </select>
+                          {editPolicyForm.provider_id && (() => {
+                            const p = insuranceProviders.find(pr => pr.id === editPolicyForm.provider_id)
+                            return p && <p className="text-xs text-slate-400 mt-1.5">Category: <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-700">{p.category || 'Other'}</span></p>
+                          })()}
+                          {policyFormErrors.provider_id && <p className="text-xs text-rose-500 mt-1">{policyFormErrors.provider_id}</p>}
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-slate-600 mb-1">Policy / Insurance Number <span className="text-rose-500">*</span></label>
+                          <input type="text" value={editPolicyForm.policy_number} onChange={e => { setEditPolicyForm(p => ({ ...p, policy_number: e.target.value })); setPolicyFormErrors(prev => { const n = { ...prev }; delete n.policy_number; return n }) }}
+                            placeholder="e.g. GPH-78901" className={`w-full rounded-xl border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent ${policyFormErrors.policy_number ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`} />
+                          {policyFormErrors.policy_number && <p className="text-xs text-rose-500 mt-1">{policyFormErrors.policy_number}</p>}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Coverage Type <span className="text-rose-500">*</span></label>
+                            <select value={editPolicyForm.coverage_type} onChange={e => { setEditPolicyForm(p => ({ ...p, coverage_type: e.target.value })); setPolicyFormErrors(prev => { const n = { ...prev }; delete n.coverage_type; return n }) }}
+                              className={`w-full rounded-xl border px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-emerald-500 ${policyFormErrors.coverage_type ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`}>
+                              <option value="">Select... *</option>
+                              <option value="primary">Primary</option>
+                              <option value="secondary">Secondary</option>
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Co-pay %</label>
+                            <input type="number" min="0" max="100" value={editPolicyForm.co_pay_percentage}
+                              onChange={e => { const v = parseInt(e.target.value); if (!isNaN(v) && v >= 0 && v <= 100) setEditPolicyForm(p => ({ ...p, co_pay_percentage: e.target.value })); else if (e.target.value === '') setEditPolicyForm(p => ({ ...p, co_pay_percentage: '' })) }}
+                              placeholder="Inherited" className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+                            <p className="text-[10px] text-slate-400 mt-1">Patient's out-of-pocket %. Blank = inherited from provider.</p>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Valid From</label>
+                            <input type="date" value={editPolicyForm.start_date} onChange={e => setEditPolicyForm(p => ({ ...p, start_date: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-slate-600 mb-1">Valid Until</label>
+                            <input type="date" value={editPolicyForm.end_date} onChange={e => setEditPolicyForm(p => ({ ...p, end_date: e.target.value }))}
+                              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-emerald-500" />
+                          </div>
+                        </div>
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={addPolicyForEdit} disabled={policySaving}
+                            className="flex-1 py-2 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-all">
+                            {policySaving ? 'Saving...' : 'Save Policy'}
+                          </button>
+                          <button onClick={() => setShowPolicyForm(false)}
+                            className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-white rounded-xl border border-slate-200 transition-all">Cancel</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {editPolicies.filter((p: any) => p.is_active).length === 0 && !showPolicyForm && (
+                      <div className="text-center py-6 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                        <Shield size={24} className="mx-auto mb-2 text-slate-300" />
+                        <p className="text-xs text-slate-400">No insurance policies on file</p>
+                        <p className="text-[10px] text-slate-400 mt-0.5">Add a policy to link this patient with an insurance provider</p>
+                      </div>
+                    )}
+              </div>
+            </div>
+
+            {/* Delete Policy Confirmation Modal */}
+            {confirmDelete && (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setConfirmDelete(null); setConfirmDeleteStep(1) }}>
+                <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+                  <div className="px-6 pt-6 pb-4 text-center">
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3 ${confirmDeleteStep === 2 ? 'bg-red-50' : 'bg-rose-50'}`}>
+                      <AlertTriangle className={`w-7 h-7 ${confirmDeleteStep === 2 ? 'text-red-500' : 'text-rose-500'}`} />
+                    </div>
+                    <h2 className="text-lg font-bold text-slate-800">
+                      {confirmDeleteStep === 2 ? 'Are you absolutely sure?' : 'Remove Insurance Policy'}
+                    </h2>
+                    <p className="text-xs text-slate-400 mt-0.5">{confirmDelete.provider_name} — {confirmDelete.policy_number}</p>
+                  </div>
+                  <div className="px-6 pb-4">
+                    <div className={`rounded-xl p-4 text-sm ${confirmDeleteStep === 2 ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-600'}`}>
+                      {confirmDeleteStep === 2 ? (
+                        <>
+                          <p>This will deactivate the policy for <strong>{confirmDelete.provider_name}</strong>. Removing it means:</p>
+                          <ul className="list-disc pl-4 mt-2 space-y-1 text-xs">
+                            <li>The patient will no longer be linked to <strong>{confirmDelete.provider_name}</strong> for new coverage</li>
+                            <li>Policy number and records will be deactivated</li>
+                          </ul>
+                          <p className="text-xs font-medium mt-3">Existing claims, invoices and settled services are <strong className="text-emerald-600">NOT affected</strong> and remain valid until cleared.</p>
+                        </>
+                      ) : (
+                        <>
+                          <p>You are about to remove <strong>{confirmDelete.provider_name}</strong> ({confirmDelete.coverage_type}) from this patient.</p>
+                          <p className="text-xs text-emerald-600 mt-2">Only the policy is deactivated. Existing claims/invoices remain valid until settled.</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+                    <button onClick={() => { setConfirmDelete(null); setConfirmDeleteStep(1) }} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-xl transition-all">Cancel</button>
+                    {confirmDeleteStep === 1 ? (
+                      <button onClick={() => setConfirmDeleteStep(2)}
+                        className="flex items-center gap-2 px-5 py-2 bg-rose-600 text-white text-sm font-medium rounded-xl hover:bg-rose-700 transition-all">
+                        <X className="w-4 h-4" /> Yes, Remove Policy
+                      </button>
+                    ) : (
+                      <button onClick={() => removePolicyFromEdit(confirmDelete.id)}
+                        className="flex items-center gap-2 px-5 py-2 bg-red-600 text-white text-sm font-medium rounded-xl hover:bg-red-700 transition-all">
+                        <AlertTriangle className="w-4 h-4" /> Yes, Delete Permanently
+                      </button>
                     )}
                   </div>
-                )}
-                {editForm.insurance === '__other__' && (
-                  <div className="mt-2">
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Provider Name</label>
-                    <input type="text" placeholder="e.g. AXA Mansard, Leadway" value={editForm.insurance_sub_type || ''} onChange={(e) => setEditForm((p: any) => ({ ...p, insurance_sub_type: e.target.value }))}
-                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                  </div>
-                )}
+                </div>
               </div>
+            )}
+          </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
               <button onClick={() => setEditPatient(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>

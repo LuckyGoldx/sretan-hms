@@ -16,6 +16,7 @@ interface FormData {
   next_of_kin: string; next_of_kin_phone: string; relationship: string; next_of_kin_address: string
   emergency_contact_name: string; emergency_contact_phone: string
   insurance: string; insurance_type: string; insurance_sub_type: string
+  policy_provider_id?: string; policy_number?: string; coverage_type?: string; co_pay_percentage?: string
   blood_type: string
   tribe: string
   religion: string
@@ -28,6 +29,7 @@ const initialForm: FormData = {
   next_of_kin: '', next_of_kin_phone: '', relationship: '', next_of_kin_address: '',
   emergency_contact_name: '', emergency_contact_phone: '',
   insurance: '', insurance_type: '', insurance_sub_type: '', blood_type: '',
+  policy_provider_id: '', policy_number: '', coverage_type: 'primary', co_pay_percentage: '',
   tribe: '', religion: '',
 }
 
@@ -55,7 +57,6 @@ export default function PatientRegistration() {
   const [newPatientId, setNewPatientId] = useState<string | null>(null)
   const [documents, setDocuments] = useState<DocItem[]>([])
   const [currentUser, setCurrentUser] = useState<any>(null)
-  const [customTypes, setCustomTypes] = useState<any[]>([])
   const [fullscreenPreview, setFullscreenPreview] = useState<string | null>(null)
   const [showDocPopup, setShowDocPopup] = useState(false)
   const [popupDocType, setPopupDocType] = useState('')
@@ -64,10 +65,12 @@ export default function PatientRegistration() {
   const [popupDocPreview, setPopupDocPreview] = useState<string | null>(null)
   const [customDocTypes, setCustomDocTypes] = useState<string[]>([])
 
+  const [insuranceProviders, setInsuranceProviders] = useState<any[]>([])
+
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
-    api.get('/insurance-types').then((r) => setCustomTypes(r.data || [])).catch(() => {})
     api.get('/document-types').then((r) => setCustomDocTypes(r.data?.map((d: any) => d.type_name) || [])).catch(() => {})
+    api.get('/insurance/providers').then((r) => setInsuranceProviders(Array.isArray(r.data) ? r.data : [])).catch(() => {})
   }, [])
 
   const isAdmin = currentUser?.role === 'Admin'
@@ -118,22 +121,6 @@ export default function PatientRegistration() {
 
   function removeDoc(i: number) { setDocuments((prev) => prev.filter((_, idx) => idx !== i)) }
 
-  const getTypeOptions = () => {
-    const base = form.insurance === 'Retainership' ? ['CBN', 'Zenith Bank'] : []
-    const custom = customTypes.filter((c) => c.provider === form.insurance).map((c) => c.type_name)
-    return [...base, ...custom, 'Other']
-  }
-
-  async function saveCustomInsType(name: string) {
-    if (!name || name === 'Other') return
-    try { const res = await api.post('/insurance-types', { provider: form.insurance, type_name: name, created_by: currentUser?.id }); setCustomTypes((prev) => [...prev, res.data]) } catch {}
-  }
-
-  async function deleteCustomInsType(id: string) {
-    if (!confirm('Delete this type?')) return
-    try { await api.delete(`/insurance-types/${id}`); setCustomTypes((prev) => prev.filter((c) => c.id !== id)) } catch {}
-  }
-
   const validateStep = (s: number) => {
     const e: Partial<Record<keyof FormData, string>> = {}
     if (s === 0) { if (!form.full_name.trim()) e.full_name = 'Required'; if (!form.dob) e.dob = 'Required'; if (!form.sex) e.sex = 'Required'; if (!form.nationality) e.nationality = 'Required'; if (form.nationality === 'Nigeria' && !form.state_of_origin) e.state_of_origin = 'Required' }
@@ -162,7 +149,6 @@ export default function PatientRegistration() {
         blood_type: form.blood_type,
         tribe: form.tribe, religion: form.religion,
       }
-      if (form.insurance_type === 'Other' && form.insurance_sub_type) await saveCustomInsType(form.insurance_sub_type)
       const patient = await api.post('/patients', payload)
       for (const doc of documents) {
         const fd = new FormData()
@@ -175,8 +161,6 @@ export default function PatientRegistration() {
       setErrors({ submit: err.response?.data?.message || 'Registration failed. Please check all required fields and try again.' })
     } finally { setSubmitting(false) }
   }
-
-  const { showType } = { showType: ['HMO', 'Retainership', '__other__'].includes(form.insurance) }
 
   if (done) return (
     <div className="max-w-2xl mx-auto">
@@ -327,31 +311,51 @@ export default function PatientRegistration() {
                     <option value="">Select...</option><option>A+</option><option>A-</option><option>B+</option><option>B-</option><option>AB+</option><option>AB-</option><option>O+</option><option>O-</option></select>
                   {errors.blood_type && <p className="text-xs text-rose-500 mt-1">{errors.blood_type}</p>}</div>
               </div>
-              <div className="border-t border-slate-100 pt-5">
+               <div className="border-t border-slate-100 pt-5">
                 <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Insurance</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  <div><label className="block text-xs font-medium text-slate-500 mb-1">Provider</label>
-                    <select value={form.insurance} onChange={(e) => { update('insurance', e.target.value); update('insurance_type', ''); update('insurance_sub_type', '') }}
-                      className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                      <option value="">Select...</option><option>Private</option><option>HMO</option><option>NHIA</option><option>Retainership</option>
-                        <option value="__other__">Other</option></select></div>
-                  {showType && (<div><label className="block text-xs font-medium text-slate-500 mb-1">Type</label>
-                    <div className="flex items-center gap-1">
-                      <select value={form.insurance_type} onChange={(e) => update('insurance_type', e.target.value)}
-                        className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white">
-                        <option value="">Select...</option>
-                        {getTypeOptions().filter((o) => o !== 'Other').map((o) => <option key={o} value={o}>{o}</option>)}
-                        <option value="Other">Other</option></select>
-                      {isAdmin && form.insurance_type && !['CBN', 'Zenith Bank'].includes(form.insurance_type) && customTypes.find((c) => c.type_name === form.insurance_type && c.provider === form.insurance) && (
-                        <button onClick={() => { const ct = customTypes.find((c) => c.type_name === form.insurance_type && c.provider === form.insurance); if (ct) deleteCustomInsType(ct.id) }}
-                          className="p-2 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-500"><Trash2 size={14} /></button>
-                      )}
-                    </div>
-                    {form.insurance_type === 'Other' && (
-                      <input type="text" placeholder="Enter custom type..." value={form.insurance_sub_type} onChange={(e) => update('insurance_sub_type', e.target.value)}
-                        className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />)}
-                  </div>)}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Provider</label>
+                    <select value={form.policy_provider_id || ''} onChange={(e) => {
+                      const prov = insuranceProviders.find((p: any) => p.id === e.target.value)
+                      if (prov) {
+                        update('insurance', prov.category || 'Other')
+                        update('insurance_type', prov.name)
+                        update('policy_provider_id', prov.id)
+                      }
+                    }} className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm bg-white focus:ring-2 focus:ring-primary outline-none">
+                      <option value="">Select provider...</option>
+                      {insuranceProviders.filter((p: any) => p.is_active).map((p: any) => <option key={p.id} value={p.id}>{p.name} ({p.code})</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Policy Number</label>
+                    <input type="text" value={form.policy_number || form.insurance_sub_type || ''}
+                      onChange={(e) => { update('insurance_sub_type', e.target.value); update('policy_number', e.target.value) }}
+                      placeholder="e.g. GPH-78901" className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  </div>
                 </div>
+                {form.policy_provider_id && (
+                  <div className="grid grid-cols-2 gap-4 mt-4">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Coverage Type</label>
+                      <select value={form.coverage_type || 'primary'} onChange={(e) => update('coverage_type', e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm bg-white focus:ring-2 focus:ring-primary outline-none">
+                        <option value="primary">Primary</option>
+                        <option value="secondary">Secondary</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Co-pay % (optional)</label>
+                      <input type="number" min="0" max="100" value={form.co_pay_percentage || ''}
+                        onChange={(e) => update('co_pay_percentage', e.target.value)}
+                        placeholder="Inherits from provider" className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                    </div>
+                  </div>
+                )}
+                {form.insurance && (
+                  <p className="text-xs text-slate-400 mt-2">Category: <span className="font-medium text-slate-600">{form.insurance === '__other__' ? 'Other' : form.insurance}</span></p>
+                )}
               </div>
             </div>
           )}

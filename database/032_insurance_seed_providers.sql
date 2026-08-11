@@ -1,0 +1,15 @@
+-- Seed common Nigerian HMO providers (tenant-agnostic)
+INSERT INTO insurance_providers (id, tenant_id, name, code, is_active)
+SELECT * FROM (VALUES
+  ('a0000000-0000-0000-0000-000000000001'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 'NHIS', 'NHIS', true),
+  ('a0000000-0000-0000-0000-000000000002'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 'Greenfield HMO', 'GPHMO', true),
+  ('a0000000-0000-0000-0000-000000000003'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 'Reliance HMO', 'RLHMO', true),
+  ('a0000000-0000-0000-0000-000000000004'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 'AXA Mansard Health', 'AXAHMO', true),
+  ('a0000000-0000-0000-0000-000000000005'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 'Leadway Health', 'LWHMO', true),
+  ('a0000000-0000-0000-0000-000000000006'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 'Hygeia HMO', 'HYGHMO', true),
+  ('a0000000-0000-0000-0000-000000000007'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 'Total Health Trust', 'THTHMO', true),
+  ('a0000000-0000-0000-0000-000000000008'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 'Precious Healthcare', 'PCHMO', true),
+  ('a0000000-0000-0000-0000-000000000009'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 'Clearline HMO', 'CLHMO', true),
+  ('a0000000-0000-0000-0000-000000000010'::uuid, '00000000-0000-0000-0000-000000000000'::uuid, 'Multi-Shield HMO', 'MSHMO', true)
+) AS v(id, tenant_id, name, code, is_active)
+WHERE NOT EXISTS (SELECT 1 FROM insurance_providers WHERE code = v.code);

@@ -30,7 +30,7 @@ import {
   FlaskConical,
   Building2,
   ChevronDown,
-  Baby, Heart,
+  Baby, Heart, Shield, TrendingUp,
 } from 'lucide-react'
 
 const Login = lazy(() => import('./components/Login'))
@@ -94,6 +94,19 @@ const MaternityLabourWard = lazy(() => import('./components/MaternityLabourWard'
 const MaternityPostnatalWard = lazy(() => import('./components/MaternityPostnatalWard'))
 const MaternityBooking = lazy(() => import('./components/MaternityBooking'))
 const MaternityLabourSummary = lazy(() => import('./components/MaternityLabourSummary'))
+const InsuranceLogin = lazy(() => import('./components/InsuranceLogin'))
+const InsuranceDashboard = lazy(() => import('./components/InsuranceDashboard'))
+const InsuranceProviders = lazy(() => import('./components/InsuranceProviders'))
+const InsuranceStaff = lazy(() => import('./components/InsuranceStaff'))
+const InsuranceCases = lazy(() => import('./components/InsuranceCases'))
+const InsuranceCaseDetail = lazy(() => import('./components/InsuranceCaseDetail'))
+const InsuranceNewCase = lazy(() => import('./components/InsuranceNewCase'))
+const InsuranceInvoices = lazy(() => import('./components/InsuranceInvoices'))
+const InsurancePatients = lazy(() => import('./components/InsurancePatients'))
+const InsurancePatientDetail = lazy(() => import('./components/InsurancePatientDetail'))
+const InsuranceAuthRequests = lazy(() => import('./components/InsuranceAuthRequests'))
+const InsuranceReports = lazy(() => import('./components/InsuranceReports'))
+const InsuranceLayout = lazy(() => import('./components/InsuranceLayout'))
 
 interface SidebarLink {
   to: string
@@ -164,6 +177,16 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/paypoint/billing', label: 'Billing', icon: Receipt, roles: ['Paypoint', 'Admin'], category: 'Finance' },
   { to: '/paypoint/history', label: 'Payment History', icon: FileText, roles: ['Paypoint', 'Admin'], category: 'Finance' },
   { to: '/finance', label: 'Finance / HMO', icon: Banknote, roles: ['Admin'], category: 'Finance' },
+  // ── Insurance ──
+  { to: '/admin/insurance/dashboard', label: 'Insurance Dashboard', icon: Shield, roles: ['Admin', 'Finance'], category: 'Insurance' },
+  { to: '/admin/insurance/cases', label: 'Cases', icon: FileText, roles: ['Admin', 'Finance'], category: 'Insurance' },
+  { to: '/admin/insurance/auth-requests', label: 'Auth Requests', icon: AlertTriangle, roles: ['Admin', 'Finance'], category: 'Insurance' },
+  { to: '/admin/insurance/reports', label: 'Reports', icon: TrendingUp, roles: ['Admin', 'Finance'], category: 'Insurance' },
+  { to: '/admin/insurance/cases/new', label: 'New Case', icon: UserPlus, roles: ['Admin', 'Finance'], category: 'Insurance' },
+  { to: '/admin/insurance/patients', label: 'Patients', icon: Users, roles: ['Admin', 'Finance'], category: 'Insurance' },
+  { to: '/admin/insurance/invoices', label: 'Invoices', icon: Receipt, roles: ['Admin', 'Finance'], category: 'Insurance' },
+  { to: '/admin/insurance/providers', label: 'Providers', icon: Building2, roles: ['Admin'], category: 'Insurance' },
+  { to: '/admin/insurance/staff', label: 'Staff', icon: Users, roles: ['Admin'], category: 'Insurance' },
   // ── Administration ──
   { to: '/services-inventory', label: 'Services Inventory', icon: Building2, roles: ['Admin'], category: 'Administration' },
   { to: '/staff', label: 'Staff Management', icon: Users, roles: ['Admin'], category: 'Administration' },
@@ -174,7 +197,19 @@ const sidebarLinks: SidebarLink[] = [
 function getRole(): string | null {
   try {
     const stored = localStorage.getItem('sretan_user')
-    if (stored) return JSON.parse(stored).role || null
+    if (stored) {
+      const user = JSON.parse(stored)
+      if (user.user_type === 'insurance_staff') return 'InsuranceStaff'
+      return user.role || null
+    }
+  } catch {}
+  return null
+}
+
+function getStoredUser(): any {
+  try {
+    const stored = localStorage.getItem('sretan_user')
+    if (stored) return JSON.parse(stored)
   } catch {}
   return null
 }
@@ -312,7 +347,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
               if (!grouped[cat]) grouped[cat] = []
               grouped[cat].push(link)
             }
-            const categoryOrder = ['Dashboard', 'Clinical', 'Laboratory', 'Pharmacy', 'Radiology', 'Maternity', 'Records', 'Finance', 'Administration']
+            const categoryOrder = ['Dashboard', 'Clinical', 'Laboratory', 'Pharmacy', 'Radiology', 'Maternity', 'Records', 'Finance', 'Insurance', 'Administration']
             const sorted = Object.entries(grouped).sort(([a], [b]) => {
               const ia = categoryOrder.indexOf(a)
               const ib = categoryOrder.indexOf(b)
@@ -475,6 +510,7 @@ function DashboardRouter() {
 function HomeRedirect() {
   var role = getRole()
   if (!role) return <Navigate to="/login" replace />
+  if (role === 'InsuranceStaff') return <Navigate to="/insurance/dashboard" replace />
   return <Navigate to="/dashboard" replace />
 }
 
@@ -931,6 +967,18 @@ export default function App() {
               </Layout>
             }
           />
+          {/* Admin Insurance Routes (within clinical Layout) */}
+          <Route path="/admin/insurance/dashboard" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceDashboard /></Suspense></Layout>} />
+          <Route path="/admin/insurance/cases" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceCases /></Suspense></Layout>} />
+          <Route path="/admin/insurance/cases/new" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceNewCase /></Suspense></Layout>} />
+          <Route path="/admin/insurance/cases/:id" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceCaseDetail /></Suspense></Layout>} />
+          <Route path="/admin/insurance/invoices" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceInvoices /></Suspense></Layout>} />
+          <Route path="/admin/insurance/providers" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceProviders /></Suspense></Layout>} />
+          <Route path="/admin/insurance/staff" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceStaff /></Suspense></Layout>} />
+          <Route path="/admin/insurance/patients" element={<Layout><Suspense fallback={<LoadingFallback />}><InsurancePatients /></Suspense></Layout>} />
+          <Route path="/admin/insurance/patients/:patientId" element={<Layout><Suspense fallback={<LoadingFallback />}><InsurancePatientDetail /></Suspense></Layout>} />
+          <Route path="/admin/insurance/auth-requests" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceAuthRequests /></Suspense></Layout>} />
+          <Route path="/admin/insurance/reports" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceReports /></Suspense></Layout>} />
           <Route
             path="/setup"
             element={
@@ -943,6 +991,18 @@ export default function App() {
               </Layout>
             }
           />
+          <Route path="/insurance/login" element={<Suspense fallback={<LoadingFallback />}><InsuranceLogin /></Suspense>} />
+          <Route path="/insurance/dashboard" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceDashboard /></InsuranceLayout></Suspense>} />
+          <Route path="/insurance/providers" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceProviders /></InsuranceLayout></Suspense>} />
+          <Route path="/insurance/staff" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceStaff /></InsuranceLayout></Suspense>} />
+          <Route path="/insurance/cases" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceCases /></InsuranceLayout></Suspense>} />
+          <Route path="/insurance/cases/new" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceNewCase /></InsuranceLayout></Suspense>} />
+          <Route path="/insurance/cases/:id" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceCaseDetail /></InsuranceLayout></Suspense>} />
+          <Route path="/insurance/invoices" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceInvoices /></InsuranceLayout></Suspense>} />
+          <Route path="/insurance/patients" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsurancePatients /></InsuranceLayout></Suspense>} />
+          <Route path="/insurance/patients/:patientId" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsurancePatientDetail /></InsuranceLayout></Suspense>} />
+          <Route path="/insurance/auth-requests" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceAuthRequests /></InsuranceLayout></Suspense>} />
+          <Route path="/insurance/reports" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceReports /></InsuranceLayout></Suspense>} />
         </Routes>
       </Suspense>
     </BrowserRouter>

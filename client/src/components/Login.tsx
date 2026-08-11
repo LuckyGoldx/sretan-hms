@@ -22,10 +22,29 @@ export default function Login() {
     setSubmitting(true)
     try {
       const { default: api } = await import('../hooks/useAxios')
-      const res = await api.post('/auth/login', { email, password })
-      localStorage.setItem('sretan_token', res.data.token)
-      localStorage.setItem('sretan_user', JSON.stringify(res.data.user))
-      window.location.href = '/dashboard'
+      // Try clinical auth first
+      try {
+        const res = await api.post('/auth/login', { email, password })
+        localStorage.setItem('sretan_token', res.data.token)
+        localStorage.setItem('sretan_user', JSON.stringify(res.data.user))
+        window.location.href = '/dashboard'
+        return
+      } catch (clinicalErr: any) {
+        // If clinical fails (401), try insurance auth
+        if (clinicalErr.response?.status === 401) {
+          try {
+            const insRes = await api.post('/insurance/auth/login', { email, password })
+            localStorage.setItem('sretan_token', insRes.data.token)
+            localStorage.setItem('sretan_user', JSON.stringify(insRes.data.user))
+            window.location.href = '/insurance/dashboard'
+            return
+          } catch (insErr: any) {
+            setError(insErr.response?.data?.message || 'Invalid credentials')
+            return
+          }
+        }
+        setError(clinicalErr.response?.data?.message || 'Invalid credentials')
+      }
     } catch (err: any) {
       setError(err.response?.data?.message || 'Invalid credentials')
     } finally {
@@ -85,6 +104,7 @@ export default function Login() {
             </div>
           )}
           <h1 className="text-xl font-bold">{config?.hospital_name || 'Clinic'}</h1>
+          <p className="text-sm text-white/80 mt-1">Clinical & Insurance Staff</p>
         </div>
 
         <div className="bg-white rounded-2xl rounded-t-none shadow-sm border border-slate-200 border-t-0 p-8">

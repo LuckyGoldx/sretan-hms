@@ -4,6 +4,11 @@ import path from 'path';
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
+import { readClinicProfile } from '../config/reader';
+
+function getTenantId(): string {
+  return readClinicProfile().GLOBAL_SAAS_TENANT_ID;
+}
 
 const DOCUMENTS_DIR = 'C:/hms/assets/documents';
 if (!fs.existsSync(DOCUMENTS_DIR)) fs.mkdirSync(DOCUMENTS_DIR, { recursive: true });
@@ -179,6 +184,21 @@ router.post('/api/insurance-types', async (req: Request, res: Response) => {
     if (!provider || !type_name) { res.status(400).json({ error: true, message: 'provider and type_name are required' }); return; }
     var id = uuidv4();
     var result = await pool.query('INSERT INTO custom_insurance_types (id, provider, type_name, created_by) VALUES ($1, $2, $3, $4) RETURNING *', [id, provider, type_name, created_by || null]);
+    
+    // Also create/ensure the provider exists in insurance_providers
+    var tenantId = getTenantId();
+    var provCheck = await pool.query('SELECT id FROM insurance_providers WHERE name = $1', [type_name]);
+    if (provCheck.rows.length === 0) {
+      var providerCode = type_name.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 10) || 'CUSTOM';
+      var codeCheck = await pool.query('SELECT id FROM insurance_providers WHERE code = $1', [providerCode]);
+      if (codeCheck.rows.length > 0) providerCode = providerCode + Math.floor(Math.random() * 100);
+      var cat = provider === 'HMO' ? 'HMO' : provider === 'NHIA' ? 'NHIA' : 'Other';
+      await pool.query(
+        `INSERT INTO insurance_providers (id, tenant_id, name, code, category) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING`,
+        [uuidv4(), tenantId, type_name, providerCode, cat]
+      );
+    }
+
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
     if (err.code === '23505') { res.status(409).json({ error: true, message: 'Type already exists for this provider' }); return; }
