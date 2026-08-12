@@ -1,6 +1,6 @@
 # Sretan HMS — Comprehensive Session Summary
 
-**Date:** June 13, 2026
+**Date:** August 12, 2026
 **Project:** Hospital Management System — Sretan HMS
 **Repository:** https://github.com/LuckyGoldx/sretan-hms.git
 
@@ -18,6 +18,7 @@
 9. [Role-Based Access Control](#9-role-based-access-control)
 10. [Known Issues & TODOs](#10-known-issues--todos)
 11. [How to Continue](#11-how-to-continue)
+12. [Session 2026-08-12 — Insurance Module](#session-2026-08-12--insurancehmo-module-full-implementation--cross-module-compliance-fixes)
 
 ---
 
@@ -1585,4 +1586,139 @@ client/src/components/DoctorConsultation.tsx — maternity info banner
 
 ---
 
-*End of Session Summary — July 6, 2026*
+## Session 2026-08-12 — Insurance/HMO Module (Full Implementation) + Cross-Module Compliance Fixes
+
+**Scope:** Complete Insurance/HMO module for the Sretan HMS/EMR + security/compliance fixes from the rules audit.
+
+---
+
+### 1. Cross-Module Compliance Fixes (from `RULES_COMPLIANCE_AUDIT.md`)
+
+| Rule | Fix | File |
+|------|-----|------|
+| **Rule 5 — Defensive Validation** | `validateVitalRanges()`: temperature 32–43°C, SpO2 0–100%, systolic BP 60–250, diastolic 30–150, pulse 30–250, RR 5–60, reject negatives (weight/height/fluids/FHR/fundal/Hb/PCV/GA) | `server/src/routes/vitals.ts` |
+| **Rule 5** | Reject `quantity_dispensed <= 0` | `server/src/routes/pharmacy.ts` |
+| **Rule 5** | Reject negative unit_price / zero-negative quantity | `server/src/routes/payments.ts` |
+| **Rule 3 — Tenant Isolation** | Added `tenant_id` to `wards`, `admissions`, `beds` (migration `038`) with dynamic backfill; all admissions handlers use `getTenantId()` | `server/src/routes/admissions.ts`, `database/038_wards_admissions_tenant.sql` |
+| **Rule 2 — Audit Logging** | Added `audit_logs` INSERTs (performed_by, old_data, new_data) for encounters POST/PUT, vitals POST/DELETE, admissions POST/discharge | `encounters.ts`, `vitals.ts`, `admissions.ts` |
+| **Rule 3 — Auth (Critical)** | `isSuperAdmin()` returns `false` for `user_type === 'insurance_staff'` (master token no longer grants superadmin to insurance staff) | `server/src/utils/insuranceAuth.ts` |
+
+---
+
+### 2. Insurance Database Migrations
+
+| File | Purpose |
+|------|---------|
+| `028_insurance_providers.sql` | Providers + insurance_staff_users tables, `patient_insurance_id` column |
+| `032_insurance_seed_providers.sql` | 10 Nigerian HMOs (NHIS, Greenfield, Reliance, AXA, Leadway, Hygeia, THT, Precious, Clearline, Multi-Shield) |
+| `033_insurance_seed_staff.sql` | Test user `insurance@sretan.com` / `insurance` |
+| `034_insurance_cases.sql` | Cases, services, policies, auth requests, co-pay config, excluded services, invoices + items |
+| `035_insurance_provider_category.sql` | `category` column on providers + backfill |
+| `036_insurance_case_services_source.sql` | Source tracking columns (`source_type`, `source_id`) |
+| `037_insurance_service_invoicing.sql` | Service invoicing state (`pending`/`invoiced`), `total_invoiced`/`total_uninvoiced` on cases |
+| `039_insurance_coverage_rules.sql` | `insurance_provider_coverage_rules` + `default_coverage_pct` on providers |
+
+---
+
+### 3. Server Routes (New)
+
+| File | Purpose |
+|------|---------|
+| `routes/insuranceAuth.ts` | Insurance staff login/logout/me |
+| `routes/insuranceProviders.ts` | Provider CRUD, 24h code lock, name/category cascade to patients, deactivate/activate, superadmin hard-delete |
+| `routes/insuranceStaff.ts` | Staff CRUD, roles (admin/editor/viewer), access scope (own/all), deactivate/activate, superadmin hard-delete |
+| `routes/insuranceCases.ts` | Cases CRUD, services CRUD (+ soft-remove), auth requests, policies, co-pay, patient coverage, patient list/summary |
+| `routes/insuranceInvoices.ts` | Invoice generation (per-case + per-period), draft→sent→paid, cancel/void reopen services |
+| `routes/insuranceReports.ts` | Utilization, financial, aging reports |
+| `routes/insuranceCoverage.ts` | Coverage rules CRUD + inventory items endpoint |
+| `utils/autoSyncServices.ts` | Auto-sync completed clinical services (lab/radiology/pharmacy/admissions/encounters/treatments/fluids-intake/maternity) with real inventory prices |
+| `utils/coverageLookup.ts` | Coverage % lookup (item override → category rule → provider default → 100%) + patient primary insurance |
+| `utils/insuranceAuth.ts` | Role/scope helpers, `isSuperAdmin` fix |
+
+---
+
+### 4. Frontend Components (New)
+
+| Component | Route | Purpose |
+|-----------|-------|---------|
+| `InsuranceLogin.tsx` | `/insurance/login` | Insurance staff login |
+| `InsuranceLayout.tsx` + `InsuranceSidebar.tsx` | — | Responsive hamburger sidebar layout |
+| `InsuranceDashboard.tsx` | `/insurance/dashboard` | Stats + month billed (WAT) |
+| `InsuranceProviders.tsx` | `/insurance/providers` | Provider CRUD + deactivate/activate + delete + coverage rules modal |
+| `InsuranceStaff.tsx` | `/insurance/staff` | Staff CRUD + roles + deactivate + delete |
+| `InsuranceCases.tsx` | `/insurance/cases` | Case list with search/filter |
+| `InsuranceCaseDetail.tsx` | `/insurance/cases/:id` | Case detail, services, remove/delete modals |
+| `InsuranceNewCase.tsx` | `/insurance/cases/new` | Create case + prefill from auth request |
+| `InsurancePatients.tsx` | `/insurance/patients` | Patient list with primary insurance tags |
+| `InsurancePatientDetail.tsx` | `/insurance/patients/:id` | Main / Clinical Reference / Insurance Services / Invoices tabs |
+| `InsuranceInvoices.tsx` | `/insurance/invoices` | Invoice list + review workflow + print |
+| `InsuranceReports.tsx` | `/insurance/reports` | Financial / utilization / aging reports |
+| `InsuranceAuthRequests.tsx` | `/insurance/auth-requests` | Pre-authorization workflow |
+| `NumberStepper.tsx` | — | Reusable numeric input (fractions, +/- stepper, empty-by-default handling) |
+
+---
+
+### 5. Key Insurance Features
+
+#### 5.1 Insurance Unification (`patient_insurance_policies` = single source of truth)
+- Registration and Records edit capture directly into policies (not `patients.insurance_type`)
+- Only registered providers selectable (no free-text entry)
+- Policy status computed: **active / expired / deactivated**
+- **One primary per patient** enforced (adding a primary demotes the old one)
+- **Same provider can't be both primary + secondary** (server POST/PUT + UI dropdown filter)
+- **Co-pay inheritance**: new policies inherit provider default unless overridden
+- **Auto-promotion**: when primary expires, oldest active secondary auto-promoted (with `↑ Primary` tag)
+
+#### 5.2 Coverage Rules & Billing Routing
+- Coverage rules page (`/insurance/providers` → % icon): provider default %, category-level %, individual item overrides from inventory
+- Coverage lookup priority: item override → category rule → provider default → 100%
+- `GET /api/payments/pending/:patientId` auto-routes insured patients:
+  - 100% covered → auto-billed to insurance case, marked paid, skipped at Paypoint
+  - Partial → insurance portion auto-billed, patient pays remainder at Paypoint
+  - 0% covered → normal Paypoint billing
+- Dedup logic prevents re-billing on repeated fetches
+
+#### 5.3 Insurance Patient Detail — Two service actions
+- **X icon** (session remove): hides service for current billing view; returns on refresh (client-side Set)
+- **Trash icon** (permanent delete): 2-step stylish confirmation → hard delete from DB
+
+#### 5.4 Insurance Badges (primary insurance)
+- Added `primary_provider` to patients list/search/detail + maternity endpoints
+- Badge shown next to patient names in: RecordsPatientList, RecordsPatientDetail, PatientChart, DoctorConsultation, DoctorDashboard, MyPatients, TriageStation, PatientDashboard, MaternityPatientList, MaternityDashboard
+
+#### 5.5 Provider Actions
+- **Deactivate/Activate** (Power icon): insurance staff + admin, 2-step confirmation
+- **Delete** (Trash icon): superadmin only, 3-step confirmation, cascade deletes
+- Server enforces 403 for insurance staff on delete
+
+#### 5.6 NumberStepper
+- Empty-by-default, numbers only (incl. fractions)
+- Stepper arrows increment by 1
+- Shows actual qty/price as default
+- Total always = qty × price (0 if either empty)
+
+---
+
+### 6. Admin Integration
+- Insurance module accessible to clinical Admin/Finance via `/admin/insurance/*` routes
+- "Insurance" category added to clinical sidebar (Admin: all, Finance: read-only dashboard/cases/invoices)
+
+---
+
+### 7. Test User
+- **Email:** `insurance@sretan.com`
+- **Password:** `insurance`
+- Role: admin, Provider: Greenfield HMO, Access scope: own
+- Login at `/insurance/login` or via main login (auto-detected)
+
+---
+
+### 8. Documentation Files Created
+- `INSURANCE_MODULE_PLAN.md` — design/plan
+- `INSURANCE_MODULE_GAP_ANALYSIS.md` — gap analysis
+- `RULES_COMPLIANCE_AUDIT.md` — cross-module compliance audit
+- `INSURANCE_IMPLEMENTATION.md` — implementation record
+
+---
+
+*End of Session Summary — August 12, 2026*

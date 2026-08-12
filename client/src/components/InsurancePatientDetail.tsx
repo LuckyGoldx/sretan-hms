@@ -5,6 +5,7 @@ import {
   Activity, Droplets, Baby, Plus, X, Trash2, DollarSign, ChevronDown,
   ChevronRight, FlaskConical, Clock, User, Calendar, Filter, CheckCircle, Eye
 } from 'lucide-react'
+import NumberStepper from './NumberStepper'
 
 const ALL_TYPES = 'all'
 
@@ -139,7 +140,7 @@ export default function InsurancePatientDetail() {
       const svc = services.find(s => s.id === svcId)
       if (!svc) return
       const updates: any = { quantity: svc.quantity, unit_price: svc.unit_price }
-      if (field === 'quantity') updates.quantity = parseInt(value) || 0
+      if (field === 'quantity') updates.quantity = parseFloat(value) || 0
       if (field === 'unit_price') updates.unit_price = parseFloat(value) || 0
       await api.put(`/insurance/cases/${selectedCase}/services/${svcId}`, updates)
       await refreshServices()
@@ -203,6 +204,15 @@ export default function InsurancePatientDetail() {
   const cases = summary.insuranceCases || []
   const invoices = summary.invoices || []
   const fs = filteredSummary || summary
+
+  // Line total = qty × price; 0 if either is empty/NaN
+  const lineTotal = (svc: any) => {
+    const qty = parseFloat(svc.quantity)
+    const price = parseFloat(svc.unit_price)
+    const q = isNaN(qty) ? 0 : qty
+    const pr = isNaN(price) ? 0 : price
+    return (q * pr) || 0
+  }
 
   const totalBilled = services.reduce((sum: number, s: any) => sum + parseFloat(s.total_price || 0), 0)
   const pendingServices = services.filter((s: any) => (s.status === 'pending' || !s.status) && !removedForBilling.has(s.id))
@@ -407,17 +417,13 @@ export default function InsurancePatientDetail() {
                       </div>
                       <div className="flex items-center gap-2 mt-1.5">
                         <div className="w-16">
-                          <input type="number" min={0} value={svc.quantity}
-                            onChange={e => updateService(svc.id, 'quantity', e.target.value)}
-                            className="w-full px-1.5 py-1 rounded-lg border border-slate-200 text-xs text-center" />
+                          <NumberStepper value={svc.quantity} onChange={v => updateService(svc.id, 'quantity', v)} className="text-center" />
                         </div>
                         <span className="text-xs text-slate-400">×</span>
                         <div className="w-24">
-                          <input type="number" min={0} value={svc.unit_price}
-                            onChange={e => updateService(svc.id, 'unit_price', e.target.value)}
-                            className="w-full px-1.5 py-1 rounded-lg border border-slate-200 text-xs text-right" />
+                          <NumberStepper value={svc.unit_price} onChange={v => updateService(svc.id, 'unit_price', v)} />
                         </div>
-                        <span className="text-xs font-bold text-slate-700 w-20 text-right">₦{(svc.quantity * svc.unit_price).toLocaleString()}</span>
+                        <span className="text-xs font-bold text-slate-700 w-20 text-right">₦{lineTotal(svc).toLocaleString()}</span>
                         <button onClick={() => removeForBilling(svc.id)} title="Remove for this billing (returns on refresh)"
                           className="p-1 text-slate-300 hover:text-amber-500 transition-all">
                           <X className="w-3.5 h-3.5" />
@@ -541,16 +547,12 @@ export default function InsurancePatientDetail() {
                           </td>
                           <td className="py-2.5 px-4 text-xs text-slate-500">{svc.service_type}</td>
                           <td className="py-2.5 px-4 text-center">
-                            <input type="number" min={0} value={svc.quantity}
-                              onChange={e => updateService(svc.id, 'quantity', e.target.value)}
-                              className="w-16 px-2 py-1 rounded-lg border border-slate-200 text-xs text-center" />
+                            <NumberStepper value={svc.quantity} onChange={v => updateService(svc.id, 'quantity', v)} className="mx-auto text-center" inputClass="text-center" />
                           </td>
                           <td className="py-2.5 px-4 text-right">
-                            <input type="number" min={0} value={svc.unit_price}
-                              onChange={e => updateService(svc.id, 'unit_price', e.target.value)}
-                              className="w-24 px-2 py-1 rounded-lg border border-slate-200 text-xs text-right" />
+                            <NumberStepper value={svc.unit_price} onChange={v => updateService(svc.id, 'unit_price', v)} className="ml-auto" />
                           </td>
-                          <td className="py-2.5 px-4 text-right text-xs font-bold">₦{(svc.quantity * svc.unit_price).toLocaleString()}</td>
+                          <td className="py-2.5 px-4 text-right text-xs font-bold">₦{lineTotal(svc).toLocaleString()}</td>
                           <td className="py-2.5 px-4 text-center">
                             <span className={`text-[10px] px-1.5 py-0.5 rounded ${svc.source_type ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'}`}>
                               {svc.source_type ? 'auto' : 'manual'}
@@ -605,7 +607,7 @@ export default function InsurancePatientDetail() {
                           <td className="py-2.5 px-4 text-xs text-slate-500">{svc.service_type}</td>
                           <td className="py-2.5 px-4 text-center text-xs">{svc.quantity}</td>
                           <td className="py-2.5 px-4 text-right text-xs">₦{Number(svc.unit_price).toLocaleString()}</td>
-                          <td className="py-2.5 px-4 text-right text-xs font-bold">₦{(svc.quantity * svc.unit_price).toLocaleString()}</td>
+                          <td className="py-2.5 px-4 text-right text-xs font-bold">₦{lineTotal(svc).toLocaleString()}</td>
                           <td className="py-2.5 px-4">
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-200 text-slate-500 text-[10px] font-medium">
                               <FileText className="w-2.5 h-2.5" /> {svc.invoice_number || '—'}

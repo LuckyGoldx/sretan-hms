@@ -18,6 +18,18 @@ export async function autoSyncClinicalServices(caseId: string, patientId: string
     );
   }
 
+  // Look up the item's default price from inventory (as at order time)
+  async function inventoryPrice(itemName: string, category: string): Promise<number> {
+    try {
+      const res = await pool.query(
+        `SELECT price FROM inventory_items WHERE drug_name ILIKE $1 AND category = $2 AND is_active = true LIMIT 1`,
+        [itemName, category]
+      );
+      if (res.rows.length > 0) return parseFloat(res.rows[0].price) || 0;
+    } catch {}
+    return 0;
+  }
+
   // 1. Completed lab results (join: lab_results -> lab_orders -> encounters -> patients)
   const labResults = await pool.query(
     `SELECT lr.id, lo.test_name, lr.analyte_name, lr.value, lr.created_at
@@ -29,7 +41,8 @@ export async function autoSyncClinicalServices(caseId: string, patientId: string
   );
   for (const r of labResults.rows) {
     const name = r.test_name ? `${r.test_name} - ${r.analyte_name}` : r.analyte_name;
-    await ensureService('lab', name, 1, 0, 'lab_result', r.id);
+    const price = await inventoryPrice(r.test_name, 'lab');
+    await ensureService('lab', name, 1, price, 'lab_result', r.id);
   }
 
   // 2. Completed radiology orders (join: radiology_orders -> encounters -> patients)
@@ -41,7 +54,8 @@ export async function autoSyncClinicalServices(caseId: string, patientId: string
     [patientId]
   );
   for (const r of radOrders.rows) {
-    await ensureService('radiology', r.imaging_type, 1, 0, 'radiology', r.id);
+    const price = await inventoryPrice(r.imaging_type, 'radiology');
+    await ensureService('radiology', r.imaging_type, 1, price, 'radiology', r.id);
   }
 
   // 3. Dispensed prescriptions (join: prescriptions -> encounters -> patients)
@@ -53,7 +67,8 @@ export async function autoSyncClinicalServices(caseId: string, patientId: string
     [patientId]
   );
   for (const p of prescriptions.rows) {
-    await ensureService('pharmacy', p.drug_name, parseInt(p.quantity) || 1, 0, 'prescription', p.id);
+    const price = await inventoryPrice(p.drug_name, 'pharmacy');
+    await ensureService('pharmacy', p.drug_name, parseInt(p.quantity) || 1, price, 'prescription', p.id);
   }
 
   // 4. Admissions (have patient_id directly)
