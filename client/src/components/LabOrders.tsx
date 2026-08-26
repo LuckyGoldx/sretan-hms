@@ -16,14 +16,18 @@ export default function LabOrders() {
 
   useEffect(() => {
     loadData()
+    const interval = setInterval(() => loadData(true), 10000)
+    const onFocus = () => loadData(true)
+    window.addEventListener('focus', onFocus)
+    return () => { clearInterval(interval); window.removeEventListener('focus', onFocus) }
   }, [])
 
-  async function loadData() {
-    setLoading(true)
+  async function loadData(silent = false) {
+    if (!silent) setLoading(true)
     try {
       const labRes = await api.get('/lab-orders').catch(() => ({ data: [] }))
       setLabOrders(labRes.data || [])
-    } catch {} finally { setLoading(false) }
+    } catch {} finally { if (!silent) setLoading(false) }
   }
 
   const unpaidOrders = labOrders.filter((o: any) => o.is_paid === false)

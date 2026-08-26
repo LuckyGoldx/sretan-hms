@@ -1,5 +1,5 @@
 appId: com.sretan.emr
-productName: Sretan EMR
+productName: MACHOKO EMR
 directories:
   output: dist
   buildResources: build

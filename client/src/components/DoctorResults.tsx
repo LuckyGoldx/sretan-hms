@@ -130,7 +130,7 @@ export default function DoctorResults() {
 
   async function loadLabResults(item: ResultItem) {
     try {
-      const res = await api.get(`/lab-results/${item.id}?status=completed`)
+      const res = await api.get(`/lab-results/${item.id}${item.status === 'completed' ? '' : '?status=completed'}`)
       setDetail({ ...item, results: res.data || [] })
     } catch { setDetail(item) }
   }

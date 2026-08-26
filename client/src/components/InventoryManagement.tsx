@@ -122,7 +122,7 @@ export default function InventoryManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <button onClick={() => navigate('/pharmacy')} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
+          <button onClick={() => navigate('/dashboard')} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
           <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center"><Package size={22} className="text-blue-600" /></div>
           <div>
             <h1 className="text-xl font-bold text-slate-800">Pharmacy Inventory</h1>

@@ -16,7 +16,7 @@ router.get('/api/staff', async (_req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const result = await pool.query(
-      `SELECT id, email, name, role, phone, status, created_at FROM staff_users WHERE tenant_id = $1 ORDER BY name`,
+      `SELECT id, email, username, name, role, phone, status, created_at FROM staff_users WHERE tenant_id = $1 ORDER BY name`,
       [tenantId]
     );
     res.json(result.rows);
@@ -30,7 +30,7 @@ router.get('/api/staff/:id', async (req: Request, res: Response) => {
     const tenantId = getTenantId();
     const { id } = req.params;
     const result = await pool.query(
-      `SELECT id, email, name, role, phone, status, created_at FROM staff_users WHERE id = $1 AND tenant_id = $2`,
+      `SELECT id, email, username, name, role, phone, status, created_at FROM staff_users WHERE id = $1 AND tenant_id = $2`,
       [id, tenantId]
     );
     if (result.rows.length === 0) {
@@ -46,7 +46,7 @@ router.get('/api/staff/:id', async (req: Request, res: Response) => {
 router.post('/api/staff', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { name, email, role, phone, password } = req.body;
+    const { name, email, role, phone, password, username } = req.body;
 
     if (!name || !email || !role || !password) {
       res.status(400).json({ error: true, message: 'Required: name, email, role, password' });
@@ -55,6 +55,16 @@ router.post('/api/staff', async (req: Request, res: Response) => {
 
     if (!VALID_ROLES.includes(role)) {
       res.status(400).json({ error: true, message: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
+      return;
+    }
+
+    const uname = (username || '').trim().toLowerCase() || email.trim().split('@')[0].toLowerCase() || null;
+    if (!uname) {
+      res.status(400).json({ error: true, message: 'Username is required (or an email to derive it from)' });
+      return;
+    }
+    if (!/^[a-z0-9._-]+$/.test(uname)) {
+      res.status(400).json({ error: true, message: 'Username may only contain letters, numbers, dots, dashes and underscores' });
       return;
     }
 
@@ -67,13 +77,22 @@ router.post('/api/staff', async (req: Request, res: Response) => {
       return;
     }
 
+    const dup = await pool.query(
+      `SELECT id FROM staff_users WHERE LOWER(username) = LOWER($1) AND tenant_id = $2`,
+      [uname, tenantId]
+    );
+    if (dup.rows.length > 0) {
+      res.status(409).json({ error: true, message: 'This username is already taken' });
+      return;
+    }
+
     const hash = await bcrypt.hash(password, 10);
     const id = uuidv4();
     const result = await pool.query(
-      `INSERT INTO staff_users (id, tenant_id, email, name, role, phone, password, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
-       RETURNING id, email, name, role, phone, status, created_at`,
-      [id, tenantId, email, name, role, phone || null, hash]
+      `INSERT INTO staff_users (id, tenant_id, email, username, name, role, phone, password, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'active')
+       RETURNING id, email, username, name, role, phone, status, created_at`,
+      [id, tenantId, email, uname, name, role, phone || null, hash]
     );
 
     res.status(201).json(result.rows[0]);
@@ -86,16 +105,34 @@ router.put('/api/staff/:id', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const { id } = req.params;
-    const { name, email, role, phone, password, status } = req.body;
+    const { name, email, role, phone, password, status, username } = req.body;
 
     if (role && !VALID_ROLES.includes(role)) {
       res.status(400).json({ error: true, message: `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}` });
       return;
     }
 
-    let query = `UPDATE staff_users SET name = COALESCE($1, name), email = COALESCE($2, email), role = COALESCE($3, role), phone = COALESCE($4, phone), status = COALESCE($5, status)`;
-    const params: any[] = [name || null, email || null, role || null, phone || null, status || null];
-    let paramIdx = 6;
+    const uname = username !== undefined && username !== null && username !== ''
+      ? String(username).trim().toLowerCase()
+      : null;
+    if (uname !== null && !/^[a-z0-9._-]+$/.test(uname)) {
+      res.status(400).json({ error: true, message: 'Username may only contain letters, numbers, dots, dashes and underscores' });
+      return;
+    }
+    if (uname !== null) {
+      const dup = await pool.query(
+        `SELECT id FROM staff_users WHERE LOWER(username) = LOWER($1) AND tenant_id = $2 AND id <> $3`,
+        [uname, tenantId, id]
+      );
+      if (dup.rows.length > 0) {
+        res.status(409).json({ error: true, message: 'This username is already taken' });
+        return;
+      }
+    }
+
+    let query = `UPDATE staff_users SET name = COALESCE($1, name), email = COALESCE($2, email), username = COALESCE($3, username), role = COALESCE($4, role), phone = COALESCE($5, phone), status = COALESCE($6, status)`;
+    const params: any[] = [name || null, email || null, uname, role || null, phone || null, status || null];
+    let paramIdx = 7;
 
     if (password) {
       const hash = await bcrypt.hash(password, 10);
@@ -104,7 +141,7 @@ router.put('/api/staff/:id', async (req: Request, res: Response) => {
       paramIdx++;
     }
 
-    query += ` WHERE id = $${paramIdx} AND tenant_id = $${paramIdx + 1} RETURNING id, email, name, role, phone, status, created_at`;
+    query += ` WHERE id = $${paramIdx} AND tenant_id = $${paramIdx + 1} RETURNING id, email, username, name, role, phone, status, created_at`;
     params.push(id, tenantId);
 
     const result = await pool.query(query, params);

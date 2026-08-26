@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import { printRadiologyReport } from '../utils/print'
 import DoctorComment from './DoctorComment'
 import type { Patient, Encounter } from '../types'
 import { Trash2 } from 'lucide-react'
@@ -540,7 +541,7 @@ export default function PatientChart() {
       const labOrders = labRes.data || []
       const resultsMap: Record<string, any[]> = {}
       for (const lo of labOrders) {
-        try { const r = await api.get(`/lab-results/${lo.id}?status=completed`); if (r.data?.length) resultsMap[lo.id] = r.data } catch {}
+        try { const r = await api.get(`/lab-results/${lo.id}${lo.status === 'completed' ? '' : '?status=completed'}`); if (r.data?.length) resultsMap[lo.id] = r.data } catch {}
       }
       setModalEncData({ prescriptions: rxRes.data || [], labOrders, labResultsMap: resultsMap, radiologyOrders: radRes.data || [], doctorName })
     } catch { setModalEncData({ prescriptions: [], labOrders: [], labResultsMap: {}, radiologyOrders: [], doctorName }) }
@@ -582,7 +583,7 @@ export default function PatientChart() {
           allRadOrders.push(...(radRes.data || []))
 
           for (const lo of (labRes.data || [])) {
-            try { const r = await api.get(`/lab-results/${lo.id}?status=completed`); if (r.data?.length) resultsMap[lo.id] = r.data } catch {}
+            try { const r = await api.get(`/lab-results/${lo.id}${lo.status === 'completed' ? '' : '?status=completed'}`); if (r.data?.length) resultsMap[lo.id] = r.data } catch {}
           }
 
           try {
@@ -1257,7 +1258,7 @@ export default function PatientChart() {
 
               {/* Print */}
               <div className="flex justify-end">
-                <button onClick={() => window.print()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50">
+                <button onClick={() => printRadiologyReport(viewRadModal)} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50">
                   <Printer size={14} /> Print Report
                 </button>
               </div>

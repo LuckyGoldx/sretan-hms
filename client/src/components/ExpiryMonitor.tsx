@@ -38,7 +38,7 @@ export default function ExpiryMonitor() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/pharmacy')} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
+        <button onClick={() => navigate('/dashboard')} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
         <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center"><Clock size={22} className="text-rose-600" /></div>
         <div>
           <h1 className="text-xl font-bold text-slate-800">Expiry Monitor</h1>

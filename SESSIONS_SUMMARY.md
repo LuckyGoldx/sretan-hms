@@ -1722,3 +1722,71 @@ client/src/components/DoctorConsultation.tsx — maternity info banner
 ---
 
 *End of Session Summary — August 12, 2026*
+
+---
+
+## Session 2026-08-26 — Pharmacy Billing & Insurance, Standardized Receipts, Paypoint Enhancements, Username Login
+
+**Session Date:** August 26, 2026
+
+---
+
+### 1. Pharmacy Dispensing & Insurance Billing
+
+- **Dispense with "Bill to Insurance"** (`pharmacy.ts`): when `bill_to_insurance` is set, the prescription is now marked `is_paid = true` alongside `status = 'dispensed'`, so the item stops appearing at Paypoint. A defensive guard rejects billing an already-paid prescription (400).
+- **Bill-to-insurance marks source orders paid** (`insuranceCases.ts`): `/insurance/bill-to-insurance` now calls `markSourceOrderAsPaid()` — prescriptions, lab, radiology, and admissions are marked paid; `folder_activation` items set `folder_activated = true`. Includes `service_id` + `source_type` traceability in `insurance_case_services`.
+- **Dispense modal note** (`Dispensing.tsx`): paid prescriptions show **"Billed to insurance"** vs **"Already paid at Paypoint"** via a new `billed_to_insurance` flag (EXISTS against `insurance_case_services`) returned by `GET /api/prescriptions`.
+- **Dispensing page** now lists only **paid** prescriptions (subtitle/count/empty state updated).
+- **New `/dispensing/unpaid` page** (`UnpaidOrders.tsx`): comprehensive card grid of all unpaid prescriptions — search (drug/patient/hospital #/phone/doctor), summary cards, 30/page styled pagination, insurance tags. Backed by new `GET /api/prescriptions/unpaid` endpoint (parameterized join incl. patient + doctor + drug price).
+
+### 2. Pharmacy Module Restructure
+
+- `/pharmacy` (removed route + menu item) → **Pharmacy Dashboard** (`PharmacyDashboard.tsx`) is now an **operational hub**: live "Ready to Dispense (Paid)" list, low-stock/expiring banners, stat cards, quick actions, low-stock list. Pharmacists land on it at `/dashboard` (DashboardRouter → `<PharmacyDashboard />`).
+- Dashboard menu item now uses the **Pill** icon; back-navigation buttons across pharmacy pages retargeted to `/dashboard`.
+- Styled, overflow-safe pagination (30/page) across `/dispensing` and `/dispensing/unpaid` (`flex-wrap`, `min-h-0`, pill "Page X / Y").
+
+### 3. Paypoint Module
+
+- **Insurance pages removed from the Finance module**: removed `Finance` role from all insurance sidebar links and wrapped `/admin/insurance/*` routes in `<ProtectedRoute roles={['Admin']}>`.
+- **`/finance/payment-history`**: pagination 30/page (always-visible bar).
+- **"Bill to Insurance" for all items** at Paypoint (`PaypointPending`, `PaypointCheckout`) gated on an **active insurance case** — all item types can be billed; billed items leave pending.
+- **`/paypoint/patients` + `/paypoint/pending`**: pagination 30/page, search by **phone**, **primary insurance tags**, newest-first sorting (via `last_pending_at`, `insurance_provider`, `phone` added to `pending-summary`/`all-pending-items`).
+- **`/paypoint/billing`**: pagination 30/page + primary insurance tags (uses existing `primary_provider` from `/api/patients`).
+- **`/paypoint/dashboard`**: insurance tags on search results + selected patient; cart **Bill to Insurance** toggle (only with an active case); when ticked the **Cash/Card/Transfer/POS buttons are hidden** and the primary insurance provider is shown; checkout posts to `/insurance/bill-to-insurance` (audited `added_by`) with an `INS-<case>` receipt.
+- Fixed a pre-existing React duplicate-key warning in patient service badges.
+
+### 4. Walk-in Sales (`/walk-in-sales`)
+
+- **Click any inventory row** to add to cart (multiple clicks increment until stock limit).
+- **Discount checkbox** reveals the discount field; **Subtotal and Sale Notes removed**.
+- **Patient search in the cart** (registered patients with insurance tags) + **Bill to Insurance** toggle; when ticked, payment methods are hidden and the primary insurance is shown; billing adds to the patient's insurance case.
+- **Barcode/scan input removed**; sales table converted to **Sales Today / Sales History tabs** with search + 30/page pagination; View + Print actions per sale (sale-details modal with **Print Receipt** for thermal printer); delete/void button removed.
+- **Sale-complete modal fixes**: `max-h` constrained with scrollable body + pinned footer (buttons always visible), **Done left / Print Receipt right**, and fixed the **blank-page-after-sale** crash (`unit_price` from pg arrives as a string → `parseFloat` on add-to-cart + defensive `Number()` in receipt/print).
+- **Cart items list enlarged** in all cart views (Walk-in Sales, Paypoint Dashboard/Pending/Patients/Checkout, Billing) and **notes boxes removed** everywhere (dead `notes` state cleaned, payloads send `notes: null`).
+- Print window no longer blocks the app: auto-print now runs inside the popup's own document; popup-blocked shows a non-blocking notice.
+
+### 5. Standardized Receipts & Reports
+
+- New **`client/src/utils/print.ts`** shared module: hospital constants (**MACHOKO MEMORIAL HOSPITAL**, address, Tel: 0802900231 / 07068855750 / 08068862666), `buildReceiptHtml` (Item / Qty / **Price = qty×price**, **TOTAL below**), `generateReceiptNumber` (**MMH-** prefix), `printPaymentReceipt`, `printRadiologyReport`, `openPrint`, `escapeHtml`, receipt/report headers.
+- **Receipt format applied to every receipt** (Walk-in Sales cart + per-sale, Paypoint Pending/Checkout/Dashboard/Patients, Billing, Finance): heading, address, contact, Receipt No (**MMH-…**), **Date + Time on one line**, Staff, Customer, Payment Method, line items, TOTAL, auto-print.
+- **Lab & radiology report/result prints** use the same heading/address/contact only (`labPrint.ts`, Lab Worklist/History report modals + copies, `RadiologyResults`, `PatientChart` radiology print, insurance invoices).
+- Date+time combined onto one receipt line.
+
+### 6. Username Login
+
+- **Migration `041_staff_usernames.sql`**: added `username` to `staff_users` and `insurance_staff_users`; backfilled from the email local part (`doctor@sretan.com` → `doctor`) with `_N` de-duplication and fallbacks (idempotent).
+- **Login accepts username OR email** (case-insensitive) in `auth.ts` and `insuranceAuth.ts`; `username` returned in the user object.
+- **Staff create/update** (`staff.ts`) accepts `username` (derives from email prefix when blank, format-validated, duplicate 409); `GET /api/staff` returns it.
+- **Login pages** (`Login.tsx`, `InsuranceLogin.tsx`): field is now **"Username or Email"** (placeholder `e.g. doctor`).
+- **StaffManagement.tsx**: Add Staff modal has a **Username** field that auto-fills from the email prefix as typed.
+- `scripts/seed_users.cjs` and `SETUP.md` updated with demo usernames (admin, doctor, nurse, lab, pharmacy, records, paypoint).
+
+### 7. Branding & Misc
+
+- **MACHOKO EMR → MACHOKO HMS** everywhere (login title, sidebar, browser tab, server startup log, setup console).
+- Server `GET /api/prescriptions` returns `billed_to_insurance`; `GET /api/prescriptions/unpaid` added.
+- New migrations this session: `040_otc_sales_void.sql` (void columns + audited void/restock endpoint `PUT /api/otc-sales/:id/void`), `041_staff_usernames.sql`.
+
+---
+
+*End of Session Summary — August 26, 2026*

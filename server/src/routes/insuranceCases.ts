@@ -10,6 +10,23 @@ function getTenantId(): string {
   return readClinicProfile().GLOBAL_SAAS_TENANT_ID;
 }
 
+// Helper: mark a source order as paid so it stops appearing at Paypoint once billed to insurance
+async function markSourceOrderAsPaid(serviceType: string, serviceId: string | null): Promise<void> {
+  if (!serviceId) return;
+  const tableMap: Record<string, string> = {
+    prescription: 'prescriptions',
+    pharmacy: 'prescriptions',
+    lab: 'lab_orders',
+    radiology: 'radiology_orders',
+    admission: 'admissions',
+  };
+  const table = tableMap[serviceType];
+  if (!table) return;
+  try {
+    await pool.query(`UPDATE ${table} SET is_paid = true WHERE id = $1`, [serviceId]);
+  } catch {}
+}
+
 // Helper: generate case number
 async function generateCaseNumber(providerCode: string): Promise<string> {
   const year = new Date().getFullYear();
@@ -968,11 +985,15 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
       const id = crypto.randomUUID();
       const total = qty * price;
       const result = await pool.query(
-        `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, source_type, added_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-        [id, tenantId, targetCaseId, serviceType, serviceName, qty, price, total, src, created_by || null]
+        `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, source_type, source_id, added_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+        [id, tenantId, targetCaseId, serviceType, serviceName, qty, price, total, src, item.service_id || null, created_by || null]
       );
       added.push(result.rows[0]);
+      await markSourceOrderAsPaid(item.service_type, item.service_id || null);
+      if (item.service_type === 'folder_activation' && patientId) {
+        await pool.query('UPDATE patients SET folder_activated = true WHERE id = $1', [patientId]);
+      }
     }
 
     // Update case total_billed

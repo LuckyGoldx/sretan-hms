@@ -12,10 +12,16 @@ export default function FinanceDashboard() {
   const [loading, setLoading] = useState(true)
   const [serviceRevenue, setServiceRevenue] = useState<any[]>([])
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => {
+    loadData()
+    const interval = setInterval(() => loadData(true), 10000)
+    const onFocus = () => loadData(true)
+    window.addEventListener('focus', onFocus)
+    return () => { clearInterval(interval); window.removeEventListener('focus', onFocus) }
+  }, [])
 
-  async function loadData() {
-    setLoading(true)
+  async function loadData(silent = false) {
+    if (!silent) setLoading(true)
     try {
       const [statsRes, paymentsRes, svcRes] = await Promise.all([
         api.get('/payments/revenue/stats').catch(() => ({ data: null })),
@@ -25,7 +31,7 @@ export default function FinanceDashboard() {
       setStats(statsRes.data)
       setPayments(paymentsRes.data || [])
       setServiceRevenue(svcRes.data || [])
-    } catch {} finally { setLoading(false) }
+    } catch {} finally { if (!silent) setLoading(false) }
   }
 
   // Compute daily revenue for last 7 days

@@ -2,14 +2,14 @@ import { useState } from 'react'
 import { LogIn, Loader2, Building2, Shield } from 'lucide-react'
 
 export default function InsuranceLogin() {
-  const [email, setEmail] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!email || !password) {
+    if (!identifier || !password) {
       setError('Please fill in all fields')
       return
     }
@@ -17,7 +17,7 @@ export default function InsuranceLogin() {
     setSubmitting(true)
     try {
       const { default: api } = await import('../hooks/useAxios')
-      const res = await api.post('/insurance/auth/login', { email, password })
+      const res = await api.post('/insurance/auth/login', { username: identifier, password })
       localStorage.setItem('sretan_token', res.data.token)
       localStorage.setItem('sretan_user', JSON.stringify(res.data.user))
       window.location.href = '/insurance/dashboard'
@@ -48,12 +48,13 @@ export default function InsuranceLogin() {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Username or Email</label>
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="hmo@provider.com"
+                type="text"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                placeholder="e.g. hmo_admin"
+                autoComplete="username"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
               />
             </div>

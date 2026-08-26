@@ -179,6 +179,10 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
 
     // If billing to insurance, add drug charge to the active insurance case and allow dispensing without cash payment
     if (bill_to_insurance) {
+      if (prescription.is_paid) {
+        res.status(400).json({ error: true, message: 'Prescription is already paid — it cannot be billed to insurance again' });
+        return;
+      }
       const encounterRes = await pool.query('SELECT patient_id FROM encounters WHERE id = $1', [prescription.encounter_id]);
       const patientId = encounterRes.rows[0]?.patient_id;
       if (!patientId) {
@@ -236,7 +240,7 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
     }
 
     await pool.query(
-      `UPDATE prescriptions SET status = 'dispensed' WHERE id = $1`,
+      `UPDATE prescriptions SET status = 'dispensed'${bill_to_insurance ? ', is_paid = true' : ''} WHERE id = $1`,
       [prescription_id]
     );
 

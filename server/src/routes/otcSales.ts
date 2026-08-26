@@ -15,7 +15,7 @@ router.get('/api/otc-sales', async (req: Request, res: Response) => {
     const { date_from, date_to } = req.query;
     let query = `SELECT o.*, s.name as sold_by_name FROM otc_sales o
                  LEFT JOIN staff_users s ON s.id = o.sold_by
-                 WHERE o.tenant_id = $1`;
+                 WHERE o.tenant_id = $1 AND o.voided_at IS NULL`;
     const params: any[] = [tenantId];
     let idx = 2;
 
@@ -55,6 +55,43 @@ router.post('/api/otc-sales', async (req: Request, res: Response) => {
     );
 
     res.status(201).json(result.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// Void a sale (restores stock, keeps immutable audit trail of who voided and when)
+router.put('/api/otc-sales/:id/void', async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    const { id } = req.params;
+    const { voided_by } = req.body;
+
+    const existing = await pool.query(
+      'SELECT * FROM otc_sales WHERE id = $1 AND tenant_id = $2',
+      [id, tenantId]
+    );
+    if (existing.rows.length === 0) {
+      res.status(404).json({ error: true, message: 'Sale not found' });
+      return;
+    }
+    const sale = existing.rows[0];
+    if (sale.voided_at) {
+      res.status(400).json({ error: true, message: 'Sale has already been voided' });
+      return;
+    }
+
+    await pool.query(
+      'UPDATE otc_sales SET voided_at = NOW(), voided_by = $1 WHERE id = $2',
+      [voided_by || null, id]
+    );
+
+    await pool.query(
+      `UPDATE inventory_items SET stock_count = stock_count + $1 WHERE drug_name = $2 AND tenant_id = $3 AND category = 'pharmacy'`,
+      [sale.quantity, sale.drug_name, tenantId]
+    );
+
+    res.json({ success: true, message: 'Sale voided and stock restored' });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }

@@ -138,7 +138,7 @@ export default function PatientDashboard() {
 
   const roleSpecificLinks: Record<string, { title: string; desc: string; icon: any; route: string }[]> = {
     Pharmacist: [
-      { title: 'Pharmacy Overview', desc: 'Stats and quick access', icon: Pill, route: '/pharmacy' },
+      { title: 'Pharmacy Overview', desc: 'Stats and quick access', icon: Pill, route: '/dashboard' },
       { title: 'Dispensing', desc: 'Fill pending prescriptions', icon: ClipboardList, route: '/dispensing' },
       { title: 'Pharmacy Inventory', desc: 'Manage stock levels', icon: Package, route: '/pharmacy-inventory' },
       { title: 'Expiry Monitor', desc: 'Track expiring items', icon: Clock, route: '/pharmacy-expiry' },

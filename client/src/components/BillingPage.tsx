@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import { printPaymentReceipt } from '../utils/print'
 import {
   Search, Loader2, Plus, X, CheckCircle, Trash2, Banknote, CreditCard, Landmark, Smartphone, ArrowLeft, User, Receipt, Building2, Pill, FlaskConical, Scan, ShoppingCart, Printer, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 30
 
 export default function BillingPage() {
   const navigate = useNavigate()
@@ -20,7 +21,6 @@ export default function BillingPage() {
   const [cart, setCart] = useState<any[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState('cash')
-  const [notes, setNotes] = useState('')
   const [receipt, setReceipt] = useState<any>(null)
   const [showReceipt, setShowReceipt] = useState(false)
   const [catSearch, setCatSearch] = useState('')
@@ -87,9 +87,9 @@ export default function BillingPage() {
       const res = await api.post('/payments', {
         patient_id: selectedPatient.id,
         items: cart.map((c) => ({ service_type: 'billing', service_id: null, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
-        payment_method: paymentMethod, notes: notes || null, created_by: currentUser?.id,
+        payment_method: paymentMethod, notes: null, created_by: currentUser?.id,
       })
-      setReceipt(res.data); setShowReceipt(true); setCart([]); setNotes('')
+      setReceipt(res.data); setShowReceipt(true); setCart([])
     } catch (err: any) { alert(err.response?.data?.message || 'Payment failed') } finally { setSubmitting(false) }
   }
 
@@ -133,22 +133,30 @@ export default function BillingPage() {
                         className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 text-left transition-colors">
                         <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0"><User size={15} className="text-primary" /></div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-slate-800">{p.full_name}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-medium text-slate-800 truncate">{p.full_name}</p>
+                            {p.primary_provider && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[9px] font-semibold text-emerald-700 whitespace-nowrap">
+                                <Building2 size={9} /> {p.primary_provider}
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-slate-400">{p.hospital_number} {p.phone ? `· ${p.phone}` : ''}</p>
                         </div>
                         <span className="text-xs text-primary font-medium">&rarr;</span>
                       </button>
                     ))}
                   </div>
-                  {totalPages > 1 && (
-                    <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50">
+                  <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 bg-slate-50 flex-wrap gap-3">
+                    <span className="text-xs text-slate-400 whitespace-nowrap">Showing {paged.length} of {filtered.length} patient(s)</span>
+                    <div className="flex items-center gap-1.5 ml-auto">
                       <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page === 0}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium disabled:opacity-30 hover:bg-white"><ChevronLeft size={14} /> Prev</button>
-                      <span className="text-xs text-slate-500">Page {page + 1} of {totalPages} ({filtered.length} patients)</span>
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all"><ChevronLeft size={14} /> Prev</button>
+                      <span className="px-3 py-1.5 rounded-lg bg-slate-100 text-xs font-semibold text-slate-700 whitespace-nowrap">Page {page + 1} <span className="text-slate-400 font-medium">/ {totalPages}</span></span>
                       <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1}
-                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium disabled:opacity-30 hover:bg-white">Next <ChevronRight size={14} /></button>
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all">Next <ChevronRight size={14} /></button>
                     </div>
-                  )}
+                  </div>
                 </>
               )}
             </div>
@@ -158,7 +166,17 @@ export default function BillingPage() {
                 <div className="flex items-center gap-3">
                   <button onClick={() => { setSelectedPatient(null); setCart([]) }} className="p-1 rounded-lg hover:bg-slate-100"><ArrowLeft size={16} className="text-slate-500" /></button>
                   <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center"><User size={16} className="text-primary" /></div>
-                  <div><p className="text-sm font-semibold text-slate-800">{selectedPatient.full_name}</p><p className="text-xs text-slate-400">{selectedPatient.hospital_number}</p></div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-slate-800">{selectedPatient.full_name}</p>
+                      {selectedPatient.primary_provider && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[9px] font-semibold text-emerald-700 whitespace-nowrap">
+                          <Building2 size={9} /> {selectedPatient.primary_provider}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400">{selectedPatient.hospital_number}</p>
+                  </div>
                 </div>
               </div>
               <div className="px-5 py-3 border-b border-slate-100 flex-shrink-0">
@@ -200,7 +218,7 @@ export default function BillingPage() {
             {cart.length === 0 ? (
               <p className="text-sm text-slate-400 text-center py-6">{selectedPatient ? 'Add services from the catalog.' : 'Select a patient first.'}</p>
             ) : (
-              <div className="space-y-3 max-h-64 overflow-y-auto">
+              <div className="space-y-3 max-h-[60vh] overflow-y-auto">
                 {cart.map((item, i) => (
                   <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
                     <div className="flex items-start justify-between gap-2 mb-2">
@@ -236,8 +254,6 @@ export default function BillingPage() {
                     )
                   })}
                 </div>
-                <input type="text" placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-slate-400">{cart.length} item(s)</span>
                   <span className="text-lg font-bold text-slate-800">₦{total.toLocaleString()}</span>
@@ -266,12 +282,12 @@ export default function BillingPage() {
       {showCart && (
         <div className="fixed inset-0 z-50 flex items-end lg:hidden" onClick={() => setShowCart(false)}>
           <div className="fixed inset-0 bg-black/30" />
-          <div className="relative w-full bg-white rounded-t-2xl shadow-xl border border-slate-100 max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="relative w-full bg-white rounded-t-2xl shadow-xl border border-slate-100 max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
               <h2 className="text-sm font-semibold"><ShoppingCart size={16} className="inline mr-2" />Bill ({cart.length})</h2>
               <button onClick={() => setShowCart(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
-            <div className="overflow-y-auto flex-1 px-5 py-3 divide-y divide-slate-50">
+            <div className="overflow-y-auto flex-1 min-h-0 px-5 py-3 divide-y divide-slate-50">
               {cart.map((item, i) => (
                 <div key={i} className="py-3">
                   <div className="flex items-start justify-between gap-2 mb-2">
@@ -306,8 +322,6 @@ export default function BillingPage() {
                     )
                   })}
                 </div>
-                <input type="text" placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <div className="flex items-center justify-between"><span className="text-xs text-slate-400">{cart.length} items</span><span className="text-lg font-bold">₦{total.toLocaleString()}</span></div>
                 <button onClick={() => { setShowCart(false); handlePayment() }} disabled={submitting}
                   className="w-full py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50">
@@ -333,7 +347,7 @@ export default function BillingPage() {
               <div className="flex justify-between text-xs text-slate-400 pt-2"><span>{receipt.payment_method?.toUpperCase()}</span><span>{new Date(receipt.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
-              <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium"><Printer size={14} /> Print</button>
+              <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium"><Printer size={14} /> Print</button>
               <button onClick={() => { setShowReceipt(false); setSelectedPatient(null); setCart([]) }} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
             </div>
           </div>

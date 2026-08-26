@@ -107,17 +107,19 @@ The login page is at **http://localhost:5173/login**.
 
 ### Default Login Credentials
 
-| Role | Email | Password |
-|------|-------|----------|
-| Admin | `admin@sretan.com` | `admin123` |
-| Doctor | `doctor@sretan.com` | `doctor123` |
-| Nurse | `nurse@sretan.com` | `nurse123` |
-| Lab Scientist | `lab@sretan.com` | `lab123` |
-| Pharmacist | `pharmacy@sretan.com` | `pharm123` |
-| Records | `records@sretan.com` | `records123` |
-| Paypoint | `paypoint@sretan.com` | `pay123` |
+Login with a **username** or email. These 7 accounts are seeded automatically on first startup:
 
-These 7 accounts are seeded automatically on first startup. If they don't exist, seed them:
+| Role | Username | Email | Password |
+|------|----------|-------|----------|
+| Admin | `admin` | `admin@sretan.com` | `admin123` |
+| Doctor | `doctor` | `doctor@sretan.com` | `doctor123` |
+| Nurse | `nurse` | `nurse@sretan.com` | `nurse123` |
+| Lab Scientist | `lab` | `lab@sretan.com` | `lab123` |
+| Pharmacist | `pharmacy` | `pharmacy@sretan.com` | `pharm123` |
+| Records | `records` | `records@sretan.com` | `records123` |
+| Paypoint | `paypoint` | `paypoint@sretan.com` | `pay123` |
+
+If they don't exist, seed them:
 ```powershell
 cd server
 node seed_users.cjs

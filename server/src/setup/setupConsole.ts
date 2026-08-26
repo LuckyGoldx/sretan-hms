@@ -9,7 +9,7 @@ const SETUP_HTML = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sretan EMR — Setup</title>
+<title>MACHOKO HMS — Setup</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f0f4f8; color: #1e293b; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -38,7 +38,7 @@ const SETUP_HTML = `<!DOCTYPE html>
 </head>
 <body>
 <div class="container">
-  <h1>Sretan EMR</h1>
+  <h1>MACHOKO HMS</h1>
   <p class="subtitle">Hospital Management System — Initial Setup</p>
 
   <div id="passphraseSection" class="passphrase-section">

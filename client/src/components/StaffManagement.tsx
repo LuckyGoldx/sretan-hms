@@ -30,6 +30,7 @@ interface StaffMember {
   id: string
   name: string
   email: string
+  username?: string
   role: StaffRole
   phone: string
   status: string
@@ -139,6 +140,7 @@ export default function StaffManagement() {
   const [newStaff, setNewStaff] = useState({
     name: '',
     email: '',
+    username: '',
     role: '' as StaffRole | '',
     phone: '',
     password: '',
@@ -261,6 +263,7 @@ export default function StaffManagement() {
     if (!newStaff.name.trim()) errs.name = 'Name is required'
     if (!newStaff.email.trim()) errs.email = 'Email is required'
     else if (!/\S+@\S+\.\S+/.test(newStaff.email)) errs.email = 'Invalid email'
+    if (newStaff.username.trim() && !/^[a-z0-9._-]+$/i.test(newStaff.username.trim())) errs.username = 'Username may only contain letters, numbers, dots, dashes and underscores'
     if (!newStaff.role) errs.role = 'Role is required'
     if (!newStaff.phone.trim()) errs.phone = 'Phone is required'
     if (!newStaff.password.trim()) errs.password = 'Password is required'
@@ -276,6 +279,7 @@ export default function StaffManagement() {
       const payload = {
         name: newStaff.name.trim(),
         email: newStaff.email.trim(),
+        username: newStaff.username.trim().toLowerCase() || undefined,
         phone: newStaff.phone.trim(),
         role: newStaff.role,
         password: newStaff.password,
@@ -285,6 +289,7 @@ export default function StaffManagement() {
         id: res.data.id,
         name: res.data.name,
         email: res.data.email,
+        username: res.data.username || '',
         role: res.data.role as StaffRole,
         phone: res.data.phone || '',
         status: 'active',
@@ -295,7 +300,7 @@ export default function StaffManagement() {
       setTimeout(() => {
         setShowAddModal(false)
         setAddSuccess(false)
-        setNewStaff({ name: '', email: '', role: '', phone: '', password: '' })
+        setNewStaff({ name: '', email: '', username: '', role: '', phone: '', password: '' })
         setFormErrors({})
       }, 1200)
     } catch {
@@ -308,7 +313,7 @@ export default function StaffManagement() {
   const closeModal = useCallback(() => {
     if (addSuccess) return
     setShowAddModal(false)
-    setNewStaff({ name: '', email: '', role: '', phone: '', password: '' })
+    setNewStaff({ name: '', email: '', username: '', role: '', phone: '', password: '' })
     setFormErrors({})
   }, [addSuccess])
 
@@ -755,7 +760,15 @@ export default function StaffManagement() {
                       type="email"
                       value={newStaff.email}
                       onChange={(e) => {
-                        setNewStaff((p) => ({ ...p, email: e.target.value }))
+                        const val = e.target.value
+                        setNewStaff((p) => {
+                          const next = { ...p, email: val }
+                          if (!p.username.trim()) {
+                            const local = val.split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '')
+                            if (local) next.username = local
+                          }
+                          return next
+                        })
                         setFormErrors((p) => ({ ...p, email: undefined }))
                       }}
                       placeholder="email@clinic.com"
@@ -764,6 +777,23 @@ export default function StaffManagement() {
                       }`}
                     />
                     {formErrors.email && <p className="text-xs text-rose-500 mt-1">{formErrors.email}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Username <span className="font-normal text-slate-400">(defaults to email prefix)</span></label>
+                    <input
+                      type="text"
+                      value={newStaff.username}
+                      onChange={(e) => {
+                        setNewStaff((p) => ({ ...p, username: e.target.value }))
+                        setFormErrors((p) => ({ ...p, username: undefined }))
+                      }}
+                      placeholder="e.g. doctor"
+                      className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all ${
+                        formErrors.username ? 'border-rose-300 bg-rose-50' : 'border-slate-200'
+                      }`}
+                    />
+                    {formErrors.username && <p className="text-xs text-rose-500 mt-1">{formErrors.username}</p>}
                   </div>
 
                   <div>

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import { printPaymentReceipt } from '../utils/print'
 import {
   Search, Loader2, User, Banknote, CreditCard, Landmark, Smartphone, TrendingUp, Receipt, Calendar, ChevronLeft, ChevronRight, Building2, ArrowLeft, FileText, Clock, Printer, X, CheckCircle, Package, Pill, FlaskConical, Scan, Home,
 } from 'lucide-react'
@@ -313,7 +314,7 @@ export default function FinancePatientBilling() {
 
             {/* Footer */}
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
-              <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-white transition-colors"><Printer size={14} /> Print</button>
+              <button onClick={() => printPaymentReceipt(detailPayment)} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-white transition-colors"><Printer size={14} /> Print</button>
               <button onClick={() => setDetailPayment(null)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">Close</button>
             </div>
           </div>

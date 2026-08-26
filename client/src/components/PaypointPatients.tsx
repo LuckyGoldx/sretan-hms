@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import { printPaymentReceipt } from '../utils/print'
 import {
-  Search, Loader2, CheckCircle, User, Package, Pill, FlaskConical, Scan, Home, CreditCard, Banknote, Landmark, Smartphone, X, ShoppingCart, Printer, Trash2, ArrowLeft, Phone, FileText,
+  Search, Loader2, CheckCircle, User, Package, Pill, FlaskConical, Scan, Home, CreditCard, Banknote, Landmark, Smartphone, X, ShoppingCart, Printer, Trash2, ArrowLeft, Phone, FileText, Shield, ChevronLeft, ChevronRight,
 } from 'lucide-react'
+
+const PAGE_SIZE = 30
 
 const serviceIcons: Record<string, any> = {
   folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home,
@@ -14,12 +17,12 @@ export default function PaypointPatients() {
   const [summary, setSummary] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(0)
   const [selectedPatient, setSelectedPatient] = useState<any>(null)
   const [pendingItems, setPendingItems] = useState<any[]>([])
   const [cart, setCart] = useState<any[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState('cash')
-  const [notes, setNotes] = useState('')
   const [receipt, setReceipt] = useState<any>(null)
   const [showReceipt, setShowReceipt] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
@@ -28,18 +31,46 @@ export default function PaypointPatients() {
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
     loadSummary()
-  }, [])
+    const interval = setInterval(() => silentReload(), 10000)
+    const onFocus = () => silentReload()
+    window.addEventListener('focus', onFocus)
+    return () => { clearInterval(interval); window.removeEventListener('focus', onFocus) }
+  }, [selectedPatient])
 
-  async function loadSummary() {
-    setLoading(true)
-    try { const r = await api.get('/payments/pending-summary'); setSummary(r.data || []) } catch {} finally { setLoading(false) }
+  async function loadSummary(silent = false) {
+    if (!silent) setLoading(true)
+    try { const r = await api.get('/payments/pending-summary'); setSummary(r.data || []) } catch {} finally { if (!silent) setLoading(false) }
+  }
+
+  async function silentReload() {
+    loadSummary(true)
+    if (!selectedPatient) return
+    try {
+      const res = await api.get(`/payments/pending/${selectedPatient.patient_id}`)
+      var items = res.data?.items || []
+      setPendingItems(items)
+      setCart((prev) => {
+        var next = [...prev]
+        for (const item of items) {
+          if (!next.find((c: any) => c.service_id === item.service_id && c.service_type === item.service_type)) {
+            next.push({ ...item })
+          }
+        }
+        return next
+      })
+    } catch {}
   }
 
   const filtered = summary.filter((p: any) => {
     if (!search) return true
     var q = search.toLowerCase()
-    return (p.full_name || '').toLowerCase().includes(q) || (p.hospital_number || '').toLowerCase().includes(q)
+    return (p.full_name || '').toLowerCase().includes(q) || (p.hospital_number || '').toLowerCase().includes(q) || (p.phone || '').toLowerCase().includes(q)
   })
+
+  const sorted = [...filtered].sort((a: any, b: any) => String(b.last_pending_at || '').localeCompare(String(a.last_pending_at || '')))
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages - 1)
+  const paged = sorted.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
   async function selectPatient(p: any) {
     setSelectedPatient(p)
@@ -64,9 +95,9 @@ export default function PaypointPatients() {
       const res = await api.post('/payments', {
         patient_id: selectedPatient.patient_id,
         items: cart.map((c) => ({ service_type: c.service_type, service_id: c.service_id, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
-        payment_method: paymentMethod, notes: notes || null, created_by: currentUser?.id,
+        payment_method: paymentMethod, notes: null, created_by: currentUser?.id,
       })
-      setReceipt(res.data); setShowReceipt(true); setCart([]); setNotes('')
+      setReceipt(res.data); setShowReceipt(true); setCart([])
       const r = await api.get(`/payments/pending/${selectedPatient.patient_id}`)
       setPendingItems(r.data?.items || [])
     } catch (err: any) { alert(err.response?.data?.message || 'Payment failed') } finally { setSubmitting(false) }
@@ -98,7 +129,7 @@ export default function PaypointPatients() {
             <>
               <div className="relative max-w-sm">
                 <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input type="text" placeholder="Search patient name or hospital #..." value={search} onChange={(e) => setSearch(e.target.value)}
+                <input type="text" placeholder="Search name, hospital # or phone..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(0) }}
                   className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
               </div>
               {loading ? (
@@ -109,34 +140,59 @@ export default function PaypointPatients() {
                   <p className="text-sm font-medium">All patients settled</p>
                 </div>
               ) : (
-                <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                  {filtered.map((p: any) => (
-                    <button key={p.patient_id} onClick={() => selectPatient(p)}
-                      className="w-full bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md transition-shadow text-left">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center flex-shrink-0"><User size={18} className="text-amber-600" /></div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-800 truncate">{p.full_name}</p>
-                            <p className="text-xs text-slate-400">{p.hospital_number} · {p.total_items} pending</p>
+                <>
+                  <div className="space-y-3">
+                    {paged.map((p: any) => (
+                      <button key={p.patient_id} onClick={() => selectPatient(p)}
+                        className="w-full bg-white rounded-2xl border border-slate-200 shadow-sm p-5 hover:shadow-md transition-shadow text-left">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center flex-shrink-0"><User size={18} className="text-amber-600" /></div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-semibold text-slate-800 truncate">{p.full_name}</p>
+                                {p.insurance_provider && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[9px] font-semibold text-emerald-700 whitespace-nowrap">
+                                    <Shield size={9} /> {p.insurance_provider}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-400">{p.hospital_number}{p.phone ? ` · ${p.phone}` : ''} · {p.total_items} pending</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {(p.services || []).map((svc: any, idx: number) => {
+                              const Icon = serviceIcons[svc.service_type] || Package
+                              return (
+                                <div key={`${svc.service_type}-${idx}`} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 border border-rose-100">
+                                  <Icon size={12} className="text-rose-500" />
+                                  <span className="text-xs font-medium text-rose-600">{svc.item_count}</span>
+                                </div>
+                              )
+                            })}
+                            <span className="text-xs text-primary font-medium ml-2">&rarr;</span>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {(p.services || []).map((svc: any) => {
-                            const Icon = serviceIcons[svc.service_type] || Package
-                            return (
-                              <div key={svc.service_type} className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 border border-rose-100">
-                                <Icon size={12} className="text-rose-500" />
-                                <span className="text-xs font-medium text-rose-600">{svc.item_count}</span>
-                              </div>
-                            )
-                          })}
-                          <span className="text-xs text-primary font-medium ml-2">&rarr;</span>
-                        </div>
-                      </div>
-                    </button>
-                  ))}
-                </div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <span className="text-xs text-slate-400 whitespace-nowrap">Showing {paged.length} of {sorted.length} patient(s)</span>
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      <button onClick={() => setPage(Math.max(0, safePage - 1))} disabled={safePage === 0}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all">
+                        <ChevronLeft size={14} /> Prev
+                      </button>
+                      <span className="px-3 py-1.5 rounded-lg bg-slate-100 text-xs font-semibold text-slate-700 whitespace-nowrap">
+                        Page {safePage + 1} <span className="text-slate-400 font-medium">/ {totalPages}</span>
+                      </span>
+                      <button onClick={() => setPage(Math.min(totalPages - 1, safePage + 1))} disabled={safePage >= totalPages - 1}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all">
+                        Next <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                </>
               )}
             </>
           ) : (
@@ -186,7 +242,7 @@ export default function PaypointPatients() {
             {cart.length === 0 ? (
               <p className="text-sm text-slate-400 text-center py-6">Select a patient to view items.</p>
             ) : (
-              <div className="space-y-3 max-h-64 overflow-y-auto">
+              <div className="space-y-3 max-h-[60vh] overflow-y-auto">
                 {cart.map((item, i) => (
                   <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
                     <div className="flex items-start justify-between gap-2 mb-2">
@@ -222,8 +278,6 @@ export default function PaypointPatients() {
                     )
                   })}
                 </div>
-                <input type="text" placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-slate-400">{cart.length} item(s)</span>
                   <span className="text-lg font-bold text-slate-800">₦{total.toLocaleString()}</span>
@@ -251,12 +305,12 @@ export default function PaypointPatients() {
       {showCart && (
         <div className="fixed inset-0 z-50 flex items-end lg:hidden" onClick={() => setShowCart(false)}>
           <div className="fixed inset-0 bg-black/30" />
-          <div className="relative w-full bg-white rounded-t-2xl shadow-xl max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="relative w-full bg-white rounded-t-2xl shadow-xl max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b flex-shrink-0">
               <h2 className="text-sm font-semibold"><ShoppingCart size={16} className="inline mr-2" />Cart ({cart.length})</h2>
               <button onClick={() => setShowCart(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
-            <div className="overflow-y-auto flex-1 px-5 py-3 divide-y divide-slate-50">
+            <div className="overflow-y-auto flex-1 min-h-0 px-5 py-3 divide-y divide-slate-50">
               {cart.map((item, i) => (
                 <div key={i} className="py-3">
                   <div className="flex items-start justify-between gap-2 mb-2">
@@ -287,8 +341,6 @@ export default function PaypointPatients() {
                     )
                   })}
                 </div>
-                <input type="text" placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <div className="flex items-center justify-between"><span className="text-xs text-slate-400">{cart.length} items</span><span className="text-lg font-bold">₦{total.toLocaleString()}</span></div>
                 <button onClick={() => { setShowCart(false); handlePayment() }} disabled={submitting}
                   className="w-full py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50">{submitting ? 'Processing...' : `Pay ₦${total.toLocaleString()}`}</button>
@@ -311,7 +363,7 @@ export default function PaypointPatients() {
               <div className="flex justify-between font-bold pt-3 border-t"><span>Total</span><span>₦{(receipt.total_amount || 0).toLocaleString()}</span></div>
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
-              <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium"><Printer size={14} /> Print</button>
+              <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium"><Printer size={14} /> Print</button>
               <button onClick={() => { setShowReceipt(false); setSelectedPatient(null); setPendingItems([]); loadSummary() }} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
             </div>
           </div>

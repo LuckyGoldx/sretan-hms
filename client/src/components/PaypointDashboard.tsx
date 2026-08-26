@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import { printPaymentReceipt } from '../utils/print'
 import {
   ShoppingCart, Search, Loader2, Plus, X, CheckCircle, Trash2, Banknote, CreditCard, Landmark, Smartphone, Pill, FlaskConical, Scan, Building2, Printer, User, Phone, Users,
 } from 'lucide-react'
@@ -18,7 +19,6 @@ export default function PaypointDashboard() {
   const [cart, setCart] = useState<any[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState('cash')
-  const [notes, setNotes] = useState('')
   const [receipt, setReceipt] = useState<any>(null)
   const [showReceipt, setShowReceipt] = useState(false)
   const [catalog, setCatalog] = useState<any[]>([])
@@ -31,6 +31,9 @@ export default function PaypointDashboard() {
   const [patientSearch, setPatientSearch] = useState('')
   const [patientResults, setPatientResults] = useState<any[]>([])
   const [selectedPatient, setSelectedPatient] = useState<any>(null)
+  const [insuranceInfo, setInsuranceInfo] = useState<any>(null)
+  const [insuranceLoading, setInsuranceLoading] = useState(false)
+  const [billToInsurance, setBillToInsurance] = useState(false)
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
@@ -68,6 +71,15 @@ export default function PaypointDashboard() {
     return () => clearTimeout(t)
   }, [patientSearch])
 
+  async function fetchInsurance(patientId: string) {
+    setInsuranceLoading(true)
+    try {
+      const res = await api.get(`/insurance/active-case/${patientId}`)
+      setInsuranceInfo(res.data?.hasActiveCase ? res.data.case : null)
+      if (!res.data?.hasActiveCase) setBillToInsurance(false)
+    } catch { setInsuranceInfo(null); setBillToInsurance(false) } finally { setInsuranceLoading(false) }
+  }
+
   function addToCart(item: any) {
     setCart((prev) => {
       var existing = prev.find((c) => c.description === item.name)
@@ -84,9 +96,31 @@ export default function PaypointDashboard() {
     if (mode === 'walkin' && !customerName.trim()) { alert('Customer name is required for walk-in sales.'); return }
     setSubmitting(true)
     try {
+      if (billToInsurance && insuranceInfo && selectedPatient) {
+        const items = cart.map((c) => ({ service_type: 'walkin_service', service_id: null, description: c.description, quantity: c.quantity, unit_price: c.unit_price }))
+        await api.post('/insurance/bill-to-insurance', {
+          patientId: selectedPatient.id,
+          caseId: insuranceInfo.id,
+          items,
+          source: 'paypoint',
+          created_by: currentUser?.id,
+        })
+        setReceipt({
+          receipt_number: `INS-${insuranceInfo.case_number}`,
+          patient_name: selectedPatient.full_name,
+          hospital_number: selectedPatient.hospital_number || null,
+          total_amount: total,
+          items: items.map((c: any) => ({ description: c.description, total_price: (c.quantity || 1) * (c.unit_price || 0) })),
+          payment_method: `Insurance: ${insuranceInfo.provider_name}`,
+          created_at: new Date().toISOString(),
+        })
+        setShowReceipt(true); setCart([]); setBillToInsurance(false); setInsuranceInfo(null)
+        setSelectedPatient(null); setPatientSearch('')
+        return
+      }
       var payload: any = {
         items: cart.map((c) => ({ service_type: 'walkin_service', service_id: null, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
-        payment_method: paymentMethod, notes: notes || null, created_by: currentUser?.id,
+        payment_method: paymentMethod, notes: null, created_by: currentUser?.id,
       }
       if (selectedPatient) {
         payload.patient_id = selectedPatient.id
@@ -95,7 +129,7 @@ export default function PaypointDashboard() {
         payload.walkin_phone = customerPhone.trim() || null
       }
       const res = await api.post('/payments', payload)
-      setReceipt(res.data); setShowReceipt(true); setCart([]); setNotes('')
+      setReceipt(res.data); setShowReceipt(true); setCart([])
       setSelectedPatient(null); setPatientSearch(''); setCustomerName(''); setCustomerPhone('')
     } catch (err: any) { alert(err.response?.data?.message || 'Payment failed') } finally { setSubmitting(false) }
   }
@@ -136,19 +170,37 @@ export default function PaypointDashboard() {
   function CartFooter() {
     return (
       <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-2">
-          {paymentMethods.map((m) => {
-            const Icon = m.icon
-            return (
-              <button key={m.value} onClick={() => setPaymentMethod(m.value)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                <Icon size={14} />{m.label}
-              </button>
-            )
-          })}
-        </div>
-        <input type="text" placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)}
-          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+        {selectedPatient && (
+          insuranceLoading ? (
+            <div className="flex items-center justify-center gap-2 py-1 text-xs text-slate-400"><Loader2 size={12} className="animate-spin" /> Checking insurance...</div>
+          ) : insuranceInfo ? (
+            <button onClick={() => setBillToInsurance(!billToInsurance)}
+              className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-medium transition-all ${
+                billToInsurance ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+              }`}>
+              <Building2 size={14} />
+              {billToInsurance ? `Billing to ${insuranceInfo.provider_name}` : `Bill to Insurance (${insuranceInfo.provider_name})`}
+            </button>
+          ) : null
+        )}
+        {billToInsurance ? (
+          <div className="flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
+            <span className="font-semibold text-emerald-700 flex items-center gap-2"><Building2 size={14} /> Insurance</span>
+            <span className="font-bold text-emerald-700 truncate">{insuranceInfo?.provider_name}</span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {paymentMethods.map((m) => {
+              const Icon = m.icon
+              return (
+                <button key={m.value} onClick={() => setPaymentMethod(m.value)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                  <Icon size={14} />{m.label}
+                </button>
+              )
+            })}
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <span className="text-xs text-slate-400">{cart.reduce((s, c) => s + c.quantity, 0)} units</span>
           <span className="text-lg font-bold text-slate-800">₦{total.toLocaleString()}</span>
@@ -156,7 +208,7 @@ export default function PaypointDashboard() {
         <button onClick={handlePayment} disabled={submitting || cart.length === 0}
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-all">
           {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-          {submitting ? 'Processing...' : `Pay ₦${total.toLocaleString()}`}
+          {submitting ? 'Processing...' : (billToInsurance ? `Bill ₦${total.toLocaleString()} to Insurance` : `Pay ₦${total.toLocaleString()}`)}
         </button>
       </div>
     )
@@ -177,10 +229,10 @@ export default function PaypointDashboard() {
       {/* Mode toggle + Patient section */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
         <div className="flex items-center gap-2 mb-4">
-          <button onClick={() => { setMode('search'); setSelectedPatient(null); setPatientSearch(''); setPatientResults([]) }}
+          <button onClick={() => { setMode('search'); setSelectedPatient(null); setPatientSearch(''); setPatientResults([]); setInsuranceInfo(null); setBillToInsurance(false) }}
             className={`px-4 py-2 rounded-xl text-xs font-medium transition-all ${mode === 'search' ? 'bg-primary text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
             <Users size={14} className="inline mr-1" />Registered Patient</button>
-          <button onClick={() => { setMode('walkin'); setSelectedPatient(null); setCustomerName(''); setCustomerPhone('') }}
+          <button onClick={() => { setMode('walkin'); setSelectedPatient(null); setCustomerName(''); setCustomerPhone(''); setInsuranceInfo(null); setBillToInsurance(false) }}
             className={`px-4 py-2 rounded-xl text-xs font-medium transition-all ${mode === 'walkin' ? 'bg-primary text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
             <User size={14} className="inline mr-1" />Walk-in Customer</button>
         </div>
@@ -194,10 +246,20 @@ export default function PaypointDashboard() {
                 {patientResults.length > 0 && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-lg z-20 max-h-48 overflow-y-auto">
                     {patientResults.map((p: any) => (
-                      <button key={p.id} onClick={() => { setSelectedPatient(p); setPatientSearch(p.full_name); setPatientResults([]) }}
+                      <button key={p.id} onClick={() => { setSelectedPatient(p); setPatientSearch(p.full_name); setPatientResults([]); setBillToInsurance(false); fetchInsurance(p.id) }}
                         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 text-left border-b border-slate-50 last:border-0">
                         <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center"><User size={15} className="text-primary" /></div>
-                        <div className="min-w-0 flex-1"><p className="text-sm font-medium text-slate-800">{p.full_name}</p><p className="text-xs text-slate-400">{p.hospital_number} {p.phone ? `· ${p.phone}` : ''}</p></div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-medium text-slate-800">{p.full_name}</p>
+                            {p.primary_provider && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[9px] font-semibold text-emerald-700 whitespace-nowrap">
+                                <Building2 size={9} /> {p.primary_provider}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-slate-400">{p.hospital_number} {p.phone ? `· ${p.phone}` : ''}</p>
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -208,11 +270,18 @@ export default function PaypointDashboard() {
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center"><User size={18} className="text-primary" /></div>
                   <div>
-                    <p className="text-sm font-semibold text-slate-800">{selectedPatient.full_name}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-slate-800">{selectedPatient.full_name}</p>
+                      {selectedPatient.primary_provider && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[9px] font-semibold text-emerald-700 whitespace-nowrap">
+                          <Building2 size={9} /> {selectedPatient.primary_provider}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-slate-400">{selectedPatient.hospital_number} {selectedPatient.phone ? `· ${selectedPatient.phone}` : ''}</p>
                   </div>
                 </div>
-                <button onClick={() => { setSelectedPatient(null); setPatientSearch('') }} className="text-xs text-rose-500 font-medium hover:text-rose-600">Change</button>
+                <button onClick={() => { setSelectedPatient(null); setPatientSearch(''); setInsuranceInfo(null); setBillToInsurance(false) }} className="text-xs text-rose-500 font-medium hover:text-rose-600">Change</button>
               </div>
             )}
           </div>
@@ -234,7 +303,7 @@ export default function PaypointDashboard() {
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Inventory browser */}
-        <div className="col-span-1 lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col max-h-[500px]">
+        <div className="col-span-1 lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col max-h-[calc(100vh-140px)]">
           <div className="px-5 py-4 border-b border-slate-100 flex-shrink-0">
             <div className="relative">
               <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -242,7 +311,7 @@ export default function PaypointDashboard() {
                 className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
             </div>
           </div>
-          <div className="overflow-y-auto flex-1 divide-y divide-slate-50">
+          <div className="overflow-y-auto flex-1 min-h-0 divide-y divide-slate-50">
             {!loaded ? <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-primary" /></div>
             : filteredCatalog.length === 0 ? <div className="flex flex-col items-center py-16 text-slate-400"><ShoppingCart size={36} className="text-slate-300 mb-2" /><p className="text-sm">No items found</p></div>
             : filteredCatalog.map((group) => (
@@ -270,7 +339,7 @@ export default function PaypointDashboard() {
             <h2 className="text-sm font-semibold text-slate-800"><ShoppingCart size={16} className="inline mr-2" />Cart ({cart.length})</h2>
             {cart.length > 0 && <button onClick={() => setCart([])} className="text-xs text-rose-500"><Trash2 size={12} className="inline mr-1" />Clear</button>}
           </div>
-          <div className="overflow-y-auto flex-1"><CartContent /></div>
+          <div className="overflow-y-auto flex-1 min-h-0"><CartContent /></div>
           {cart.length > 0 && <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex-shrink-0"><CartFooter /></div>}
         </div>
       </div>
@@ -287,7 +356,7 @@ export default function PaypointDashboard() {
       {showCart && (
         <div className="fixed inset-0 z-50 flex items-end lg:hidden" onClick={() => setShowCart(false)}>
           <div className="fixed inset-0 bg-black/30" />
-          <div className="relative w-full bg-white rounded-t-2xl shadow-xl border border-slate-100 max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="relative w-full bg-white rounded-t-2xl shadow-xl border border-slate-100 max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
               <h2 className="text-sm font-semibold"><ShoppingCart size={16} className="inline mr-2" />Cart ({cart.length})</h2>
               <div className="flex items-center gap-2">
@@ -295,7 +364,7 @@ export default function PaypointDashboard() {
                 <button onClick={() => setShowCart(false)} className="p-1 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
               </div>
             </div>
-            <div className="overflow-y-auto flex-1"><CartContent /></div>
+            <div className="overflow-y-auto flex-1 min-h-0"><CartContent /></div>
             {cart.length > 0 && <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex-shrink-0" onClick={(e) => e.stopPropagation()}><CartFooter /></div>}
           </div>
         </div>
@@ -315,7 +384,7 @@ export default function PaypointDashboard() {
               <div className="flex justify-between text-xs text-slate-400 pt-2"><span>{receipt.payment_method?.toUpperCase()}</span><span>{new Date(receipt.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
-              <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium"><Printer size={14} /> Print</button>
+              <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium"><Printer size={14} /> Print</button>
               <button onClick={() => setShowReceipt(false)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
             </div>
           </div>

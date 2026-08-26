@@ -1,9 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
 import api from '../hooks/useAxios'
+import { printPaymentReceipt } from '../utils/print'
 import {
-  Search, Loader2, Receipt, FileText, CreditCard, Landmark, Smartphone, Banknote, X, Printer, ArrowLeft, Calendar, ChevronDown,
+  Search, Loader2, Receipt, FileText, CreditCard, Landmark, Smartphone, Banknote, X, Printer, ArrowLeft, Calendar, ChevronDown, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+
+const PAGE_SIZE = 30
 
 type DateFilter = 'all' | 'today' | 'yesterday' | 'this-week' | 'this-month' | 'this-year' | 'custom-range' | 'custom-date'
 
@@ -39,15 +42,22 @@ export default function FinancePaymentHistory() {
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [showDropdown, setShowDropdown] = useState(false)
+  const [page, setPage] = useState(0)
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => {
+    loadData()
+    const interval = setInterval(() => loadData(true), 10000)
+    const onFocus = () => loadData(true)
+    window.addEventListener('focus', onFocus)
+    return () => { clearInterval(interval); window.removeEventListener('focus', onFocus) }
+  }, [])
 
-  async function loadData() {
-    setLoading(true)
+  async function loadData(silent = false) {
+    if (!silent) setLoading(true)
     try {
       const res = await api.get('/payments')
       setPayments(res.data || [])
-    } catch {} finally { setLoading(false) }
+    } catch {} finally { if (!silent) setLoading(false) }
   }
 
   async function loadDetail(id: string) {
@@ -72,6 +82,10 @@ export default function FinancePaymentHistory() {
     var q = search.toLowerCase()
     return (p.patient_name || '').toLowerCase().includes(q) || (p.walkin_name || '').toLowerCase().includes(q) || (p.receipt_number || '').toLowerCase().includes(q) || (p.staff_name || '').toLowerCase().includes(q)
   })
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages - 1)
+  const paged = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
   const totalRevenue = filtered.reduce((s: number, p: any) => s + parseFloat(p.total_amount || 0), 0)
   const todayCount = filtered.filter((p: any) => { var d = new Date(p.created_at); var t = new Date(); return d.toDateString() === t.toDateString() }).length
@@ -129,7 +143,7 @@ export default function FinancePaymentHistory() {
           {showDropdown && (
             <div className="absolute top-full left-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-lg z-20 w-48 overflow-hidden">
               {FILTER_OPTIONS.map((opt) => (
-                <button key={opt.value} onClick={() => { setDateFilter(opt.value); setShowDropdown(false); if (opt.value !== 'custom-range' && opt.value !== 'custom-date') { setCustomFrom(''); setCustomTo('') } }}
+                <button key={opt.value} onClick={() => { setDateFilter(opt.value); setShowDropdown(false); setPage(0); if (opt.value !== 'custom-range' && opt.value !== 'custom-date') { setCustomFrom(''); setCustomTo('') } }}
                   className={`w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 transition-colors ${dateFilter === opt.value ? 'bg-primary/5 text-primary font-medium' : 'text-slate-600'}`}>
                   {opt.label}
                 </button>
@@ -140,12 +154,12 @@ export default function FinancePaymentHistory() {
 
         {(dateFilter === 'custom-range' || dateFilter === 'custom-date') && (
           <div className="flex items-center gap-2">
-            <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+            <input type="date" value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setPage(0) }}
               className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
             {dateFilter === 'custom-range' && (
               <>
                 <span className="text-xs text-slate-400">to</span>
-                <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+                <input type="date" value={customTo} onChange={(e) => { setCustomTo(e.target.value); setPage(0) }}
                   className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
               </>
             )}
@@ -154,7 +168,7 @@ export default function FinancePaymentHistory() {
 
         <div className="relative flex-1 max-w-xs ml-auto">
           <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="text" placeholder="Search by receipt, patient, or staff..." value={search} onChange={(e) => setSearch(e.target.value)}
+          <input type="text" placeholder="Search by receipt, patient, or staff..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(0) }}
             className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
         </div>
       </div>
@@ -258,7 +272,7 @@ export default function FinancePaymentHistory() {
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
-              <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-white"><Printer size={14} /> Print</button>
+              <button onClick={() => printPaymentReceipt(selectedPayment)} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-white"><Printer size={14} /> Print</button>
               <button onClick={() => setSelectedPayment(null)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
             </div>
           </div>

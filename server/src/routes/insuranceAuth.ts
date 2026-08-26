@@ -6,16 +6,17 @@ const router = Router();
 
 router.post('/api/insurance/auth/login', async (req: Request, res: Response) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
-      res.status(400).json({ error: true, message: 'Email and password required' });
+    const { username, email, password } = req.body;
+    const identifier = (username || email || '').trim();
+    if (!identifier || !password) {
+      res.status(400).json({ error: true, message: 'Username/email and password required' });
       return;
     }
 
     const result = await pool.query(
-      `SELECT id, full_name, email, role, access_scope, provider_id, password_hash, is_active
-       FROM insurance_staff_users WHERE email = $1`,
-      [email]
+      `SELECT id, full_name, email, username, role, access_scope, provider_id, password_hash, is_active
+       FROM insurance_staff_users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1)`,
+      [identifier]
     );
 
     if (result.rows.length === 0) {
@@ -47,6 +48,7 @@ router.post('/api/insurance/auth/login', async (req: Request, res: Response) => 
         id: user.id,
         name: user.full_name,
         email: user.email,
+        username: user.username || '',
         role: user.role,
         user_type: 'insurance_staff',
         provider_id: user.provider_id,

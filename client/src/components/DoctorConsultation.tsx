@@ -301,7 +301,7 @@ export default function DoctorConsultation() {
       const results: Record<string, any[]> = {}
       for (const lo of labOrders) {
         try {
-          const r = await api.get(`/lab-results/${lo.id}?status=completed`)
+          const r = await api.get(`/lab-results/${lo.id}${lo.status === 'completed' ? '' : '?status=completed'}`)
           if (r.data && r.data.length > 0) results[lo.id] = r.data
         } catch {}
       }
@@ -311,6 +311,41 @@ export default function DoctorConsultation() {
   }
 
   const handleSoapChange = (field: keyof SoapForm, value: string) => setSoap((prev) => ({ ...prev, [field]: value }))
+
+  async function loadOrdersData() {
+    const encIds = new Set<string>()
+    for (const enc of encounters) if (enc.id) encIds.add(enc.id)
+    if (activeEncounterRef.current) encIds.add(activeEncounterRef.current)
+    if (encIds.size === 0) return
+    const allLab: any[] = []; const allRad: any[] = []; const allRx: any[] = []
+    for (const encId of encIds) {
+      const [labRes, radRes, rxRes] = await Promise.all([
+        api.get(`/lab-orders?encounter_id=${encId}`).catch(() => ({ data: [] })),
+        api.get(`/radiology-orders?encounter_id=${encId}`).catch(() => ({ data: [] })),
+        api.get(`/prescriptions?encounter_id=${encId}`).catch(() => ({ data: [] })),
+      ])
+      allLab.push(...(labRes.data || []))
+      allRad.push(...(radRes.data || []))
+      allRx.push(...(rxRes.data || []))
+    }
+    setAllLabOrders(allLab)
+    setAllRadOrders(allRad)
+    setAllPrescriptions(allRx)
+  }
+
+  async function refreshOrders() {
+    await loadOrdersData()
+    setOrdersPage(1)
+    setRxPage(1)
+  }
+
+  useEffect(() => {
+    loadOrdersData()
+    const interval = setInterval(() => loadOrdersData(), 10000)
+    const onFocus = () => loadOrdersData()
+    window.addEventListener('focus', onFocus)
+    return () => { clearInterval(interval); window.removeEventListener('focus', onFocus) }
+  }, [patientId, encounters])
 
   const handleSoapSubmit = async () => {
     if (!patientId) return
@@ -337,6 +372,7 @@ export default function DoctorConsultation() {
       const encId = await ensureEncounter()
       await api.post('/lab-orders', { encounter_id: encId, test_name: labForm.test_name.trim(), lab_number: patient?.hospital_number || undefined, doctor_comment: labForm.doctor_comment.trim() || undefined })
       showToast('Lab order submitted', 'success'); if (encId) maybePromptAnc(encId); setLabForm({ test_name: '', doctor_comment: '' }); setActiveModal(null)
+      refreshOrders()
     } catch { showToast('Failed to submit lab order', 'error') } finally { setLabSubmitting(false) }
   }
 
@@ -349,6 +385,7 @@ export default function DoctorConsultation() {
       const patName = patient?.full_name || ''
       await api.post('/radiology-orders', { encounter_id: encId, imaging_type: radiologyForm.imaging_type, doctor_name: doctorName, patient_name: patName, doctor_comment: radiologyForm.doctor_comment.trim() || undefined })
       showToast('Radiology order submitted', 'success'); if (encId) maybePromptAnc(encId); setRadiologyForm({ imaging_type: '', doctor_comment: '' }); setActiveModal(null)
+      refreshOrders()
     } catch { showToast('Failed to submit radiology order', 'error') } finally { setRadiologySubmitting(false) }
   }
 
@@ -360,6 +397,7 @@ export default function DoctorConsultation() {
       await api.post('/prescriptions', { encounter_id: encId, drug_name: prescription.drug_name.trim(), dosage: prescription.dosage, quantity: Number(prescription.quantity) || 0, instructions: prescription.instructions })
       showToast('Prescription created', 'success'); if (encId) maybePromptAnc(encId)
       setPrescription({ drug_name: '', dosage: '', quantity: '', instructions: '' })
+      refreshOrders()
     } catch { showToast('Failed to create prescription', 'error') } finally { setPrescriptionSubmitting(false) }
   }
 
@@ -788,7 +826,7 @@ export default function DoctorConsultation() {
                   className="flex items-start gap-4 p-3.5 rounded-xl border border-slate-100 bg-slate-50/40 hover:shadow-md transition-all cursor-pointer"
                   onClick={() => {
                     if (ord._type === 'lab') {
-                      api.get(`/lab-results/${ord.id}?status=completed`).then((r) => {
+                      api.get(`/lab-results/${ord.id}${ord.status === 'completed' ? '' : '?status=completed'}`).then((r) => {
                         const results: Record<string, any[]> = {}
                         if (r.data?.length) results[ord.id] = r.data
                         setLabResultsMap(results)

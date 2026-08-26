@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import { printPaymentReceipt } from '../utils/print'
 import {
-  Search, X, Loader2, Receipt, Plus, Trash2, Printer, CreditCard, Building2, Landmark, Smartphone, CheckCircle, ArrowLeft, User, Banknote, FileText, Clock, Package, FlaskConical, Scan, Pill, Home, ShoppingCart, Shield,
+  Search, X, Loader2, Receipt, Plus, Trash2, Printer, CreditCard, Building2, Landmark, Smartphone, CheckCircle, ArrowLeft, User, Banknote, FileText, Clock, Package, FlaskConical, Scan, Pill, Home, ShoppingCart, Shield, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 
 interface CartItem {
@@ -25,6 +26,8 @@ const serviceIcons: Record<string, any> = {
   folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home,
 }
 
+const PAGE_SIZE = 25
+
 export default function PaypointCheckout() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -36,7 +39,6 @@ export default function PaypointCheckout() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState('cash')
-  const [notes, setNotes] = useState('')
   const [receipt, setReceipt] = useState<any>(null)
   const [showReceipt, setShowReceipt] = useState(false)
   const [payments, setPayments] = useState<any[]>([])
@@ -47,6 +49,7 @@ export default function PaypointCheckout() {
   const [allFilter, setAllFilter] = useState('')
   const [detailItem, setDetailItem] = useState<any | null>(null)
   const [showCartModal, setShowCartModal] = useState(false)
+  const [ordersPage, setOrdersPage] = useState(0)
   const [insuranceInfo, setInsuranceInfo] = useState<any>(null)
   const [billToInsurance, setBillToInsurance] = useState(false)
   const [coPayAmount, setCoPayAmount] = useState(0)
@@ -124,6 +127,7 @@ export default function PaypointCheckout() {
         // Split checkout: collect co-pay + bill remaining to insurance
         const items = cart.map((c) => ({
           service_type: c.service_type,
+          service_id: c.service_id,
           description: c.description,
           quantity: c.quantity,
           unit_price: c.unit_price,
@@ -180,7 +184,7 @@ export default function PaypointCheckout() {
           created_at: new Date().toISOString(),
           staff_name: currentUser?.name,
         })
-        setShowReceipt(true); setCart([]); setNotes('')
+        setShowReceipt(true); setCart([])
         setBillToInsurance(false); setCoPayAmount(0)
         if (selectedPatient) {
           const pending = await api.get(`/payments/pending/${selectedPatient.id}`)
@@ -190,11 +194,11 @@ export default function PaypointCheckout() {
       } else {
         var payload: any = {
           items: cart.map((c) => ({ service_type: c.service_type, service_id: c.service_id, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
-          payment_method: paymentMethod, notes: notes || null, created_by: currentUser?.id,
+          payment_method: paymentMethod, notes: null, created_by: currentUser?.id,
         }
         if (selectedPatient) { payload.patient_id = selectedPatient.id }
         const res = await api.post('/payments', payload)
-        setReceipt(res.data); setShowReceipt(true); setCart([]); setNotes('')
+        setReceipt(res.data); setShowReceipt(true); setCart([])
         if (selectedPatient) {
           const pending = await api.get(`/payments/pending/${selectedPatient.id}`)
           setPendingItems(pending.data?.items || [])
@@ -217,6 +221,9 @@ export default function PaypointCheckout() {
     var q = ordersSearch.toLowerCase()
     return (p.receipt_number?.toLowerCase().includes(q) || p.patient_name?.toLowerCase().includes(q) || p.walkin_name?.toLowerCase().includes(q) || p.staff_name?.toLowerCase().includes(q))
   })
+  const totalPages = Math.max(1, Math.ceil(filteredOrders.length / PAGE_SIZE))
+  const safePage = Math.min(ordersPage, totalPages - 1)
+  const pagedOrders = filteredOrders.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
   const methodIcon = (m: string) => {
     const map: Record<string, any> = { cash: Banknote, card: CreditCard, transfer: Landmark, pos: Smartphone }
@@ -356,7 +363,7 @@ export default function PaypointCheckout() {
               {cart.length === 0 ? (
                 <p className="text-sm text-slate-400 text-center py-6">Select a patient to view pending items.</p>
               ) : (
-                <div className="space-y-3 max-h-64 overflow-y-auto">
+                <div className="space-y-3 max-h-[60vh] overflow-y-auto">
                   {cart.map((item, i) => (
                     <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
                       <div className="flex items-start justify-between gap-2 mb-2">
@@ -391,8 +398,6 @@ export default function PaypointCheckout() {
                       )
                     })}
                   </div>
-                  <input type="text" placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-slate-400">{cart.length} item(s)</span>
                     <span className="text-lg font-bold text-slate-800">₦{total.toLocaleString()}</span>
@@ -418,7 +423,7 @@ export default function PaypointCheckout() {
               <div className="relative w-64">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input type="text" placeholder="Search receipt, patient, or staff..." value={ordersSearch}
-                  onChange={(e) => setOrdersSearch(e.target.value)}
+                  onChange={(e) => { setOrdersSearch(e.target.value); setOrdersPage(0) }}
                   className="w-full rounded-xl border border-slate-200 pl-9 pr-4 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
               </div>
             </div>
@@ -445,7 +450,7 @@ export default function PaypointCheckout() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filteredOrders.map((p: any) => {
+                    {pagedOrders.map((p: any) => {
                       const Icon = methodIcon(p.payment_method)
                       return (
                         <tr key={p.id} className="hover:bg-slate-50">
@@ -465,6 +470,19 @@ export default function PaypointCheckout() {
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+            {filteredOrders.length > PAGE_SIZE && (
+              <div className="flex items-center justify-between px-2 pt-4">
+                <button onClick={() => setOrdersPage(Math.max(0, safePage - 1))} disabled={safePage === 0}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium disabled:opacity-30 hover:bg-slate-50">
+                  <ChevronLeft size={14} /> Prev
+                </button>
+                <span className="text-xs text-slate-500">Page {safePage + 1} of {totalPages} ({filteredOrders.length} payments)</span>
+                <button onClick={() => setOrdersPage(Math.min(totalPages - 1, safePage + 1))} disabled={safePage >= totalPages - 1}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium disabled:opacity-30 hover:bg-slate-50">
+                  Next <ChevronRight size={14} />
+                </button>
               </div>
             )}
           </div>
@@ -503,7 +521,7 @@ export default function PaypointCheckout() {
               {receipt.staff_name && <p className="text-xs text-slate-400 text-center pt-1">Processed by: {receipt.staff_name}</p>}
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
-              <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50"><Printer size={14} /> Print</button>
+              <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50"><Printer size={14} /> Print</button>
               <button onClick={() => setShowReceipt(false)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
             </div>
           </div>

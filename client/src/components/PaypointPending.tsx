@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import { printPaymentReceipt } from '../utils/print'
 import {
-  Search, Loader2, CheckCircle, User, Package, Pill, FlaskConical, Scan, Home, Plus, X, ShoppingCart, Banknote, CreditCard, Landmark, Smartphone, Trash2, Printer, Clock, FileText, ArrowLeft, AlertTriangle,
+  Search, Loader2, CheckCircle, User, Package, Pill, FlaskConical, Scan, Home, Plus, X, ShoppingCart, Banknote, CreditCard, Landmark, Smartphone, Trash2, Printer, Clock, FileText, ArrowLeft, AlertTriangle, Shield, ChevronLeft, ChevronRight,
 } from 'lucide-react'
+
+const PAGE_SIZE = 30
 
 const serviceIcons: Record<string, any> = {
   folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home,
@@ -14,33 +17,53 @@ export default function PaypointPending() {
   const [items, setItems] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('')
+  const [page, setPage] = useState(0)
   const [cart, setCart] = useState<any[]>([])
   const [showCart, setShowCart] = useState(false)
   const [errorModal, setErrorModal] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState('cash')
-  const [notes, setNotes] = useState('')
   const [receipt, setReceipt] = useState<any>(null)
   const [showReceipt, setShowReceipt] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [insuranceInfo, setInsuranceInfo] = useState<any>(null)
+  const [insuranceLoading, setInsuranceLoading] = useState(false)
+  const [billToInsurance, setBillToInsurance] = useState(false)
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
     loadItems()
+    const interval = setInterval(() => loadItems(true), 10000)
+    const onFocus = () => loadItems(true)
+    window.addEventListener('focus', onFocus)
+    return () => { clearInterval(interval); window.removeEventListener('focus', onFocus) }
   }, [])
 
-  async function loadItems() {
-    setLoading(true)
-    try { const r = await api.get('/payments/all-pending-items'); setItems(r.data || []) } catch {} finally { setLoading(false) }
+  async function loadItems(silent = false) {
+    if (!silent) setLoading(true)
+    try { const r = await api.get('/payments/all-pending-items'); setItems(r.data || []) } catch {} finally { if (!silent) setLoading(false) }
   }
 
   const filtered = items.filter((i: any) => {
     if (!filter) return true
     var q = filter.toLowerCase()
-    return (i.full_name || '').toLowerCase().includes(q) || (i.description || '').toLowerCase().includes(q) || (i.hospital_number || '').toLowerCase().includes(q)
+    return (i.full_name || '').toLowerCase().includes(q) || (i.description || '').toLowerCase().includes(q) || (i.hospital_number || '').toLowerCase().includes(q) || (i.phone || '').toLowerCase().includes(q)
   })
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages - 1)
+  const paged = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
+
+  async function fetchInsurance(patientId: string) {
+    setInsuranceLoading(true)
+    try {
+      const res = await api.get(`/insurance/active-case/${patientId}`)
+      setInsuranceInfo(res.data?.hasActiveCase ? res.data.case : null)
+      if (!res.data?.hasActiveCase) setBillToInsurance(false)
+    } catch { setInsuranceInfo(null); setBillToInsurance(false) } finally { setInsuranceLoading(false) }
+  }
 
   function addToCart(item: any) {
+    var cartWasEmpty = cart.length === 0
     setCart((prev) => {
       if (prev.length > 0 && prev[0].hospital_number && item.hospital_number && prev[0].hospital_number !== item.hospital_number) {
         setErrorModal('Only items from the same patient can be in one cart. Clear the cart first to add items from a different patient.')
@@ -50,6 +73,7 @@ export default function PaypointPending() {
       if (prev.find((c: any) => ((c.service_id || c.patient_id) + '-' + c.service_type + '-' + (c.service_id || c.description)) === key)) return prev
       return [...prev, { ...item }]
     })
+    if (cartWasEmpty && item.patient_id) fetchInsurance(item.patient_id)
   }
   function removeFromCart(i: number) { setCart((p) => p.filter((_, idx) => idx !== i)) }
   function updateQty(i: number, q: number) { setCart((p) => p.map((c, idx) => idx === i ? { ...c, quantity: Math.max(1, q) } : c)) }
@@ -59,11 +83,35 @@ export default function PaypointPending() {
     if (cart.length === 0) return
     setSubmitting(true)
     try {
-      const res = await api.post('/payments', {
-        items: cart.map((c) => ({ service_type: c.service_type, service_id: c.service_id, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
-        payment_method: paymentMethod, notes: notes || null, created_by: currentUser?.id,
-      })
-      setReceipt(res.data); setShowReceipt(true); setCart([]); setNotes(''); loadItems()
+      if (billToInsurance && insuranceInfo && cart[0]?.patient_id) {
+        const items = cart.map((c) => ({ service_type: c.service_type, service_id: c.service_id, description: c.description, quantity: c.quantity, unit_price: c.unit_price }))
+        await api.post('/insurance/bill-to-insurance', {
+          patientId: cart[0].patient_id,
+          caseId: insuranceInfo.id,
+          items,
+          source: 'paypoint',
+          created_by: currentUser?.id,
+        })
+        setReceipt({
+          receipt_number: `INS-${insuranceInfo.case_number}`,
+          patient_name: cart[0]?.full_name || 'Patient',
+          hospital_number: cart[0]?.hospital_number || null,
+          total_amount: total,
+          items: items.map((c: any) => ({ description: c.description, total_price: (c.quantity || 1) * (c.unit_price || 0) })),
+          payment_method: `Insurance: ${insuranceInfo.provider_name}`,
+          created_at: new Date().toISOString(),
+        })
+        setShowReceipt(true); setCart([]); setBillToInsurance(false); setInsuranceInfo(null)
+        loadItems()
+      } else {
+        const res = await api.post('/payments', {
+          patient_id: cart[0]?.patient_id || null,
+          items: cart.map((c) => ({ patient_id: c.patient_id, service_type: c.service_type, service_id: c.service_id, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
+          payment_method: paymentMethod, notes: null, created_by: currentUser?.id,
+        })
+        setReceipt(res.data); setShowReceipt(true); setCart([]); setBillToInsurance(false); setInsuranceInfo(null)
+        loadItems()
+      }
     } catch (err: any) { alert(err.response?.data?.message || 'Payment failed') } finally { setSubmitting(false) }
   }
 
@@ -84,10 +132,10 @@ export default function PaypointPending() {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 max-w-xs">
           <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input type="text" placeholder="Search patient or service..." value={filter} onChange={(e) => setFilter(e.target.value)}
+          <input type="text" placeholder="Search patient, phone or service..." value={filter} onChange={(e) => { setFilter(e.target.value); setPage(0) }}
             className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
         </div>
-        {cart.length > 0 && <button onClick={() => setCart([])} className="px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-500 hover:bg-slate-50">Clear Cart</button>}
+        {cart.length > 0 && <button onClick={() => { setCart([]); setInsuranceInfo(null); setBillToInsurance(false) }} className="px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-500 hover:bg-slate-50">Clear Cart</button>}
         <span className="text-xs text-slate-400">{filtered.length} shown</span>
       </div>
 
@@ -102,7 +150,7 @@ export default function PaypointPending() {
             </div>
           ) : (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+              <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-slate-100 bg-slate-50">
@@ -114,7 +162,7 @@ export default function PaypointPending() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filtered.map((item: any, idx: number) => {
+                    {paged.map((item: any, idx: number) => {
                       const Icon = serviceIcons[item.service_type] || Package
                       const added = cart.some((c: any) => ((c.service_id || c.patient_id) + '-' + c.service_type + '-' + (c.service_id || c.description)) === ((item.service_id || item.patient_id) + '-' + item.service_type + '-' + (item.service_id || item.description)))
                       return (
@@ -123,7 +171,14 @@ export default function PaypointPending() {
                             <div className="flex items-center gap-2">
                               <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0"><User size={12} className="text-primary" /></div>
                               <div className="min-w-0">
-                                <p className="font-medium text-slate-800 truncate max-w-[140px]">{item.full_name}</p>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <p className="font-medium text-slate-800 truncate max-w-[130px]">{item.full_name}</p>
+                                  {item.insurance_provider && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-[8px] font-semibold text-emerald-700 whitespace-nowrap">
+                                      <Shield size={8} /> {item.insurance_provider}
+                                    </span>
+                                  )}
+                                </div>
                                 {item.hospital_number && <p className="text-[10px] text-slate-400">{item.hospital_number}</p>}
                                 {item.created_at && <p className="text-[9px] text-slate-300">{new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>}
                               </div>
@@ -156,6 +211,22 @@ export default function PaypointPending() {
                   </tbody>
                 </table>
               </div>
+              <div className="px-4 py-4 border-t border-slate-100 flex items-center justify-between flex-wrap gap-3">
+                <span className="text-xs text-slate-400 whitespace-nowrap">Showing {paged.length} of {filtered.length} item(s)</span>
+                <div className="flex items-center gap-1.5 ml-auto">
+                  <button onClick={() => setPage(Math.max(0, safePage - 1))} disabled={safePage === 0}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all">
+                    <ChevronLeft size={14} /> Prev
+                  </button>
+                  <span className="px-3 py-1.5 rounded-lg bg-slate-100 text-xs font-semibold text-slate-700 whitespace-nowrap">
+                    Page {safePage + 1} <span className="text-slate-400 font-medium">/ {totalPages}</span>
+                  </span>
+                  <button onClick={() => setPage(Math.min(totalPages - 1, safePage + 1))} disabled={safePage >= totalPages - 1}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 hover:border-slate-300 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed transition-all">
+                    Next <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -167,7 +238,7 @@ export default function PaypointPending() {
             {cart.length === 0 ? (
               <p className="text-sm text-slate-400 text-center py-6">Add items from the table.</p>
             ) : (
-              <div className="space-y-3 max-h-64 overflow-y-auto">
+              <div className="space-y-3 max-h-[60vh] overflow-y-auto">
                 {cart.map((item, i) => (
                   <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
                     <div className="flex items-start justify-between gap-2 mb-2">
@@ -192,6 +263,19 @@ export default function PaypointPending() {
             )}
             {cart.length > 0 && (
               <div className="border-t border-slate-100 pt-4 mt-4 space-y-3">
+                {insuranceLoading ? (
+                  <div className="flex items-center justify-center gap-2 py-1 text-xs text-slate-400"><Loader2 size={12} className="animate-spin" /> Checking insurance...</div>
+                ) : insuranceInfo ? (
+                  <button onClick={() => setBillToInsurance(!billToInsurance)}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-medium transition-all ${
+                      billToInsurance
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                    }`}>
+                    <Shield size={14} />
+                    {billToInsurance ? `Billing to ${insuranceInfo.provider_name}` : `Bill to Insurance (${insuranceInfo.provider_name})`}
+                  </button>
+                ) : null}
                 <div className="grid grid-cols-2 gap-2">
                   {paymentMethods.map((m) => {
                     const Icon = m.icon
@@ -203,8 +287,6 @@ export default function PaypointPending() {
                     )
                   })}
                 </div>
-                <input type="text" placeholder="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-slate-400">{cart.reduce((s, c) => s + c.quantity, 0)} units</span>
                   <span className="text-lg font-bold text-slate-800">₦{total.toLocaleString()}</span>
@@ -212,7 +294,7 @@ export default function PaypointPending() {
                 <button onClick={handlePayment} disabled={submitting || cart.length === 0}
                   className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-all">
                   {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-                  {submitting ? 'Processing...' : `Pay ₦${total.toLocaleString()}`}
+                  {submitting ? 'Processing...' : (billToInsurance ? `Bill ₦${total.toLocaleString()} to Insurance` : `Pay ₦${total.toLocaleString()}`)}
                 </button>
               </div>
             )}
@@ -233,12 +315,12 @@ export default function PaypointPending() {
       {showCart && (
         <div className="fixed inset-0 z-50 flex items-end lg:hidden" onClick={() => setShowCart(false)}>
           <div className="fixed inset-0 bg-black/30" />
-          <div className="relative w-full bg-white rounded-t-2xl shadow-xl border border-slate-100 max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+          <div className="relative w-full bg-white rounded-t-2xl shadow-xl border border-slate-100 max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 flex-shrink-0">
               <h2 className="text-sm font-semibold text-slate-800"><ShoppingCart size={16} className="inline mr-2" />Cart ({cart.length})</h2>
               <button onClick={() => setShowCart(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
-            <div className="overflow-y-auto flex-1 px-5 py-3 divide-y divide-slate-50">
+            <div className="overflow-y-auto flex-1 min-h-0 px-5 py-3 divide-y divide-slate-50">
               {cart.map((item, i) => (
                 <div key={i} className="py-3">
                   <div className="flex items-start justify-between gap-2 mb-2">
@@ -262,6 +344,19 @@ export default function PaypointPending() {
             </div>
             {cart.length > 0 && (
               <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex-shrink-0 space-y-3">
+                {insuranceLoading ? (
+                  <div className="flex items-center justify-center gap-2 py-1 text-xs text-slate-400"><Loader2 size={12} className="animate-spin" /> Checking insurance...</div>
+                ) : insuranceInfo ? (
+                  <button onClick={() => setBillToInsurance(!billToInsurance)}
+                    className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-medium transition-all ${
+                      billToInsurance
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                    }`}>
+                    <Shield size={14} />
+                    {billToInsurance ? `Billing to ${insuranceInfo.provider_name}` : `Bill to Insurance (${insuranceInfo.provider_name})`}
+                  </button>
+                ) : null}
                 <div className="grid grid-cols-2 gap-2">
                   {paymentMethods.map((m) => {
                     const Icon = m.icon
@@ -273,12 +368,10 @@ export default function PaypointPending() {
                     )
                   })}
                 </div>
-                <input type="text" placeholder="Notes" value={notes} onChange={(e) => setNotes(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 <div className="flex items-center justify-between"><span className="text-xs text-slate-400">{cart.reduce((s, c) => s + c.quantity, 0)} units</span><span className="text-lg font-bold">₦{total.toLocaleString()}</span></div>
                 <button onClick={() => { setShowCart(false); handlePayment() }} disabled={submitting}
                   className="w-full py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50">
-                  {submitting ? 'Processing...' : `Pay ₦${total.toLocaleString()}`}
+                  {submitting ? 'Processing...' : (billToInsurance ? `Bill ₦${total.toLocaleString()} to Insurance` : `Pay ₦${total.toLocaleString()}`)}
                 </button>
               </div>
             )}
@@ -301,7 +394,7 @@ export default function PaypointPending() {
               <button onClick={() => setErrorModal('')} className="p-1 rounded-lg hover:bg-slate-100 flex-shrink-0"><X size={16} className="text-slate-400" /></button>
             </div>
             <div className="px-6 pb-5 flex items-center justify-between">
-              <button onClick={() => { setCart([]); setErrorModal('') }} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-rose-200 text-rose-600 text-sm font-medium hover:bg-rose-50 transition-colors">
+              <button onClick={() => { setCart([]); setInsuranceInfo(null); setBillToInsurance(false); setErrorModal('') }} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-rose-200 text-rose-600 text-sm font-medium hover:bg-rose-50 transition-colors">
                 <Trash2 size={14} /> Clear Cart
               </button>
               <button onClick={() => setErrorModal('')} className="px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
@@ -325,7 +418,7 @@ export default function PaypointPending() {
               <div className="flex justify-between text-xs text-slate-400 pt-2"><span>{receipt.payment_method?.toUpperCase()}</span><span>{new Date(receipt.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
-              <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium"><Printer size={14} /> Print</button>
+              <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium"><Printer size={14} /> Print</button>
               <button onClick={() => setShowReceipt(false)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
             </div>
           </div>

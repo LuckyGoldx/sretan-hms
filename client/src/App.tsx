@@ -2,7 +2,6 @@ import React, { Suspense, lazy, useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { useTheme } from './hooks/useTheme'
 import {
-  LayoutDashboard,
   UserPlus,
   Stethoscope,
   Beaker,
@@ -49,7 +48,6 @@ const DoctorResults = lazy(() => import('./components/DoctorResults'))
 const DoctorLabResults = lazy(() => import('./components/DoctorLabResults'))
 const LabLowStock = lazy(() => import('./components/LabLowStock'))
 const AppointmentsPage = lazy(() => import('./components/AppointmentsPage'))
-const LaboratoryWorkbench = lazy(() => import('./components/LaboratoryWorkbench'))
 const LabDashboard = lazy(() => import('./components/LabDashboard'))
 const LabWorklist = lazy(() => import('./components/LabWorklist'))
 const LabResults = lazy(() => import('./components/LabResults'))
@@ -58,6 +56,7 @@ const LabOrders = lazy(() => import('./components/LabOrders'))
 const LabCatalog = lazy(() => import('./components/LabCatalog'))
 const LabReports = lazy(() => import('./components/LabReports'))
 const PharmacyDashboard = lazy(() => import('./components/PharmacyDashboard'))
+const UnpaidOrders = lazy(() => import('./components/UnpaidOrders'))
 const Dispensing = lazy(() => import('./components/Dispensing'))
 const InventoryManager = lazy(() => import('./components/InventoryManager'))
 const InventoryManagement = lazy(() => import('./components/InventoryManagement'))
@@ -118,11 +117,11 @@ interface SidebarLink {
 
 const sidebarLinks: SidebarLink[] = [
   // ── Dashboard ──
-  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin'], category: 'Dashboard' },
+  { to: '/dashboard', label: 'Dashboard', icon: Pill, roles: ['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin'], category: 'Dashboard' },
   // ── Clinical ──
   { to: '/patients/register', label: 'Register Patient', icon: UserPlus, roles: ['Records', 'Admin'], category: 'Clinical' },
   { to: '/triage', label: 'Triage', icon: Stethoscope, roles: ['Nurse', 'Admin'], category: 'Clinical' },
-  { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse', 'Pharmacist'], category: 'Clinical' },
+  { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse'], category: 'Clinical' },
   { to: '/my-prescriptions', label: 'Prescriptions', icon: Pill, roles: ['Doctor', 'Admin'], category: 'Clinical' },
   { to: '/vitals', label: 'Vitals', icon: Activity, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Clinical' },
   { to: '/consultation', label: 'Consultation', icon: Stethoscope, roles: ['Doctor', 'Admin'], category: 'Clinical' },
@@ -141,8 +140,8 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/lab-low-stock', label: 'Lab Low Stock', icon: AlertTriangle, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
   { to: '/lab-expiry', label: 'Lab Expiry', icon: Clock, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
   // ── Pharmacy ──
-  { to: '/pharmacy', label: 'Pharmacy Dashboard', icon: Pill, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
   { to: '/dispensing', label: 'Dispensing', icon: ClipboardList, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
+  { to: '/dispensing/unpaid', label: 'Unpaid Prescriptions', icon: Banknote, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
   { to: '/walk-in-sales', label: 'Walk-in Sales', icon: ShoppingCart, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
   { to: '/pharmacy-inventory', label: 'Pharmacy Inventory', icon: Package, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
   { to: '/pharmacy-expiry', label: 'Expiry Monitor', icon: Clock, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
@@ -178,13 +177,13 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/paypoint/history', label: 'Payment History', icon: FileText, roles: ['Paypoint', 'Admin'], category: 'Finance' },
   { to: '/finance', label: 'Finance / HMO', icon: Banknote, roles: ['Admin'], category: 'Finance' },
   // ── Insurance ──
-  { to: '/admin/insurance/dashboard', label: 'Insurance Dashboard', icon: Shield, roles: ['Admin', 'Finance'], category: 'Insurance' },
-  { to: '/admin/insurance/cases', label: 'Cases', icon: FileText, roles: ['Admin', 'Finance'], category: 'Insurance' },
-  { to: '/admin/insurance/auth-requests', label: 'Auth Requests', icon: AlertTriangle, roles: ['Admin', 'Finance'], category: 'Insurance' },
-  { to: '/admin/insurance/reports', label: 'Reports', icon: TrendingUp, roles: ['Admin', 'Finance'], category: 'Insurance' },
-  { to: '/admin/insurance/cases/new', label: 'New Case', icon: UserPlus, roles: ['Admin', 'Finance'], category: 'Insurance' },
-  { to: '/admin/insurance/patients', label: 'Patients', icon: Users, roles: ['Admin', 'Finance'], category: 'Insurance' },
-  { to: '/admin/insurance/invoices', label: 'Invoices', icon: Receipt, roles: ['Admin', 'Finance'], category: 'Insurance' },
+  { to: '/admin/insurance/dashboard', label: 'Insurance Dashboard', icon: Shield, roles: ['Admin'], category: 'Insurance' },
+  { to: '/admin/insurance/cases', label: 'Cases', icon: FileText, roles: ['Admin'], category: 'Insurance' },
+  { to: '/admin/insurance/auth-requests', label: 'Auth Requests', icon: AlertTriangle, roles: ['Admin'], category: 'Insurance' },
+  { to: '/admin/insurance/reports', label: 'Reports', icon: TrendingUp, roles: ['Admin'], category: 'Insurance' },
+  { to: '/admin/insurance/cases/new', label: 'New Case', icon: UserPlus, roles: ['Admin'], category: 'Insurance' },
+  { to: '/admin/insurance/patients', label: 'Patients', icon: Users, roles: ['Admin'], category: 'Insurance' },
+  { to: '/admin/insurance/invoices', label: 'Invoices', icon: Receipt, roles: ['Admin'], category: 'Insurance' },
   { to: '/admin/insurance/providers', label: 'Providers', icon: Building2, roles: ['Admin'], category: 'Insurance' },
   { to: '/admin/insurance/staff', label: 'Staff', icon: Users, roles: ['Admin'], category: 'Insurance' },
   // ── Administration ──
@@ -334,8 +333,15 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm">
             M
           </div>
-          <span className="font-semibold text-slate-800 text-sm">Sretan HMS</span>
-          <button onClick={onClose} className="ml-auto lg:hidden p-1 rounded-lg hover:bg-slate-100">
+          <div className="min-w-0 flex-1">
+            <span className="font-semibold text-slate-800 text-sm block leading-tight">MACHOKO HMS</span>
+            {displayRole && (
+              <span className="inline-flex items-center px-2 py-0.5 mt-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-bold uppercase tracking-wide truncate max-w-full">
+                {displayRole}
+              </span>
+            )}
+          </div>
+          <button onClick={onClose} className="ml-auto lg:hidden p-1 rounded-lg hover:bg-slate-100 flex-shrink-0">
             <XIcon className="w-5 h-5 text-slate-500" />
           </button>
         </div>
@@ -376,7 +382,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                       <NavLink
                         key={to}
                         to={to}
-                        end={to === '/dashboard'}
+                        end={to === '/dashboard' || to === '/dispensing'}
                         onClick={onClose}
                         className={({ isActive }) =>
                           `flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
@@ -411,7 +417,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
               <NavLink
                 key={to}
                 to={to}
-                end={to === '/dashboard'}
+                end={to === '/dashboard' || to === '/dispensing'}
                 onClick={onClose}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
@@ -485,7 +491,6 @@ function LabRouter() {
       <Route path="orders" element={<Suspense fallback={<LoadingFallback />}><LabOrders /></Suspense>} />
       <Route path="catalog" element={<Suspense fallback={<LoadingFallback />}><LabCatalog /></Suspense>} />
       <Route path="reports" element={<Suspense fallback={<LoadingFallback />}><LabReports /></Suspense>} />
-      {role !== 'Doctor' && <Route path="legacy" element={<Suspense fallback={<LoadingFallback />}><LaboratoryWorkbench /></Suspense>} />}
     </Routes>
   )
 }
@@ -504,6 +509,7 @@ function DashboardRouter() {
   if (role === 'Records') return <RecordsDashboard />
   if (role === 'Finance') return <Navigate to="/finance/dashboard" replace /> 
   if (role === 'Paypoint') return <Navigate to="/paypoint/dashboard" replace /> 
+  if (role === 'Pharmacist') return <PharmacyDashboard />
   return <PatientDashboard />
 }
 
@@ -648,7 +654,7 @@ export default function App() {
             path="/patients"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse', 'Records', 'Pharmacist', 'Paypoint']}>
+                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse', 'Records', 'Paypoint']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <MyPatients />
                   </Suspense>
@@ -752,17 +758,6 @@ export default function App() {
           <Route path="/finance/billing" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinancePatientBilling /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance/payment-history" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinancePaymentHistory /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><Navigate to="/finance/dashboard" replace /></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/pharmacy"
-            element={
-              <Layout>
-                <ProtectedRoute roles={['Pharmacist', 'Admin']}>
-                  <Suspense fallback={<LoadingFallback />}>
-                    <PharmacyDashboard />
-                  </Suspense>
-                </ProtectedRoute>
-              </Layout>
-            }
-          />
           <Route
             path="/dispensing"
             element={
@@ -770,6 +765,18 @@ export default function App() {
                 <ProtectedRoute roles={['Pharmacist', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <Dispensing />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/dispensing/unpaid"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Pharmacist', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <UnpaidOrders />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>
@@ -968,17 +975,17 @@ export default function App() {
             }
           />
           {/* Admin Insurance Routes (within clinical Layout) */}
-          <Route path="/admin/insurance/dashboard" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceDashboard /></Suspense></Layout>} />
-          <Route path="/admin/insurance/cases" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceCases /></Suspense></Layout>} />
-          <Route path="/admin/insurance/cases/new" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceNewCase /></Suspense></Layout>} />
-          <Route path="/admin/insurance/cases/:id" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceCaseDetail /></Suspense></Layout>} />
-          <Route path="/admin/insurance/invoices" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceInvoices /></Suspense></Layout>} />
-          <Route path="/admin/insurance/providers" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceProviders /></Suspense></Layout>} />
-          <Route path="/admin/insurance/staff" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceStaff /></Suspense></Layout>} />
-          <Route path="/admin/insurance/patients" element={<Layout><Suspense fallback={<LoadingFallback />}><InsurancePatients /></Suspense></Layout>} />
-          <Route path="/admin/insurance/patients/:patientId" element={<Layout><Suspense fallback={<LoadingFallback />}><InsurancePatientDetail /></Suspense></Layout>} />
-          <Route path="/admin/insurance/auth-requests" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceAuthRequests /></Suspense></Layout>} />
-          <Route path="/admin/insurance/reports" element={<Layout><Suspense fallback={<LoadingFallback />}><InsuranceReports /></Suspense></Layout>} />
+          <Route path="/admin/insurance/dashboard" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceDashboard /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/admin/insurance/cases" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceCases /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/admin/insurance/cases/new" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceNewCase /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/admin/insurance/cases/:id" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceCaseDetail /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/admin/insurance/invoices" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceInvoices /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/admin/insurance/providers" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceProviders /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/admin/insurance/staff" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceStaff /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/admin/insurance/patients" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsurancePatients /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/admin/insurance/patients/:patientId" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsurancePatientDetail /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/admin/insurance/auth-requests" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceAuthRequests /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/admin/insurance/reports" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceReports /></Suspense></ProtectedRoute></Layout>} />
           <Route
             path="/setup"
             element={

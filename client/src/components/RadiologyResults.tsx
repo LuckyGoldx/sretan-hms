@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import { printRadiologyReport } from '../utils/print'
 import DoctorComment from './DoctorComment'
 import {
   Scan, Loader2, FileText, X, Search, Clock, ArrowLeft, CheckCircle, FileImage, Printer,
@@ -227,7 +228,7 @@ export default function RadiologyResults() {
                 </div>
               )}
               <div className="flex justify-end">
-                <button onClick={() => window.print()} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50">
+                <button onClick={() => printRadiologyReport(detail)} className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50">
                   <Printer size={14} /> Print Report
                 </button>
               </div>

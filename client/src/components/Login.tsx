@@ -5,7 +5,7 @@ import { useClinicConfig } from '../hooks/useClinicConfig'
 
 export default function Login() {
   const { config, loading, configured } = useClinicConfig()
-  const [email, setEmail] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -14,7 +14,7 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!email || !password) {
+    if (!identifier || !password) {
       setError('Please fill in all fields')
       return
     }
@@ -24,7 +24,7 @@ export default function Login() {
       const { default: api } = await import('../hooks/useAxios')
       // Try clinical auth first
       try {
-        const res = await api.post('/auth/login', { email, password })
+        const res = await api.post('/auth/login', { username: identifier, password })
         localStorage.setItem('sretan_token', res.data.token)
         localStorage.setItem('sretan_user', JSON.stringify(res.data.user))
         window.location.href = '/dashboard'
@@ -33,7 +33,7 @@ export default function Login() {
         // If clinical fails (401), try insurance auth
         if (clinicalErr.response?.status === 401) {
           try {
-            const insRes = await api.post('/insurance/auth/login', { email, password })
+            const insRes = await api.post('/insurance/auth/login', { username: identifier, password })
             localStorage.setItem('sretan_token', insRes.data.token)
             localStorage.setItem('sretan_user', JSON.stringify(insRes.data.user))
             window.location.href = '/insurance/dashboard'
@@ -103,8 +103,8 @@ export default function Login() {
               <Building2 className="w-7 h-7 text-white" />
             </div>
           )}
-          <h1 className="text-xl font-bold">{config?.hospital_name || 'Clinic'}</h1>
-          <p className="text-sm text-white/80 mt-1">Clinical & Insurance Staff</p>
+          <h1 className="text-xl font-bold">MACHOKO HMS</h1>
+          <p className="text-sm text-white/80 mt-1">Excellence in Healthcare Delivery</p>
         </div>
 
         <div className="bg-white rounded-2xl rounded-t-none shadow-sm border border-slate-200 border-t-0 p-8">
@@ -116,12 +116,13 @@ export default function Login() {
             )}
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Username or Email</label>
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@clinic.com"
+                type="text"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                placeholder="e.g. doctor"
+                autoComplete="username"
                 className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
               />
             </div>

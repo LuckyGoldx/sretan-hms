@@ -132,7 +132,7 @@ async function start(): Promise<void> {
     }
 
     app.listen(PORT, () => {
-      console.log(`Sretan HMS Server running on port ${PORT}`);
+      console.log(`MACHOKO HMS Server running on port ${PORT}`);
     });
   } catch (err) {
     console.error('Failed to start server:', err);
