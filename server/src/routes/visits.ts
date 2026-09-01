@@ -14,17 +14,15 @@ const ACTIVE_VISIT_STATUSES = ['waiting', 'with_doctor'];
 const VALID_VISIT_TYPES = ['new', 'follow_up', 'review'];
 
 /**
- * Compute visit_type for a patient: 'new' on their first billed consultation,
- * 'follow_up' on subsequent check-ins.
+ * Whether a consultation is 'new' or 'follow-up' is a staff decision (records/nurse
+ * pick it in the Assign modal, the doctor picks it in the Emergency Claim modal) —
+ * it can never be inferred from elapsed time alone, because a patient may return a
+ * week later with a brand-new complaint. This fallback is used only when nobody
+ * explicitly chooses a type, and it defaults to the full 'new' fee so a follow-up is
+ * never auto-billed by mistake.
  */
-async function computeVisitType(patientId: string): Promise<string> {
-  const prior = await pool.query(
-    `SELECT 1 FROM visits
-     WHERE patient_id = $1 AND consultation_status IN ('paid', 'insurance_authorized')
-     LIMIT 1`,
-    [patientId]
-  );
-  return prior.rows.length > 0 ? 'follow_up' : 'new';
+function computeVisitType(): string {
+  return 'new';
 }
 
 /**
@@ -135,7 +133,7 @@ router.post('/api/visits', async (req: Request, res: Response) => {
       }
     }
 
-    const resolvedType = visit_type && VALID_VISIT_TYPES.includes(visit_type) ? visit_type : await computeVisitType(patient_id);
+    const resolvedType = visit_type && VALID_VISIT_TYPES.includes(visit_type) ? visit_type : computeVisitType();
     // Blank fee -> use the default consultation fee configured in inventory.
     let fee = 0;
     if (consultation_fee !== undefined && consultation_fee !== null && consultation_fee !== '') {
@@ -164,15 +162,16 @@ router.post('/api/visits', async (req: Request, res: Response) => {
     }
 
     // Release / unclaim: when no doctor is chosen for an existing visit, clear the
-    // assignment but keep the visit and its consultation/billing state intact.
+    // assignment AND the routing department so the patient returns to the general
+    // pool (a released patient should not carry a stale specialty department).
     if (active.rows.length > 0 && !assigned_doctor_id) {
       const old = active.rows[0];
       const released = (await pool.query(
-        `UPDATE visits SET assigned_doctor_id = NULL WHERE id = $1 RETURNING *`,
+        `UPDATE visits SET assigned_doctor_id = NULL, department_id = NULL WHERE id = $1 RETURNING *`,
         [old.id]
       )).rows[0];
       await pool.query(
-        `UPDATE patients SET assigned_doctor_id = NULL WHERE id = $1 AND tenant_id = $2`,
+        `UPDATE patients SET assigned_doctor_id = NULL, department_id = NULL WHERE id = $1 AND tenant_id = $2`,
         [patient_id, tenantId]
       );
       await audit(tenantId, 'UPDATE', 'visits', old.id, performed_by || null, old, released);
@@ -274,9 +273,9 @@ router.post('/api/patients/:patientId/claim', async (req: Request, res: Response
     }
 
     // The doctor can specify the consultation type (new / follow_up) for an emergency
-    // claim; otherwise it is derived from the patient's history (new if no prior
-    // billed consultation, follow-up otherwise).
-    const visitType = visit_type && VALID_VISIT_TYPES.includes(visit_type) ? visit_type : await computeVisitType(patientId);
+    // claim; otherwise it falls back to 'new' (the full fee) — the type is a staff
+    // decision, never inferred from time alone.
+    const visitType = visit_type && VALID_VISIT_TYPES.includes(visit_type) ? visit_type : computeVisitType();
     const active = await pool.query(
       `SELECT * FROM visits WHERE tenant_id = $1 AND patient_id = $2 AND status IN ('waiting','with_doctor') ORDER BY created_at DESC LIMIT 1`,
       [tenantId, patientId]
@@ -429,10 +428,15 @@ router.put('/api/visits/:id/complete', async (req: Request, res: Response) => {
       [id, tenantId]
     );
 
-    // Clear the current assignment (queue handoff, not ownership forever).
+    // Clear the current assignment and routing department (queue handoff), but keep the
+    // department this consultation happened in as a permanent history reference.
     await pool.query(
-      `UPDATE patients SET assigned_doctor_id = NULL WHERE id = $1 AND tenant_id = $2 AND assigned_doctor_id = $3`,
-      [old.patient_id, tenantId, old.assigned_doctor_id]
+      `UPDATE patients
+         SET assigned_doctor_id = NULL,
+             department_id = NULL,
+             last_consulted_department_id = COALESCE($2, last_consulted_department_id)
+       WHERE id = $1 AND tenant_id = $3 AND assigned_doctor_id = $4`,
+      [old.patient_id, old.department_id || null, tenantId, old.assigned_doctor_id]
     );
     await audit(tenantId, 'UPDATE', 'visits', id, performed_by || null, old, result.rows[0]);
 

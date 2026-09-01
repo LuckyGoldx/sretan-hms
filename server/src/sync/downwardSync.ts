@@ -2,29 +2,32 @@ import { Pool } from 'pg';
 import axios from 'axios';
 import { ClinicProfile } from '../config/reader';
 import { clockGuard } from '../middleware/clockGuard';
-
-const SYNC_TABLES = [
-  'patients', 'encounters', 'vitals', 'prescriptions',
-  'lab_orders', 'lab_results', 'radiology_orders',
-  'billing_invoices', 'inventory_items', 'audit_logs',
-];
+import { resolveCloudCredentials } from './cloudCredentials';
+import { getSyncTables } from './upwardSync';
 
 export async function downwardSync(pool: Pool, profile: ClinicProfile): Promise<void> {
-  if (!profile.private_supabase_url || !profile.private_supabase_anon_key) {
+  const creds = await resolveCloudCredentials(profile);
+  if (!creds) {
     console.log('Downward sync skipped: Supabase credentials not configured');
     return;
   }
 
-  const supabaseUrl = profile.private_supabase_url.replace(/\/$/, '');
+  const tenantId = profile.GLOBAL_SAAS_TENANT_ID;
+  if (!tenantId) return;
+
+  const supabaseUrl = creds.url.replace(/\/$/, '');
   const headers = {
-    apikey: profile.private_supabase_anon_key,
-    Authorization: `Bearer ${profile.private_supabase_anon_key}`,
+    apikey: creds.anonKey,
+    Authorization: `Bearer ${creds.anonKey}`,
   };
 
-  for (const table of SYNC_TABLES) {
+  const tables = await getSyncTables(pool);
+
+  for (const table of tables) {
     try {
       const lastSyncResult = await pool.query(
-        `SELECT COALESCE(MAX(last_synced_at), '1970-01-01'::timestamptz) as last_sync FROM ${table}`
+        `SELECT COALESCE(MAX(last_synced_at), '1970-01-01'::timestamptz) as last_sync FROM "${table}" WHERE tenant_id = $1`,
+        [tenantId]
       );
       const lastSyncedAt = lastSyncResult.rows[0]?.last_sync || '1970-01-01T00:00:00Z';
 
@@ -34,6 +37,7 @@ export async function downwardSync(pool: Pool, profile: ClinicProfile): Promise<
           headers,
           params: {
             select: '*',
+            tenant_id: `eq.${tenantId}`,
             updated_at: `gt.${lastSyncedAt}`,
             order: 'updated_at.asc',
           },
@@ -46,26 +50,26 @@ export async function downwardSync(pool: Pool, profile: ClinicProfile): Promise<
             await clockGuard(pool, table);
 
             const existing = await pool.query(
-              `SELECT id FROM ${table} WHERE id = $1`,
-              [row.id]
+              `SELECT id FROM "${table}" WHERE id = $1 AND tenant_id = $2`,
+              [row.id, tenantId]
             );
 
             if (existing.rows.length > 0) {
               const { id, created_at, updated_at, ...updateData } = row;
               const setClauses = Object.keys(updateData)
-                .map((key, i) => `${key} = $${i + 2}`)
+                .map((key, i) => `"${key}" = $${i + 2}`)
                 .join(', ');
               const values = Object.values(updateData);
               await pool.query(
-                `UPDATE ${table} SET ${setClauses} WHERE id = $1`,
-                [id, ...values]
+                `UPDATE "${table}" SET ${setClauses} WHERE id = $1 AND tenant_id = $2`,
+                [id, ...values, tenantId]
               );
             } else {
               const columns = Object.keys(row).join(', ');
               const placeholders = Object.keys(row).map((_, i) => `$${i + 1}`).join(', ');
               const values = Object.values(row);
               await pool.query(
-                `INSERT INTO ${table} (${columns}) VALUES (${placeholders}) ON CONFLICT (id) DO NOTHING`,
+                `INSERT INTO "${table}" (${columns}) VALUES (${placeholders}) ON CONFLICT (id) DO NOTHING`,
                 values
               );
             }

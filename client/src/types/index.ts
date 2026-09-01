@@ -39,6 +39,8 @@ export interface Patient {
   primary_doctor_id?: string
   department_id?: string
   department_name?: string
+  last_consulted_department_id?: string
+  last_consulted_department_name?: string
   has_paid_consultation?: boolean
   blood_type?: string
   status: string

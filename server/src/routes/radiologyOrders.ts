@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
+import { generateNumber } from '../utils/numbering';
 import { clockGuard } from '../middleware/clockGuard';
 
 const router = Router();
@@ -10,9 +11,8 @@ function getTenantId(): string {
   return readClinicProfile().GLOBAL_SAAS_TENANT_ID;
 }
 
-async function autoImagingNumber(pool: any, tenantId: string): Promise<string> {
-  const seq = await pool.query(`SELECT COALESCE(MAX(SUBSTRING(imaging_number FROM 'RAD-(\\d+)')::int), 0) + 1 AS n FROM radiology_orders WHERE imaging_number ~ '^RAD-'`);
-  return `RAD-${String(seq.rows[0]?.n || 1).padStart(5, '0')}`;
+async function autoImagingNumber(tenantId: string): Promise<string> {
+  return generateNumber(tenantId, 'radiology', { prefix: 'RAD' });
 }
 
 // List radiology orders with filters
@@ -79,7 +79,7 @@ router.post('/api/radiology-orders', async (req: Request, res: Response) => {
     }
 
     const id = uuidv4();
-    const imgNum = await autoImagingNumber(pool, tenantId);
+    const imgNum = await autoImagingNumber(tenantId);
     const result = await pool.query(
       `INSERT INTO radiology_orders (id, tenant_id, imaging_number, encounter_id, imaging_type, doctor_name, patient_name, payment_id, is_paid, doctor_comment)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,

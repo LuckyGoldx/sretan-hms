@@ -21,6 +21,16 @@ export interface ClinicProfile {
   module_pharmacy: boolean;
   module_radiology: boolean;
   module_finance_hmo: boolean;
+  module_maternity: boolean;
+  module_insurance: boolean;
+  module_referrals: boolean;
+  module_appointments: boolean;
+  module_admissions: boolean;
+  module_paypoint: boolean;
+  module_store: boolean;
+  module_doctor: boolean;
+  module_nurses: boolean;
+  module_consultants: boolean;
   hospital_number_prefix: string;
   hospital_number_include_year: boolean;
 }
@@ -55,6 +65,16 @@ export function readClinicProfile(): ClinicProfile {
     module_pharmacy: false,
     module_radiology: false,
     module_finance_hmo: false,
+    module_maternity: false,
+    module_insurance: false,
+    module_referrals: false,
+    module_appointments: false,
+    module_admissions: false,
+    module_paypoint: false,
+    module_store: false,
+    module_doctor: false,
+    module_nurses: false,
+    module_consultants: false,
     hospital_number_prefix: 'SRT',
     hospital_number_include_year: true,
   };

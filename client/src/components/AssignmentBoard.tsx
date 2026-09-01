@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Search, Users, UserCheck, Stethoscope, RefreshCw, X, Loader2, CheckCircle, Shield, UserPlus,
-  Building2, ClipboardList, AlertTriangle,
+  ClipboardList, AlertTriangle, Activity,
 } from 'lucide-react'
 import api from '../hooks/useAxios'
+import SearchableDropdown from './SearchableDropdown'
 
 function statusBadge(status?: string): { label: string; cls: string } {
   switch (status) {
@@ -55,6 +56,16 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
   const [consultBlock, setConsultBlock] = useState<any | null>(null)
   const [emergencyModal, setEmergencyModal] = useState<any | null>(null)
   const [emergencyType, setEmergencyType] = useState<'new' | 'follow_up'>('new')
+  // Nurse vitals
+  const [vitalsPatient, setVitalsPatient] = useState<any | null>(null)
+  const [vitalsForm, setVitalsForm] = useState({
+    systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '',
+    weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '',
+    fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '',
+    hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '',
+    triage_priority: 'green', nursing_notes: '',
+  })
+  const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
 
   // Assign modal
   const [assignModal, setAssignModal] = useState<any | null>(null)
@@ -72,6 +83,7 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
   const isDoctorQueue = role === 'Doctor' || role === 'Consultant'
   const canAssign = role === 'Records' || role === 'Admin' || role === 'Nurse'
   const canSeeFee = role === 'Records' || role === 'Admin'
+  const canRecordVitals = role === 'Nurse'
   // Nurses, records and admins focus on assigning first, so Unassigned sits on the left.
   const swapPanels = role === 'Nurse' || role === 'Records' || role === 'Admin'
   // Records open the records profile; everyone else opens the clinical chart.
@@ -170,6 +182,48 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
     setEmergencyModal(null); setEmergencyType('new')
   }
 
+  async function handleVitalsSubmit() {
+    if (!vitalsPatient) return
+    setVitalsSubmitting(true)
+    setError('')
+    try {
+      const u = (() => { try { const s = localStorage.getItem('sretan_user'); if (s) return JSON.parse(s) } catch {} return null })()
+      const encRes = await api.post('/encounters', {
+        patient_id: vitalsPatient.patient_id || vitalsPatient.id,
+        encounter_type: 'vitals',
+        chief_complaint: (vitalsForm.nursing_notes || '').slice(0, 200),
+        staff_id: u?.id,
+      })
+      await api.post('/vitals', {
+        encounter_id: encRes.data.id,
+        systolic_bp: vitalsForm.systolic_bp ? parseInt(vitalsForm.systolic_bp) : null,
+        diastolic_bp: vitalsForm.diastolic_bp ? parseInt(vitalsForm.diastolic_bp) : null,
+        pulse: vitalsForm.pulse ? parseInt(vitalsForm.pulse) : null,
+        temperature: vitalsForm.temperature ? parseFloat(vitalsForm.temperature) : null,
+        respiration_rate: vitalsForm.respiration_rate ? parseInt(vitalsForm.respiration_rate) : null,
+        weight: vitalsForm.weight ? parseFloat(vitalsForm.weight) : null,
+        spo2: vitalsForm.spo2 ? parseInt(vitalsForm.spo2) : null,
+        height: vitalsForm.height ? parseFloat(vitalsForm.height) : null,
+        fetal_heart_rate: vitalsForm.fetal_heart_rate ? parseInt(vitalsForm.fetal_heart_rate) : null,
+        fetal_heart_sound: vitalsForm.fetal_heart_sound || null,
+        fundal_height: vitalsForm.fundal_height ? parseFloat(vitalsForm.fundal_height) : null,
+        fetal_presentation: vitalsForm.fetal_presentation || null,
+        urine_protein: vitalsForm.urine_protein || null,
+        urine_glucose: vitalsForm.urine_glucose || null,
+        hemoglobin: vitalsForm.hemoglobin ? parseFloat(vitalsForm.hemoglobin) : null,
+        pcv: vitalsForm.pcv ? parseFloat(vitalsForm.pcv) : null,
+        gestational_age_weeks: vitalsForm.gestational_age_weeks ? parseInt(vitalsForm.gestational_age_weeks) : null,
+        tt_dose: vitalsForm.tt_dose || null,
+        recorded_by: u?.id,
+        triage_priority: vitalsForm.triage_priority,
+        nursing_notes: vitalsForm.nursing_notes,
+      })
+      setVitalsPatient(null)
+      setVitalsForm({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
+      setError('')
+    } catch (err: any) { setError(err?.response?.data?.message || 'Failed to save vitals') } finally { setVitalsSubmitting(false) }
+  }
+
   async function handleClaimConfirm() {
     if (!claimModal) return
     setClaimingId(claimModal.id)
@@ -253,6 +307,28 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
     const newDefault = t === 'follow_up' ? defaultFees.follow_up : defaultFees.new_visit
     if (!assignFee || Number(assignFee) === oldDefault) {
       setAssignFee(String(newDefault))
+    }
+  }
+
+  // Department/doctor linkage: picking a doctor auto-fills their department; picking a
+  // department filters the doctor list (and clears a mismatched doctor).
+  const filteredDoctors = assignDepartmentId
+    ? doctors.filter((d) => d.department_id === assignDepartmentId)
+    : doctors
+
+  function selectAssignDoctor(id: string) {
+    setAssignDoctorId(id)
+    if (id) {
+      const doc = doctors.find((d) => d.id === id)
+      if (doc?.department_id) setAssignDepartmentId(doc.department_id)
+    }
+  }
+
+  function selectAssignDepartment(id: string) {
+    setAssignDepartmentId(id)
+    if (assignDoctorId) {
+      const doc = doctors.find((d) => d.id === assignDoctorId)
+      if (doc?.department_id && doc.department_id !== id) setAssignDoctorId('')
     }
   }
 
@@ -345,6 +421,7 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
                   )}
                   <div className="flex flex-wrap items-center gap-1.5 mt-2">
                     <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] font-medium">{visitTypeLabel(p.visit_type)} visit</span>
+                    {p.department_name && <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-medium">{p.department_name}</span>}
                     {canSeeFee && Number(p.consultation_fee) > 0 && <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-medium">₦{Number(p.consultation_fee).toLocaleString()}</span>}
                     <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${consultationBadge(p.consultation_status).cls}`}>{consultationBadge(p.consultation_status).label}</span>
                   </div>
@@ -375,6 +452,12 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
                       <button onClick={() => handleRelease(p.id)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-500 text-xs font-medium hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200">
                         <X size={13} /> Unclaim
+                      </button>
+                    )}
+                    {canRecordVitals && (
+                      <button onClick={() => setVitalsPatient(p)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors">
+                        <Activity size={13} /> Vitals
                       </button>
                     )}
                     {canAssign && p.visit_status !== 'with_doctor' && (
@@ -435,7 +518,6 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
                     ) : (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold"><AlertTriangle size={9} /> Unpaid — Emergency</span>
                     )}
-                    {p.department_name && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-medium"><Building2 size={10} /> {p.department_name}</span>}
                     {p.primary_provider && (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[10px] font-medium"><Shield size={10} /> {p.primary_provider}</span>
                     )}
@@ -451,6 +533,12 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
                       <button onClick={() => openAssign(p)} disabled={assigning}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-semibold hover:bg-sky-700 disabled:opacity-50">
                         <UserPlus size={13} /> Assign
+                      </button>
+                    )}
+                    {canRecordVitals && (
+                      <button onClick={() => setVitalsPatient(p)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors">
+                        <Activity size={13} /> Vitals
                       </button>
                     )}
                     <button onClick={() => navigate(showProfile ? `/records/patients/${p.id}` : `/patient/${p.id}`)}
@@ -648,6 +736,98 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
         </div>
       )}
 
+      {/* Vitals Entry Modal (Nurses) */}
+      {vitalsPatient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!vitalsSubmitting) setVitalsPatient(null) }}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-lg mx-4 max-h-[90vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                <Activity size={18} className="text-rose-500" />
+                Record Vitals
+              </h2>
+              <button onClick={() => setVitalsPatient(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4 overflow-y-auto">
+              <p className="text-sm text-slate-600">
+                Patient: <strong className="text-slate-800">{vitalsPatient.full_name}</strong>
+                {vitalsPatient.hospital_number && <span className="text-xs text-slate-400"> · {vitalsPatient.hospital_number}</span>}
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { key: 'systolic_bp', label: 'Systolic BP', placeholder: 'mmHg' },
+                  { key: 'diastolic_bp', label: 'Diastolic BP', placeholder: 'mmHg' },
+                  { key: 'pulse', label: 'Pulse', placeholder: 'bpm' },
+                  { key: 'temperature', label: 'Temp', placeholder: '°C' },
+                  { key: 'respiration_rate', label: 'Resp Rate', placeholder: '/min' },
+                  { key: 'weight', label: 'Weight', placeholder: 'kg' },
+                  { key: 'spo2', label: 'SpO₂', placeholder: '%' },
+                  { key: 'height', label: 'Height', placeholder: 'cm' },
+                  ...((vitalsPatient.sex === 'Female') ? [
+                    { key: 'fetal_heart_rate', label: 'FHR', placeholder: 'bpm' },
+                    { key: 'fetal_heart_sound', label: 'FH Sound', placeholder: 'Normal' },
+                    { key: 'fundal_height', label: 'Fundal Ht', placeholder: 'cm' },
+                    { key: 'fetal_presentation', label: 'Presentation', type: 'select', options: ['', 'cephalic', 'breech', 'transverse'] },
+                    { key: 'urine_protein', label: 'Urine Protein', type: 'select', options: ['', 'negative', 'trace', '+1', '+2', '+3'] },
+                    { key: 'urine_glucose', label: 'Urine Glucose', type: 'select', options: ['', 'negative', 'trace', '+1', '+2', '+3'] },
+                    { key: 'hemoglobin', label: 'Hb', placeholder: 'g/dL' },
+                    { key: 'pcv', label: 'PCV', placeholder: '%' },
+                    { key: 'gestational_age_weeks', label: 'Gest. Age', placeholder: 'wk' },
+                    { key: 'tt_dose', label: 'TT Dose', type: 'select', options: ['', '1', '2', '3', '4', '5', 'completed'] },
+                  ] : []),
+                ].map((f: any) => (
+                  <div key={f.key}>
+                    <label className="block text-[11px] font-medium text-slate-500 mb-1">{f.label}</label>
+                    {f.type === 'select' ? (
+                      <select value={(vitalsForm as any)[f.key] || ''} onChange={(e) => setVitalsForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-primary">
+                        {(f.options || []).map((o: string) => <option key={o} value={o}>{o || 'Select'}</option>)}
+                      </select>
+                    ) : (
+                      <input type="number" step="any" placeholder={f.placeholder}
+                        value={(vitalsForm as any)[f.key]}
+                        onChange={(e) => setVitalsForm((p) => ({ ...p, [f.key]: e.target.value }))}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">Triage Priority</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['green', 'yellow', 'red'] as const).map((p) => (
+                    <button key={p} type="button" onClick={() => setVitalsForm((f) => ({ ...f, triage_priority: p }))}
+                      className={`px-4 py-2 rounded-xl border text-sm font-medium transition-all ${
+                        vitalsForm.triage_priority === p
+                          ? p === 'red' ? 'bg-red-600 text-white border-red-600'
+                            : p === 'yellow' ? 'bg-amber-500 text-white border-amber-500'
+                            : 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}>
+                      {p === 'red' ? 'Emergency' : p === 'yellow' ? 'Urgent' : 'Routine'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-slate-500 mb-1">Nursing Notes</label>
+                <textarea rows={2} placeholder="Chief complaint, observations..." value={vitalsForm.nursing_notes}
+                  onChange={(e) => setVitalsForm((p) => ({ ...p, nursing_notes: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100 flex-shrink-0">
+              <button onClick={() => setVitalsPatient(null)} disabled={vitalsSubmitting}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={handleVitalsSubmit} disabled={vitalsSubmitting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-all disabled:opacity-50">
+                {vitalsSubmitting ? <Loader2 size={14} className="animate-spin" /> : <Activity size={14} />}
+                Save Vitals
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Assign Modal */}
       {assignModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!assigning) closeAssignModal() }}>
@@ -671,17 +851,13 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
               )}
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">Doctor</label>
-                <select value={assignDoctorId} onChange={(e) => setAssignDoctorId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                  <option value="">-- Leave unassigned (queue) --</option>
-                  {doctors.map((d) => {
-                    const load = doctorLoad[d.id]
-                    const busy = load && load.active > 0
-                    return (
-                      <option key={d.id} value={d.id}>{d.name} ({d.role}){busy ? ' — in consultation' : ''}{load && load.waiting > 0 ? ` (${load.waiting} waiting)` : ''}</option>
-                    )
-                  })}
-                </select>
+                <SearchableDropdown
+                  value={assignDoctorId}
+                  options={filteredDoctors.map((d: any) => ({ id: d.id, label: `${d.name} (${d.role})`, sublabel: d.department_name }))}
+                  placeholder="Search doctor..."
+                  emptyLabel="-- Leave unassigned (queue) --"
+                  onSelect={selectAssignDoctor}
+                />
                 {assignDoctorId && doctorLoad[assignDoctorId] && doctorLoad[assignDoctorId].active > 0 && (
                   <p className="text-[11px] text-amber-700 mt-1.5">
                     This doctor is currently in an active consultation. The patient will be queued as <strong>waiting</strong> and attended after it is completed.
@@ -690,11 +866,13 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">Department</label>
-                <select value={assignDepartmentId} onChange={(e) => setAssignDepartmentId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                  <option value="">-- Select department --</option>
-                  {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
+                <SearchableDropdown
+                  value={assignDepartmentId}
+                  options={departments.map((d: any) => ({ id: d.id, label: d.name }))}
+                  placeholder="Search department..."
+                  emptyLabel="-- Select department --"
+                  onSelect={selectAssignDepartment}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">Consultation Type</label>

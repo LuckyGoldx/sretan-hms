@@ -7,6 +7,7 @@ import { corsMiddleware } from './middleware/cors';
 import { errorHandler } from './middleware/errorHandler';
 import { ensureSchema } from './db/init';
 import { startSyncDaemon } from './sync/syncDaemon';
+import { detectSchemaChanges } from './utils/schemaVersion';
 import pool from './db/pool';
 import healthRouter from './routes/health';
 import patientsRouter from './routes/patients';
@@ -40,6 +41,7 @@ import insuranceCoverageRouter from './routes/insuranceCoverage';
 import consultantsRouter from './routes/consultants';
 import notificationsRouter from './routes/notifications';
 import visitsRouter from './routes/visits';
+import superadminRouter from './routes/superadmin';
 
 declare global {
   var clockTampered: boolean | undefined;
@@ -84,6 +86,7 @@ app.use(insuranceCoverageRouter);
 app.use(consultantsRouter);
 app.use(notificationsRouter);
 app.use(visitsRouter);
+app.use(superadminRouter);
 
 app.use(errorHandler);
 
@@ -101,6 +104,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
 app.use('/uploads', express.static(uploadsDir));
+app.use('/assets', express.static('C:/hms/assets'));
 
 app.post('/api/upload', upload.single('file'), async (req: any, res: any) => {
   if (!req.file) return res.status(400).json({ error: true, message: 'No file uploaded' });
@@ -132,7 +136,14 @@ async function start(): Promise<void> {
 
     try {
       await ensureSchema();
-      // startSyncDaemon(pool); // disabled - cloud sync off
+      // Offline-first sync daemon: it reads the active hospital's deployment
+      // config each cycle and only syncs when cloud_sync_enabled is true and a
+      // Supabase URL/key are configured (Cloud SaaS / Private Supabase). When
+      // Offline Standalone, it bypasses and the system stays fully local.
+      startSyncDaemon(pool);
+      // Detect schema changes (new migration files) and reset sync flags so all
+      // rows (including old data) re-push to the cloud after a schema update.
+      await detectSchemaChanges(pool);
     } catch (dbErr) {
       console.warn('Database initialization failed (server will run without DB):', (dbErr as Error).message);
     }

@@ -6,6 +6,7 @@ import type { Patient } from '../types/index'
 import ActivePatients from './ActivePatients'
 import Pagination from './Pagination'
 import AssignmentBoard from './AssignmentBoard'
+import SearchableDropdown from './SearchableDropdown'
 
 const statusOptions = [
   { value: '', label: 'All' },
@@ -118,7 +119,7 @@ export default function MyPatients() {
   const [listPage, setListPage] = useState(1)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [tab, setTab] = useState<'all' | 'mine' | 'active' | 'assign'>(() => {
-    try { const u = localStorage.getItem('sretan_user'); if (u && JSON.parse(u).role === 'Doctor') return 'assign' } catch {}
+    try { const u = localStorage.getItem('sretan_user'); if (u && (JSON.parse(u).role === 'Doctor' || JSON.parse(u).role === 'Nurse')) return 'assign' } catch {}
     return 'active'
   })
   const [admissionMap, setAdmissionMap] = useState<Record<string, { id: string; ward_name: string; admitted_at: string; admitted_by_name?: string; bed_number?: string }>>({})
@@ -246,6 +247,28 @@ export default function MyPatients() {
     }
   }
 
+  // Department/doctor linkage: picking a doctor auto-fills their department; picking a
+  // department filters the doctor list (and clears a mismatched doctor).
+  const filteredDoctors = assignDepartmentId
+    ? doctors.filter((d) => d.department_id === assignDepartmentId)
+    : doctors
+
+  function selectAssignDoctor(id: string) {
+    setAssignDoctorId(id)
+    if (id) {
+      const doc = doctors.find((d) => d.id === id)
+      if (doc?.department_id) setAssignDepartmentId(doc.department_id)
+    }
+  }
+
+  function selectAssignDepartment(id: string) {
+    setAssignDepartmentId(id)
+    if (assignDoctorId) {
+      const doc = doctors.find((d) => d.id === assignDoctorId)
+      if (doc?.department_id && doc.department_id !== id) setAssignDoctorId('')
+    }
+  }
+
   function closeAssignModal() {
     setAssignModal(null); setAssignDoctorId(''); setAssignDepartmentId(''); setAssignVisitType('new'); setAssignFee('')
   }
@@ -323,7 +346,7 @@ export default function MyPatients() {
 
       {/* Tab Switcher */}
       <div className="flex gap-2 flex-wrap">
-        {isDoctor && (
+        {(isDoctor || isNurse) && (
           <button onClick={() => { setTab('assign'); setListPage(1) }}
             className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${
               tab === 'assign' ? 'bg-sky-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
@@ -341,7 +364,7 @@ export default function MyPatients() {
           className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${
             tab === 'mine' ? 'bg-primary text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
           }`}>My Patients</button>
-        {!isDoctor && showAssignTab && (
+        {!isDoctor && !isNurse && showAssignTab && (
           <button onClick={() => { setTab('assign'); setListPage(1) }}
             className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${
               tab === 'assign' ? 'bg-sky-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
@@ -620,19 +643,23 @@ export default function MyPatients() {
               <p className="text-sm text-slate-600">Patient: <strong>{assignModal.patientName}</strong></p>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">Doctor</label>
-                <select value={assignDoctorId} onChange={(e) => setAssignDoctorId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                  <option value="">-- Leave unassigned (queue) --</option>
-                  {doctors.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.role})</option>)}
-                </select>
+                <SearchableDropdown
+                  value={assignDoctorId}
+                  options={filteredDoctors.map((d: any) => ({ id: d.id, label: `${d.name} (${d.role})`, sublabel: d.department_name }))}
+                  placeholder="Search doctor..."
+                  emptyLabel="-- Leave unassigned (queue) --"
+                  onSelect={selectAssignDoctor}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">Department</label>
-                <select value={assignDepartmentId} onChange={(e) => setAssignDepartmentId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                  <option value="">-- Select department --</option>
-                  {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
+                <SearchableDropdown
+                  value={assignDepartmentId}
+                  options={departments.map((d: any) => ({ id: d.id, label: d.name }))}
+                  placeholder="Search department..."
+                  emptyLabel="-- Select department --"
+                  onSelect={selectAssignDepartment}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1.5">Consultation Type</label>

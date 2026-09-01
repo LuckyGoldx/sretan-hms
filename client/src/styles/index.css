@@ -5,27 +5,79 @@
 :root {
   --primary-color: #2563eb;
   --secondary-color: #10b981;
+  --primary-dark: #1e40af;
+  --primary-soft: #dbeafe;
   --theme-class: theme-trust-blue;
 }
 
 .theme-trust-blue {
   --primary-color: #2563eb;
   --secondary-color: #10b981;
+  --primary-dark: #1e40af;
+  --primary-soft: #dbeafe;
 }
 
 .theme-emerald-green {
   --primary-color: #059669;
   --secondary-color: #34d399;
+  --primary-dark: #047857;
+  --primary-soft: #d1fae5;
 }
 
 .theme-charcoal-clinical {
   --primary-color: #334155;
   --secondary-color: #64748b;
+  --primary-dark: #1e293b;
+  --primary-soft: #e2e8f0;
 }
 
 .theme-royal-purple {
   --primary-color: #7c3aed;
   --secondary-color: #a78bfa;
+  --primary-dark: #6d28d9;
+  --primary-soft: #ede9fe;
+}
+
+.theme-ocean-teal {
+  --primary-color: #0d9488;
+  --secondary-color: #5eead4;
+  --primary-dark: #0f766e;
+  --primary-soft: #ccfbf1;
+}
+
+.theme-crimson-red {
+  --primary-color: #dc2626;
+  --secondary-color: #fca5a5;
+  --primary-dark: #b91c1c;
+  --primary-soft: #fee2e2;
+}
+
+.theme-sunset-amber {
+  --primary-color: #d97706;
+  --secondary-color: #fcd34d;
+  --primary-dark: #b45309;
+  --primary-soft: #fef3c7;
+}
+
+.theme-forest-green {
+  --primary-color: #15803d;
+  --secondary-color: #86efac;
+  --primary-dark: #166534;
+  --primary-soft: #dcfce7;
+}
+
+.theme-slate-modern {
+  --primary-color: #0f172a;
+  --secondary-color: #38bdf8;
+  --primary-dark: #020617;
+  --primary-soft: #e2e8f0;
+}
+
+.theme-blush-rose {
+  --primary-color: #e11d48;
+  --secondary-color: #fda4af;
+  --primary-dark: #be123c;
+  --primary-soft: #ffe4e6;
 }
 
 body {

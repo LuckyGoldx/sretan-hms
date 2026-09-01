@@ -817,6 +817,11 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
                 <Shield size={10} /> {patient.primary_provider}
               </span>
             )}
+            {patient.last_consulted_department_name && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-medium flex-shrink-0">
+                <Building2 size={10} /> Last consulted in {patient.last_consulted_department_name}
+              </span>
+            )}
             <span>&middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; {patient.blood_type || 'N/A'}</span>
           </p>
         </div>

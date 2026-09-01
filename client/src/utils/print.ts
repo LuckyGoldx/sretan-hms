@@ -1,8 +1,21 @@
 // Standard hospital header + receipt/report print helpers shared across the system.
+import { getClinicInfo } from './clinicInfo'
 
 export const HOSPITAL_NAME = 'MACHOKO MEMORIAL HOSPITAL'
 export const HOSPITAL_ADDRESS = 'Machoko Diamond Plaza, Mile 6 Road Bye-Pass, Jalingo, Taraba State'
 export const HOSPITAL_CONTACTS = '0802900231, 07068855750, 08068862666'
+
+function hospitalName(): string {
+  return getClinicInfo().hospital_name || HOSPITAL_NAME
+}
+
+function hospitalAddress(): string {
+  return getClinicInfo().address || HOSPITAL_ADDRESS
+}
+
+function hospitalContacts(): string {
+  return getClinicInfo().phone_number || HOSPITAL_CONTACTS
+}
 
 export function escapeHtml(value: unknown): string {
   return String(value ?? '').replace(/[&<>"']/g, (c) => {
@@ -28,9 +41,9 @@ export function generateReceiptNumber(prefix = 'RCP'): string {
 export function receiptHeaderHtml(): string {
   return `
     <div style="text-align:center;padding-bottom:8px;border-bottom:2px dashed #cbd5e1">
-      <div style="font-size:15px;font-weight:700">${HOSPITAL_NAME}</div>
-      <div style="font-size:10px;color:#64748b">${HOSPITAL_ADDRESS}</div>
-      <div style="font-size:10px;color:#64748b">Tel: ${HOSPITAL_CONTACTS}</div>
+      <div style="font-size:15px;font-weight:700">${escapeHtml(hospitalName())}</div>
+      <div style="font-size:10px;color:#64748b">${escapeHtml(hospitalAddress())}</div>
+      <div style="font-size:10px;color:#64748b">Tel: ${escapeHtml(hospitalContacts())}</div>
     </div>`
 }
 
@@ -38,9 +51,9 @@ export function receiptHeaderHtml(): string {
 export function reportHeaderHtml(): string {
   return `
     <div style="text-align:center;padding-bottom:12px;border-bottom:3px solid #0f766e;margin-bottom:16px">
-      <div style="font-size:20px;font-weight:800;color:#0f766e;letter-spacing:0.5px">${HOSPITAL_NAME}</div>
-      <div style="font-size:12px;color:#64748b;margin-top:4px">${HOSPITAL_ADDRESS}</div>
-      <div style="font-size:12px;color:#64748b">Tel: ${HOSPITAL_CONTACTS}</div>
+      <div style="font-size:20px;font-weight:800;color:#0f766e;letter-spacing:0.5px">${escapeHtml(hospitalName())}</div>
+      <div style="font-size:12px;color:#64748b;margin-top:4px">${escapeHtml(hospitalAddress())}</div>
+      <div style="font-size:12px;color:#64748b">Tel: ${escapeHtml(hospitalContacts())}</div>
     </div>`
 }
 
@@ -97,7 +110,7 @@ export function buildReceiptHtml(data: ReceiptData): string {
       <span>TOTAL</span><span>${fmt(Number(data.total))}</span>
     </div>
     ${data.notes ? `<div style="padding-top:4px;font-size:10px;color:#64748b">${escapeHtml(data.notes)}</div>` : ''}
-    <div style="text-align:center;font-size:9px;color:#94a3b8;padding-top:10px">Thank you for choosing ${HOSPITAL_NAME}</div>
+    <div style="text-align:center;font-size:9px;color:#94a3b8;padding-top:10px">Thank you for choosing ${escapeHtml(hospitalName())}</div>
     <script>window.addEventListener('load',function(){setTimeout(function(){try{window.print()}catch(e){}},250)})<\/script>
   </body></html>`
 }
@@ -190,7 +203,7 @@ export function printRadiologyReport(d: any): Window | null {
     <div class="sign">
       <div class="sign-line">Radiologist / Reporting Officer</div>
     </div>
-    <p class="foot">This is a computer-generated radiology report from ${HOSPITAL_NAME}.</p>
+    <p class="foot">This is a computer-generated radiology report from ${escapeHtml(hospitalName())}.</p>
   </body></html>`
   return openPrint(html, 820, 640)
 }

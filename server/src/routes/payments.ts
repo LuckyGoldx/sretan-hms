@@ -3,16 +3,12 @@ import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { getCoverageForService, getPatientPrimaryInsurance } from '../utils/coverageLookup';
 import { readClinicProfile } from '../config/reader';
+import { generateNumber } from '../utils/numbering';
 
 const router = Router();
 
-function generateReceiptNumber(): string {
-  const date = new Date();
-  const y = date.getFullYear().toString().slice(2);
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  const rand = Math.floor(Math.random() * 9000) + 1000;
-  return `RCP-${y}${m}${d}-${rand}`;
+async function generateReceiptNumber(): Promise<string> {
+  return generateNumber(readClinicProfile().GLOBAL_SAAS_TENANT_ID, 'receipt', { prefix: 'RCP' });
 }
 
 // Helper: add a service to an insurance case (auto-coverage billing)
@@ -228,12 +224,12 @@ router.post('/api/payments', async (req: Request, res: Response) => {
     }
 
     var totalAmount = items.reduce((sum: number, i: any) => sum + ((i.unit_price || 0) * (i.quantity || 1)), 0);
-    var receiptNumber = generateReceiptNumber();
+    var receiptNumber = await generateReceiptNumber();
     var paymentId = uuidv4();
 
     await pool.query(
-      'INSERT INTO payments (id, receipt_number, patient_id, walkin_name, walkin_phone, total_amount, payment_method, notes, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-      [paymentId, receiptNumber, effectivePatientId, walkin_name || null, walkin_phone || null, totalAmount, payment_method || 'cash', notes || null, creatorId]
+      'INSERT INTO payments (id, tenant_id, receipt_number, patient_id, walkin_name, walkin_phone, total_amount, payment_method, notes, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+      [paymentId, tenantId, receiptNumber, effectivePatientId, walkin_name || null, walkin_phone || null, totalAmount, payment_method || 'cash', notes || null, creatorId]
     );
 
     for (const item of items) {
@@ -252,8 +248,8 @@ router.post('/api/payments', async (req: Request, res: Response) => {
         } catch {}
       }
       await pool.query(
-        'INSERT INTO payment_items (id, payment_id, service_type, service_id, description, item_name, quantity, unit_price, total_price, cost_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
-        [itemId, paymentId, item.service_type, item.service_id || null, item.description, item.description, item.quantity || 1, item.unit_price || 0, totalPrice, costPrice]
+        'INSERT INTO payment_items (id, tenant_id, payment_id, service_type, service_id, description, item_name, quantity, unit_price, total_price, cost_price) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
+        [itemId, tenantId, paymentId, item.service_type, item.service_id || null, item.description, item.description, item.quantity || 1, item.unit_price || 0, totalPrice, costPrice]
       );
 
       // Mark service as paid
@@ -331,15 +327,16 @@ router.post('/api/payments', async (req: Request, res: Response) => {
 // --- List payments ---
 router.get('/api/payments', async (req: Request, res: Response) => {
   try {
+    const tenantId = readClinicProfile().GLOBAL_SAAS_TENANT_ID;
     const { patient_id, date_from, date_to } = req.query;
     var query = `SELECT p.*, s.name as staff_name, pat.full_name as patient_name, pat.hospital_number,
                   (SELECT COUNT(*) FROM payment_items pi WHERE pi.payment_id = p.id)::int as item_count
                   FROM payments p
                   LEFT JOIN staff_users s ON s.id = p.created_by
                   LEFT JOIN patients pat ON pat.id = p.patient_id
-                  WHERE 1=1`;
-    var params: any[] = [];
-    var idx = 1;
+                  WHERE p.tenant_id = $1`;
+    var params: any[] = [tenantId];
+    var idx = 2;
 
     if (patient_id) { query += ` AND p.patient_id = $${idx}`; params.push(patient_id); idx++; }
     if (date_from) { query += ` AND p.created_at >= $${idx}`; params.push(date_from); idx++; }
@@ -354,12 +351,13 @@ router.get('/api/payments', async (req: Request, res: Response) => {
 // --- Pending summary - all patients with unpaid items ---
 router.get('/api/payments/pending-summary', async (req: Request, res: Response) => {
   try {
+    const tenantId = readClinicProfile().GLOBAL_SAAS_TENANT_ID;
     var result = await pool.query(`
       WITH folder AS (
         SELECT id as patient_id, full_name, hospital_number, phone, created_at,
                'folder_activation' as service_type,
                'Folder Activation Fee' as description, 1 as item_count FROM patients
-        WHERE folder_activated = false
+        WHERE folder_activated = false AND tenant_id = $1
       ),
       rx AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, p.phone, MAX(pr.created_at) as created_at,
@@ -368,7 +366,7 @@ router.get('/api/payments/pending-summary', async (req: Request, res: Response) 
         FROM prescriptions pr
         JOIN encounters enc ON enc.id = pr.encounter_id
         JOIN patients p ON p.id = enc.patient_id
-        WHERE COALESCE(pr.is_paid, false) = false AND pr.status != 'cancelled'
+        WHERE COALESCE(pr.is_paid, false) = false AND pr.status != 'cancelled' AND enc.tenant_id = $1
         GROUP BY enc.patient_id, p.full_name, p.hospital_number, p.phone
       ),
       lab AS (
@@ -378,7 +376,7 @@ router.get('/api/payments/pending-summary', async (req: Request, res: Response) 
         FROM lab_orders l
         JOIN encounters enc ON enc.id = l.encounter_id
         JOIN patients p ON p.id = enc.patient_id
-        WHERE COALESCE(l.is_paid, false) = false AND l.status NOT IN ('cancelled','completed')
+        WHERE COALESCE(l.is_paid, false) = false AND l.status NOT IN ('cancelled','completed') AND enc.tenant_id = $1
         GROUP BY enc.patient_id, p.full_name, p.hospital_number, p.phone
       ),
       rad AS (
@@ -388,7 +386,7 @@ router.get('/api/payments/pending-summary', async (req: Request, res: Response) 
         FROM radiology_orders r
         JOIN encounters enc ON enc.id = r.encounter_id
         JOIN patients p ON p.id = enc.patient_id
-        WHERE COALESCE(r.is_paid, false) = false AND r.status NOT IN ('cancelled','completed')
+        WHERE COALESCE(r.is_paid, false) = false AND r.status NOT IN ('cancelled','completed') AND enc.tenant_id = $1
         GROUP BY enc.patient_id, p.full_name, p.hospital_number, p.phone
       ),
       adm AS (
@@ -398,14 +396,14 @@ router.get('/api/payments/pending-summary', async (req: Request, res: Response) 
                1 as item_count
         FROM admissions a JOIN patients p ON p.id = a.patient_id
         LEFT JOIN wards w ON w.id = a.ward_id
-        WHERE COALESCE(a.is_paid, false) = false AND a.status = 'active'
+        WHERE COALESCE(a.is_paid, false) = false AND a.status = 'active' AND a.tenant_id = $1
       ),
       consult AS (
         SELECT v.patient_id, p.full_name, p.hospital_number, p.phone, MAX(v.created_at) as created_at,
                'consultation' as service_type,
                'Consultation Fee' as description, COUNT(*)::int as item_count
         FROM visits v JOIN patients p ON p.id = v.patient_id
-        WHERE v.consultation_status = 'pending' AND COALESCE(v.consultation_fee, 0) > 0
+        WHERE v.consultation_status = 'pending' AND COALESCE(v.consultation_fee, 0) > 0 AND v.tenant_id = $1
         GROUP BY v.patient_id, p.full_name, p.hospital_number, p.phone
       ),
       ref_fee AS (
@@ -413,7 +411,7 @@ router.get('/api/payments/pending-summary', async (req: Request, res: Response) 
                'referral_fee' as service_type,
                'Specialist (Consultant) Fee' as description, COUNT(*)::int as item_count
         FROM referrals r JOIN patients p ON p.id = r.patient_id
-        WHERE r.consultant_fee_status = 'pending' AND COALESCE(r.consultant_fee, 0) > 0
+        WHERE r.consultant_fee_status = 'pending' AND COALESCE(r.consultant_fee, 0) > 0 AND r.tenant_id = $1
         GROUP BY r.patient_id, p.full_name, p.hospital_number, p.phone
       ),
       all_pending AS (
@@ -433,7 +431,7 @@ router.get('/api/payments/pending-summary', async (req: Request, res: Response) 
       FROM all_pending ap
       GROUP BY ap.patient_id, ap.full_name, ap.hospital_number, ap.phone
       ORDER BY MAX(ap.created_at) DESC NULLS LAST
-    `);
+    `, [tenantId]);
     res.json(result.rows);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
@@ -441,6 +439,7 @@ router.get('/api/payments/pending-summary', async (req: Request, res: Response) 
 // --- All pending items across all patients (comprehensive, with prices) ---
 router.get('/api/payments/all-pending-items', async (req: Request, res: Response) => {
   try {
+    const tenantId = readClinicProfile().GLOBAL_SAAS_TENANT_ID;
     var result = await pool.query(`
       WITH       folder AS (
         SELECT id as patient_id, full_name, hospital_number, phone,
@@ -448,7 +447,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
                'Folder Activation / Registration Fee'::text as description,
                1::int as quantity, 5000::numeric as unit_price, false as needs_price,
                created_at
-        FROM patients WHERE folder_activated = false
+        FROM patients WHERE folder_activated = false AND tenant_id = $1
       ),
       rx_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, p.phone, 'prescription' as service_type,
@@ -458,7 +457,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
                pr.created_at
         FROM prescriptions pr JOIN encounters enc ON enc.id = pr.encounter_id
         JOIN patients p ON p.id = enc.patient_id
-        WHERE COALESCE(pr.is_paid, false) = false AND pr.status != 'cancelled'
+        WHERE COALESCE(pr.is_paid, false) = false AND pr.status != 'cancelled' AND enc.tenant_id = $1
       ),
       lab_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, p.phone, 'lab' as service_type,
@@ -468,7 +467,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
                l.created_at
         FROM lab_orders l JOIN encounters enc ON enc.id = l.encounter_id
         JOIN patients p ON p.id = enc.patient_id
-        WHERE COALESCE(l.is_paid, false) = false AND l.status NOT IN ('cancelled', 'completed')
+        WHERE COALESCE(l.is_paid, false) = false AND l.status NOT IN ('cancelled', 'completed') AND enc.tenant_id = $1
       ),
       rad_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, p.phone, 'radiology' as service_type,
@@ -478,7 +477,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
                r.created_at
         FROM radiology_orders r JOIN encounters enc ON enc.id = r.encounter_id
         JOIN patients p ON p.id = enc.patient_id
-        WHERE COALESCE(r.is_paid, false) = false AND r.status NOT IN ('cancelled', 'completed')
+        WHERE COALESCE(r.is_paid, false) = false AND r.status NOT IN ('cancelled', 'completed') AND enc.tenant_id = $1
       ),
       adm_items AS (
         SELECT a.patient_id, p.full_name, p.hospital_number, p.phone, 'admission' as service_type,
@@ -496,17 +495,18 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
                a.admitted_at as created_at
         FROM admissions a JOIN patients p ON p.id = a.patient_id
         LEFT JOIN wards w ON w.id = a.ward_id
-        WHERE COALESCE(a.is_paid, false) = false AND a.status = 'active'
+        WHERE COALESCE(a.is_paid, false) = false AND a.status = 'active' AND a.tenant_id = $1
       ),
       consult_items AS (
         SELECT v.patient_id, p.full_name, p.hospital_number, p.phone, 'consultation' as service_type,
                v.id as service_id,
-               ('Consultation (' || CASE v.visit_type WHEN 'follow_up' THEN 'follow-up' WHEN 'review' THEN 'review' ELSE 'new' END || ' visit)') as description,
+               ('Consultation (' || CASE v.visit_type WHEN 'follow_up' THEN 'follow-up' WHEN 'review' THEN 'review' ELSE 'new' END || ' visit)' ||
+                CASE WHEN v.remarks IS NOT NULL THEN ' — ' || v.remarks ELSE '' END) as description,
                1 as quantity, COALESCE(v.consultation_fee, 0)::numeric as unit_price,
                (COALESCE(v.consultation_fee, 0) <= 0) as needs_price,
                v.created_at
         FROM visits v JOIN patients p ON p.id = v.patient_id
-        WHERE v.consultation_status = 'pending' AND COALESCE(v.consultation_fee, 0) > 0
+        WHERE v.consultation_status = 'pending' AND COALESCE(v.consultation_fee, 0) > 0 AND v.tenant_id = $1
       ),
       ref_fee_items AS (
         SELECT r.patient_id, p.full_name, p.hospital_number, p.phone, 'referral_fee' as service_type,
@@ -516,7 +516,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
                (COALESCE(r.consultant_fee, 0) <= 0) as needs_price,
                r.created_at
         FROM referrals r JOIN patients p ON p.id = r.patient_id
-        WHERE r.consultant_fee_status = 'pending' AND COALESCE(r.consultant_fee, 0) > 0
+        WHERE r.consultant_fee_status = 'pending' AND COALESCE(r.consultant_fee, 0) > 0 AND r.tenant_id = $1
       )
       SELECT sub.*,
         (SELECT prv.name FROM patient_insurance_policies pp
@@ -529,13 +529,14 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
         SELECT * FROM lab_items UNION ALL SELECT * FROM rad_items UNION ALL SELECT * FROM adm_items UNION ALL
         SELECT * FROM consult_items UNION ALL SELECT * FROM ref_fee_items
       ) sub ORDER BY created_at DESC NULLS LAST
-    `);
+    `, [tenantId]);
     res.json(result.rows);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
 router.get('/api/payments/pending-orders', async (req: Request, res: Response) => {
   try {
+    const tenantId = readClinicProfile().GLOBAL_SAAS_TENANT_ID;
     const { service_type } = req.query;
     var result = await pool.query(`
       SELECT p.id as payment_id, p.receipt_number, p.walkin_name, p.walkin_phone, p.created_at,
@@ -545,17 +546,19 @@ router.get('/api/payments/pending-orders', async (req: Request, res: Response) =
       WHERE pi.is_converted = false
         AND ($1::text IS NULL OR pi.service_type = $1)
         AND p.status = 'completed'
+        AND p.tenant_id = $2
       ORDER BY p.created_at DESC
-    `, [service_type || null]);
+    `, [service_type || null, tenantId]);
     res.json(result.rows);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
 router.get('/api/payments/:id', async (req: Request, res: Response) => {
   try {
+    const tenantId = readClinicProfile().GLOBAL_SAAS_TENANT_ID;
     var payment = await pool.query(
-      'SELECT p.*, s.name as staff_name, pat.full_name as patient_name, pat.hospital_number FROM payments p LEFT JOIN staff_users s ON s.id = p.created_by LEFT JOIN patients pat ON pat.id = p.patient_id WHERE p.id = $1',
-      [req.params.id]
+      'SELECT p.*, s.name as staff_name, pat.full_name as patient_name, pat.hospital_number FROM payments p LEFT JOIN staff_users s ON s.id = p.created_by LEFT JOIN patients pat ON pat.id = p.patient_id WHERE p.id = $1 AND p.tenant_id = $2',
+      [String(req.params.id), tenantId]
     );
     if (payment.rows.length === 0) { res.status(404).json({ error: true, message: 'Payment not found' }); return; }
     var items = await pool.query('SELECT * FROM payment_items WHERE payment_id = $1 ORDER BY service_type', [req.params.id]);
@@ -566,6 +569,7 @@ router.get('/api/payments/:id', async (req: Request, res: Response) => {
 // --- Revenue stats ---
 router.get('/api/payments/revenue/stats', async (req: Request, res: Response) => {
   try {
+    const tenantId = readClinicProfile().GLOBAL_SAAS_TENANT_ID;
     var today = new Date().toISOString().slice(0, 10);
     var stats = await pool.query(
       `SELECT COUNT(*) as total_transactions, COALESCE(SUM(total_amount), 0) as total_revenue,
@@ -579,8 +583,8 @@ router.get('/api/payments/revenue/stats', async (req: Request, res: Response) =>
               COALESCE(SUM(total_amount) FILTER (WHERE payment_method = 'transfer'), 0) as transfer_total,
               COUNT(*) FILTER (WHERE payment_method = 'pos') as pos_count,
               COALESCE(SUM(total_amount) FILTER (WHERE payment_method = 'pos'), 0) as pos_total
-       FROM payments WHERE status = 'completed'`,
-      [today]
+       FROM payments WHERE status = 'completed' AND tenant_id = $2`,
+      [today, tenantId]
     );
     res.json(stats.rows[0]);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
@@ -589,11 +593,12 @@ router.get('/api/payments/revenue/stats', async (req: Request, res: Response) =>
 // --- Revenue by service type ---
 router.get('/api/payments/revenue/by-service', async (req: Request, res: Response) => {
   try {
+    const tenantId = readClinicProfile().GLOBAL_SAAS_TENANT_ID;
     var result = await pool.query(
       `SELECT pi.service_type, COUNT(*) as count, COALESCE(SUM(pi.total_price), 0) as total
        FROM payment_items pi JOIN payments p ON p.id = pi.payment_id
-       WHERE p.status = 'completed'
-       GROUP BY pi.service_type ORDER BY total DESC`
+       WHERE p.status = 'completed' AND p.tenant_id = $1
+       GROUP BY pi.service_type ORDER BY total DESC`, [tenantId]
     );
     res.json(result.rows);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }

@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { useTheme } from './hooks/useTheme'
+import { loadClinicInfo } from './utils/clinicInfo'
 import {
   UserPlus,
   Stethoscope,
@@ -74,7 +75,17 @@ const RadiologyModule = lazy(() => import('./components/RadiologyModule'))
 const PaypointCheckout = lazy(() => import('./components/PaypointCheckout'))
 const FinanceHMO = lazy(() => import('./components/FinanceHMO'))
 const StaffManagement = lazy(() => import('./components/StaffManagement'))
-const SuperAdminPortal = lazy(() => import('./components/SuperAdminPortal'))
+const SuperAdminLogin = lazy(() => import('./components/SuperAdminLogin'))
+const SuperAdminLayout = lazy(() => import('./components/SuperAdminLayout'))
+const SuperAdminOverview = lazy(() => import('./components/SuperAdminOverview'))
+const SuperAdminTenants = lazy(() => import('./components/SuperAdminTenants'))
+const SuperAdminTenantDetail = lazy(() => import('./components/SuperAdminTenantDetail'))
+const SuperAdminStaff = lazy(() => import('./components/SuperAdminStaff'))
+const SuperAdminSetup = lazy(() => import('./components/SuperAdminSetup'))
+const SuperAdminBackup = lazy(() => import('./components/SuperAdminBackup'))
+const SuperAdminCloud = lazy(() => import('./components/SuperAdminCloud'))
+const SuperAdminAudit = lazy(() => import('./components/SuperAdminAudit'))
+const SuperAdminHealth = lazy(() => import('./components/SuperAdminHealth'))
 const SetupConsole = lazy(() => import('./components/SetupConsole'))
 const FinanceDashboard = lazy(() => import('./components/FinanceDashboard'))
 const LabExpiry = lazy(() => import('./components/LabExpiry'))
@@ -123,90 +134,90 @@ interface SidebarLink {
   icon: React.FC<{ className?: string }>
   roles: string[]
   category?: string
+  module?: string | string[]
 }
 
 const sidebarLinks: SidebarLink[] = [
   // ── Dashboard ──
   { to: '/dashboard', label: 'Dashboard', icon: Pill, roles: ['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin'], category: 'Dashboard' },
   // ── Clinical ──
-  { to: '/patients/register', label: 'Register Patient', icon: UserPlus, roles: ['Records', 'Admin'], category: 'Clinical' },
-  { to: '/triage', label: 'Triage', icon: Stethoscope, roles: ['Nurse', 'Admin'], category: 'Clinical' },
-  { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse'], category: 'Clinical' },
-  { to: '/my-prescriptions', label: 'Prescriptions', icon: Pill, roles: ['Doctor', 'Admin'], category: 'Clinical' },
-  { to: '/vitals', label: 'Vitals', icon: Activity, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Clinical' },
-  { to: '/referrals', label: 'Referrals', icon: Send, roles: ['Doctor', 'Nurse', 'Consultant', 'Admin'], category: 'Clinical' },
-  { to: '/doctor/results', label: 'Results', icon: FileText, roles: ['Doctor', 'Consultant'], category: 'Clinical' },
-  { to: '/doctor/consultations', label: 'Consultation', icon: Stethoscope, roles: ['Doctor'], category: 'Clinical' },
-  { to: '/appointments', label: 'Appointments', icon: Calendar, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Clinical' },
-  { to: '/admissions', label: 'Admissions', icon: Home, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Clinical' },
+  { to: '/patients/register', label: 'Register Patient', icon: UserPlus, roles: ['Records', 'Admin'], category: 'Clinical', module: 'module_records' },
+  { to: '/triage', label: 'Triage', icon: Stethoscope, roles: ['Nurse', 'Admin'], category: 'Clinical', module: ['module_nurses', 'module_triage', 'module_consultation'] },
+  { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse'], category: 'Clinical', module: ['module_doctor', 'module_nurses', 'module_consultation'] },
+  { to: '/my-prescriptions', label: 'Prescriptions', icon: Pill, roles: ['Doctor', 'Admin'], category: 'Clinical', module: ['module_doctor', 'module_consultation'] },
+  { to: '/vitals', label: 'Vitals', icon: Activity, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Clinical', module: ['module_doctor', 'module_nurses', 'module_consultation'] },
+  { to: '/referrals', label: 'Referrals', icon: Send, roles: ['Doctor', 'Nurse', 'Consultant', 'Admin'], category: 'Clinical', module: ['module_referrals', 'module_consultation'] },
+  { to: '/doctor/results', label: 'Results', icon: FileText, roles: ['Doctor', 'Consultant'], category: 'Clinical', module: ['module_doctor', 'module_consultation'] },
+  { to: '/doctor/consultations', label: 'Consultation', icon: Stethoscope, roles: ['Doctor'], category: 'Clinical', module: ['module_doctor', 'module_consultation'] },
+  { to: '/appointments', label: 'Appointments', icon: Calendar, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Clinical', module: ['module_appointments', 'module_consultation'] },
+  { to: '/admissions', label: 'Admissions', icon: Home, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Clinical', module: ['module_admissions', 'module_consultation'] },
   // ── Consultant ──
-  { to: '/consultant/dashboard', label: 'Consultant Dashboard', icon: Stethoscope, roles: ['Consultant', 'Admin'], category: 'Consultant' },
-  { to: '/consultant/patients', label: 'Referred Patients', icon: Users, roles: ['Consultant', 'Admin', 'Doctor'], category: 'Consultant' },
-  { to: '/consultant/my-consultations', label: 'My Consultations', icon: ClipboardList, roles: ['Consultant', 'Admin'], category: 'Consultant' },
+  { to: '/consultant/dashboard', label: 'Consultant Dashboard', icon: Stethoscope, roles: ['Consultant', 'Admin'], category: 'Consultant', module: ['module_consultants', 'module_referrals'] },
+  { to: '/consultant/patients', label: 'Referred Patients', icon: Users, roles: ['Consultant', 'Admin', 'Doctor'], category: 'Consultant', module: ['module_consultants', 'module_referrals'] },
+  { to: '/consultant/my-consultations', label: 'My Consultations', icon: ClipboardList, roles: ['Consultant', 'Admin'], category: 'Consultant', module: ['module_consultants', 'module_referrals'] },
   // ── Laboratory ──
-  { to: '/lab', label: 'Lab Dashboard', icon: Beaker, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
-  { to: '/lab/worklist', label: 'Worklist', icon: FileText, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
-  { to: '/lab/results', label: 'Results', icon: CheckCircle, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
-  { to: '/lab/history', label: 'History', icon: Clock, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
-  { to: '/lab/orders', label: 'Lab Orders', icon: ShoppingCart, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
-  { to: '/lab/catalog', label: 'Test Catalog', icon: FlaskConical, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
-  { to: '/lab/reports', label: 'Lab Reports', icon: BarChart3, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
-  { to: '/lab-inventory', label: 'Lab Inventory', icon: Package, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
-  { to: '/lab-low-stock', label: 'Lab Low Stock', icon: AlertTriangle, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
-  { to: '/lab-expiry', label: 'Lab Expiry', icon: Clock, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
+  { to: '/lab', label: 'Lab Dashboard', icon: Beaker, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
+  { to: '/lab/worklist', label: 'Worklist', icon: FileText, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
+  { to: '/lab/results', label: 'Results', icon: CheckCircle, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
+  { to: '/lab/history', label: 'History', icon: Clock, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
+  { to: '/lab/orders', label: 'Lab Orders', icon: ShoppingCart, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
+  { to: '/lab/catalog', label: 'Test Catalog', icon: FlaskConical, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
+  { to: '/lab/reports', label: 'Lab Reports', icon: BarChart3, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
+  { to: '/lab-inventory', label: 'Lab Inventory', icon: Package, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
+  { to: '/lab-low-stock', label: 'Lab Low Stock', icon: AlertTriangle, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
+  { to: '/lab-expiry', label: 'Lab Expiry', icon: Clock, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
   // ── Pharmacy ──
-  { to: '/dispensing', label: 'Dispensing', icon: ClipboardList, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
-  { to: '/dispensing/unpaid', label: 'Unpaid Prescriptions', icon: Banknote, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
-  { to: '/walk-in-sales', label: 'Walk-in Sales', icon: ShoppingCart, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
-  { to: '/pharmacy-inventory', label: 'Pharmacy Inventory', icon: Package, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
-  { to: '/pharmacy-expiry', label: 'Expiry Monitor', icon: Clock, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
-  { to: '/purchase-orders', label: 'Purchase Orders', icon: Truck, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
-  { to: '/dispensing-history', label: 'Dispensing History', icon: ClipboardList, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy' },
+  { to: '/dispensing', label: 'Dispensing', icon: ClipboardList, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_pharmacy' },
+  { to: '/dispensing/unpaid', label: 'Unpaid Prescriptions', icon: Banknote, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_pharmacy' },
+  { to: '/walk-in-sales', label: 'Walk-in Sales', icon: ShoppingCart, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_store' },
+  { to: '/pharmacy-inventory', label: 'Pharmacy Inventory', icon: Package, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_pharmacy' },
+  { to: '/pharmacy-expiry', label: 'Expiry Monitor', icon: Clock, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_pharmacy' },
+  { to: '/purchase-orders', label: 'Purchase Orders', icon: Truck, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_pharmacy' },
+  { to: '/dispensing-history', label: 'Dispensing History', icon: ClipboardList, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_pharmacy' },
   // ── Radiology ──
-  { to: '/radiology', label: 'Radiology Dashboard', icon: Scan, roles: ['Admin', 'Radiology'], category: 'Radiology' },
-  { to: '/radiology/worklist', label: 'Worklist', icon: ClipboardList, roles: ['Admin', 'Radiology'], category: 'Radiology' },
-  { to: '/radiology/results', label: 'Results', icon: CheckCircle, roles: ['Admin', 'Radiology'], category: 'Radiology' },
-  { to: '/radiology/review', label: 'Review', icon: CheckCircle, roles: ['Admin', 'Radiology'], category: 'Radiology' },
-  { to: '/radiology/orders', label: 'Orders', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology' },
-  { to: '/radiology/history', label: 'History', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology' },
-  { to: '/radiology-inventory', label: 'Radiology Inventory', icon: Package, roles: ['Admin', 'Radiology'], category: 'Radiology' },
-  { to: '/radiology-expiry', label: 'Radiology Expiry', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology' },
+  { to: '/radiology', label: 'Radiology Dashboard', icon: Scan, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
+  { to: '/radiology/worklist', label: 'Worklist', icon: ClipboardList, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
+  { to: '/radiology/results', label: 'Results', icon: CheckCircle, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
+  { to: '/radiology/review', label: 'Review', icon: CheckCircle, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
+  { to: '/radiology/orders', label: 'Orders', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
+  { to: '/radiology/history', label: 'History', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
+  { to: '/radiology-inventory', label: 'Radiology Inventory', icon: Package, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
+  { to: '/radiology-expiry', label: 'Radiology Expiry', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
   // ── Maternity ──
-  { to: '/maternity', label: 'Maternity Dashboard', icon: Baby, roles: ['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant'], category: 'Maternity' },
-  { to: '/maternity/booking', label: 'Book Pregnancy', icon: UserPlus, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Maternity' },
-  { to: '/maternity/patients', label: 'Maternity Patients', icon: Users, roles: ['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant'], category: 'Maternity' },
-  { to: '/maternity/anc', label: 'ANC Visits', icon: Calendar, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity' },
-  { to: '/maternity/labour', label: 'Labour & Delivery', icon: Stethoscope, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity' },
-  { to: '/maternity/labour-summary', label: 'Labour Summary', icon: ClipboardList, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity' },
-  { to: '/maternity/postnatal', label: 'Postnatal', icon: Heart, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity' },
+  { to: '/maternity', label: 'Maternity Dashboard', icon: Baby, roles: ['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity/booking', label: 'Book Pregnancy', icon: UserPlus, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity/patients', label: 'Maternity Patients', icon: Users, roles: ['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity/anc', label: 'ANC Visits', icon: Calendar, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity/labour', label: 'Labour & Delivery', icon: Stethoscope, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity/labour-summary', label: 'Labour Summary', icon: ClipboardList, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity/postnatal', label: 'Postnatal', icon: Heart, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity', module: 'module_maternity' },
   // ── Records ──
-  { to: '/records/patients', label: 'Patient Records', icon: Users, roles: ['Records', 'Admin'], category: 'Records' },
-  { to: '/records/assignments', label: 'Assignments', icon: UserCheck, roles: ['Records', 'Admin'], category: 'Records' },
-  { to: '/records/requests', label: 'Record Requests', icon: FileText, roles: ['Records', 'Admin'], category: 'Records' },
+  { to: '/records/patients', label: 'Patient Records', icon: Users, roles: ['Records', 'Admin'], category: 'Records', module: 'module_records' },
+  { to: '/records/assignments', label: 'Assignments', icon: UserCheck, roles: ['Records', 'Admin'], category: 'Records', module: 'module_records' },
+  { to: '/records/requests', label: 'Record Requests', icon: FileText, roles: ['Records', 'Admin'], category: 'Records', module: 'module_records' },
   // ── Finance ──
-  { to: '/finance/dashboard', label: 'Finance Dashboard', icon: Banknote, roles: ['Finance', 'Admin'], category: 'Finance' },
-  { to: '/finance/billing', label: 'Patient Records', icon: FileText, roles: ['Finance', 'Admin'], category: 'Finance' },
-  { to: '/finance/payment-history', label: 'Payment History', icon: Receipt, roles: ['Finance', 'Admin'], category: 'Finance' },
-  { to: '/paypoint/pending', label: 'All Pending', icon: Clock, roles: ['Paypoint', 'Admin'], category: 'Finance' },
-  { to: '/paypoint/patients', label: 'Pending Patients', icon: Users, roles: ['Paypoint', 'Admin'], category: 'Finance' },
-  { to: '/paypoint/billing', label: 'Billing', icon: Receipt, roles: ['Paypoint', 'Admin'], category: 'Finance' },
-  { to: '/paypoint/history', label: 'Payment History', icon: FileText, roles: ['Paypoint', 'Admin'], category: 'Finance' },
-  { to: '/finance', label: 'Finance / HMO', icon: Banknote, roles: ['Admin'], category: 'Finance' },
+  { to: '/finance/dashboard', label: 'Finance Dashboard', icon: Banknote, roles: ['Finance', 'Admin'], category: 'Finance', module: 'module_finance_hmo' },
+  { to: '/finance/billing', label: 'Patient Records', icon: FileText, roles: ['Finance', 'Admin'], category: 'Finance', module: 'module_finance_hmo' },
+  { to: '/finance/payment-history', label: 'Payment History', icon: Receipt, roles: ['Finance', 'Admin'], category: 'Finance', module: 'module_finance_hmo' },
+  { to: '/paypoint/pending', label: 'All Pending', icon: Clock, roles: ['Paypoint', 'Admin'], category: 'Finance', module: 'module_paypoint' },
+  { to: '/paypoint/patients', label: 'Pending Patients', icon: Users, roles: ['Paypoint', 'Admin'], category: 'Finance', module: 'module_paypoint' },
+  { to: '/paypoint/billing', label: 'Billing', icon: Receipt, roles: ['Paypoint', 'Admin'], category: 'Finance', module: 'module_paypoint' },
+  { to: '/paypoint/history', label: 'Payment History', icon: FileText, roles: ['Paypoint', 'Admin'], category: 'Finance', module: 'module_paypoint' },
+  { to: '/finance', label: 'Finance / HMO', icon: Banknote, roles: ['Admin'], category: 'Finance', module: 'module_finance_hmo' },
   // ── Insurance ──
-  { to: '/admin/insurance/dashboard', label: 'Insurance Dashboard', icon: Shield, roles: ['Admin'], category: 'Insurance' },
-  { to: '/admin/insurance/cases', label: 'Cases', icon: FileText, roles: ['Admin'], category: 'Insurance' },
-  { to: '/admin/insurance/auth-requests', label: 'Auth Requests', icon: AlertTriangle, roles: ['Admin'], category: 'Insurance' },
-  { to: '/admin/insurance/reports', label: 'Reports', icon: TrendingUp, roles: ['Admin'], category: 'Insurance' },
-  { to: '/admin/insurance/cases/new', label: 'New Case', icon: UserPlus, roles: ['Admin'], category: 'Insurance' },
-  { to: '/admin/insurance/patients', label: 'Patients', icon: Users, roles: ['Admin'], category: 'Insurance' },
-  { to: '/admin/insurance/invoices', label: 'Invoices', icon: Receipt, roles: ['Admin'], category: 'Insurance' },
-  { to: '/admin/insurance/providers', label: 'Providers', icon: Building2, roles: ['Admin'], category: 'Insurance' },
-  { to: '/admin/insurance/staff', label: 'Staff', icon: Users, roles: ['Admin'], category: 'Insurance' },
+  { to: '/admin/insurance/dashboard', label: 'Insurance Dashboard', icon: Shield, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
+  { to: '/admin/insurance/cases', label: 'Cases', icon: FileText, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
+  { to: '/admin/insurance/auth-requests', label: 'Auth Requests', icon: AlertTriangle, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
+  { to: '/admin/insurance/reports', label: 'Reports', icon: TrendingUp, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
+  { to: '/admin/insurance/cases/new', label: 'New Case', icon: UserPlus, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
+  { to: '/admin/insurance/patients', label: 'Patients', icon: Users, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
+  { to: '/admin/insurance/invoices', label: 'Invoices', icon: Receipt, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
+  { to: '/admin/insurance/providers', label: 'Providers', icon: Building2, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
+  { to: '/admin/insurance/staff', label: 'Staff', icon: Users, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
   // ── Administration ──
   { to: '/services-inventory', label: 'Services Inventory', icon: Building2, roles: ['Admin'], category: 'Administration' },
   { to: '/departments', label: 'Departments', icon: Building2, roles: ['Admin'], category: 'Administration' },
   { to: '/staff', label: 'Staff Management', icon: Users, roles: ['Admin'], category: 'Administration' },
-  { to: '/superadmin', label: 'Super Admin', icon: Settings, roles: ['Admin'], category: 'Administration' },
   { to: '/setup', label: 'Setup', icon: Settings, roles: ['Admin'], category: 'Administration' },
 ]
 
@@ -243,7 +254,15 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [doctorUnreadResultsCount, setDoctorUnreadResultsCount] = useState(0)
   const [consultantResultsCount, setConsultantResultsCount] = useState(0)
   const [completedReferralsUnviewed, setCompletedReferralsUnviewed] = useState(0)
+  const [appointmentsCount, setAppointmentsCount] = useState(0)
   const [collapsedCategories, setCollapsedCategories] = useState<string[]>([])
+  const [clinic, setClinic] = useState<{ hospital_name?: string; [k: string]: any } | null>(null)
+
+  useEffect(() => {
+    loadClinicInfo()
+      .then((d) => setClinic(d as any))
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     const stored = localStorage.getItem('sretan_user')
@@ -331,6 +350,16 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
             }
           }
         } catch {}
+        // Upcoming scheduled appointments badge (doctor: own; staff: all)
+        try {
+          const stored = localStorage.getItem('sretan_user')
+          if (stored) {
+            const u = JSON.parse(stored)
+            const aptRes = await fetch(`/api/appointments/scheduled-count?staff_id=${u.id || ''}&role=${u.role || ''}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+            const aptData = await aptRes.json()
+            setAppointmentsCount(aptData?.count || 0)
+          }
+        } catch {}
       } catch {}
     }
     fetchCounts()
@@ -361,6 +390,12 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const allowedLinks = sidebarLinks.filter(
     (l) => {
       if (role && !l.roles.includes(role)) return false
+      // Hide links whose module is not enabled for the active hospital
+      if (l.module) {
+        const req = Array.isArray(l.module) ? l.module : [l.module]
+        const enabled = req.some((m) => clinic ? !!clinic[m] : true)
+        if (!enabled) return false
+      }
       // Consultants only see Maternity links when their department grants it
       if (role === 'Consultant' && l.category === 'Maternity') {
         try {
@@ -395,10 +430,10 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
       } lg:translate-x-0`}>
         <div className="flex items-center gap-3 px-6 h-16 border-b border-slate-100 flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center text-white font-bold text-sm">
-            M
+            {(clinic?.hospital_name || 'MACHOKO HMS').charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0 flex-1">
-            <span className="font-semibold text-slate-800 text-sm block leading-tight">MACHOKO HMS</span>
+            <span className="font-semibold text-slate-800 text-sm block leading-tight truncate">{clinic?.hospital_name || 'MACHOKO HMS'}</span>
             {displayRole && (
               <span className="inline-flex items-center px-2 py-0.5 mt-0.5 rounded-full bg-primary/10 text-primary text-[11px] font-bold uppercase tracking-wide truncate max-w-full">
                 {displayRole}
@@ -470,6 +505,9 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                         {to === '/paypoint/patients' && pendingPatientsCount > 0 && (
                           <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingPatientsCount}</span>
                         )}
+                        {to === '/appointments' && appointmentsCount > 0 && (
+                          <span className="ml-auto px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold">{appointmentsCount}</span>
+                        )}
                       </NavLink>
                     ))}
                   </div>
@@ -507,6 +545,9 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                 )}
                 {to === '/paypoint/patients' && pendingPatientsCount > 0 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingPatientsCount}</span>
+                )}
+                {to === '/appointments' && appointmentsCount > 0 && (
+                  <span className="ml-auto px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold">{appointmentsCount}</span>
                 )}
                 {to === '/consultant/patients' && (role === 'Consultant' || role === 'Doctor') && completedReferralsUnviewed > 1 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">{completedReferralsUnviewed}</span>
@@ -549,6 +590,15 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
             <LogOut className="w-4 h-4" />
             Logout
           </button>
+          {(() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).user_type === 'superadmin' } catch {} return false })() && (
+            <NavLink
+              to="/superadmin"
+              className="flex items-center gap-3 w-full px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-blue-50 hover:text-blue-600 transition-all duration-200"
+            >
+              <Settings className="w-4 h-4" />
+              Super Admin Console
+            </NavLink>
+          )}
         </div>
       </aside>
     </>
@@ -593,6 +643,7 @@ function HomeRedirect() {
   var role = getRole()
   if (!role) return <Navigate to="/login" replace />
   if (role === 'InsuranceStaff') return <Navigate to="/insurance/dashboard" replace />
+  if (role === 'SuperAdmin') return <Navigate to="/superadmin" replace />
   return <Navigate to="/dashboard" replace />
 }
 
@@ -1136,17 +1187,22 @@ export default function App() {
             }
           />
           <Route
-            path="/superadmin"
+            path="/superadmin/login"
             element={
-              <Layout>
-                <ProtectedRoute roles={['Admin']}>
-                  <Suspense fallback={<LoadingFallback />}>
-                    <SuperAdminPortal />
-                  </Suspense>
-                </ProtectedRoute>
-              </Layout>
+              <Suspense fallback={<LoadingFallback />}>
+                <SuperAdminLogin />
+              </Suspense>
             }
           />
+          <Route path="/superadmin" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminOverview /></SuperAdminLayout></Suspense>} />
+          <Route path="/superadmin/hospitals" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminTenants /></SuperAdminLayout></Suspense>} />
+          <Route path="/superadmin/hospitals/:id" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminTenantDetail /></SuperAdminLayout></Suspense>} />
+          <Route path="/superadmin/staff" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminStaff /></SuperAdminLayout></Suspense>} />
+          <Route path="/superadmin/setup" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminSetup /></SuperAdminLayout></Suspense>} />
+          <Route path="/superadmin/backup" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminBackup /></SuperAdminLayout></Suspense>} />
+          <Route path="/superadmin/cloud" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminCloud /></SuperAdminLayout></Suspense>} />
+          <Route path="/superadmin/audit" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminAudit /></SuperAdminLayout></Suspense>} />
+          <Route path="/superadmin/health" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminHealth /></SuperAdminLayout></Suspense>} />
           {/* Admin Insurance Routes (within clinical Layout) */}
           <Route path="/admin/insurance/dashboard" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceDashboard /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/admin/insurance/cases" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceCases /></Suspense></ProtectedRoute></Layout>} />

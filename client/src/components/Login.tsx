@@ -39,6 +39,19 @@ export default function Login() {
             window.location.href = '/insurance/dashboard'
             return
           } catch (insErr: any) {
+            // If insurance fails (401), try superadmin auth
+            if (insErr.response?.status === 401) {
+              try {
+                const saRes = await api.post('/superadmin/login', { username: identifier, password })
+                localStorage.setItem('sretan_superadmin_token', saRes.data.token)
+                localStorage.setItem('sretan_user', JSON.stringify(saRes.data.user))
+                window.location.href = '/superadmin'
+                return
+              } catch (saErr: any) {
+                setError(saErr.response?.data?.message || 'Invalid credentials')
+                return
+              }
+            }
             setError(insErr.response?.data?.message || 'Invalid credentials')
             return
           }
@@ -103,8 +116,15 @@ export default function Login() {
               <Building2 className="w-7 h-7 text-white" />
             </div>
           )}
-          <h1 className="text-xl font-bold">MACHOKO HMS</h1>
+          <h1 className="text-xl font-bold">{config?.hospital_name || 'MACHOKO HMS'}</h1>
           <p className="text-sm text-white/80 mt-1">Excellence in Healthcare Delivery</p>
+          {(config?.address || config?.phone_number) && (
+            <p className="text-xs text-white/70 mt-2">
+              {config.address}
+              {config.address && config.phone_number ? ' · ' : ''}
+              {config.phone_number}
+            </p>
+          )}
         </div>
 
         <div className="bg-white rounded-2xl rounded-t-none shadow-sm border border-slate-200 border-t-0 p-8">
@@ -156,6 +176,11 @@ export default function Login() {
 
         <p className="text-center text-xs text-slate-400 mt-6">
           Powered by <span className="font-semibold text-slate-500">Sretan Tech</span>
+        </p>
+        <p className="text-center mt-2">
+          <Link to="/superadmin/login" className="text-xs text-slate-400 hover:text-blue-600 transition-colors">
+            Super Admin Login
+          </Link>
         </p>
       </div>
     </div>

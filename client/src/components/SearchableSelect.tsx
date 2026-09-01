@@ -1,50 +1,50 @@
 import { useState, useRef, useEffect } from 'react'
 
-interface Props {
+interface SearchableSelectProps {
   value: string
-  onChange: (val: string) => void
+  onChange: (value: string) => void
   options: string[]
   placeholder?: string
-  className?: string
+  disabled?: boolean
 }
 
-export default function SearchableSelect({ value, onChange, options, placeholder = 'Search...', className = '' }: Props) {
+/**
+ * Searchable dropdown for plain string options (used by registration forms).
+ * Click to open, type to filter; onChange receives the selected string.
+ */
+export default function SearchableSelect({ value, onChange, options, placeholder = 'Select...', disabled }: SearchableSelectProps) {
   const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState(value || '')
+  const [query, setQuery] = useState('')
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    setSearch(value || '')
-  }, [value])
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
+    function handler(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const filtered = options.filter((o) => o.toLowerCase().includes(search.toLowerCase()))
+  const filtered = options.filter((o) => o.toLowerCase().includes(query.toLowerCase()))
 
   return (
-    <div ref={ref} className={`relative ${className}`}>
-      <input type="text" value={open ? search : value}
-        onChange={(e) => { setSearch(e.target.value); setOpen(true) }}
-        onFocus={() => { setOpen(true); if (!value) setSearch('') }}
+    <div className="relative" ref={ref}>
+      <input
+        type="text"
+        disabled={disabled}
+        value={open ? query : value}
         placeholder={placeholder}
-        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none bg-white" />
+        onFocus={() => setOpen(true)}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
+        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none disabled:opacity-50"
+      />
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl border border-slate-200 shadow-lg z-30 max-h-48 overflow-y-auto">
-          {filtered.length > 0 ? (
-            filtered.map((o) => (
-              <button key={o} type="button" onClick={() => { onChange(o); setSearch(o); setOpen(false) }}
-                className={`w-full text-left px-4 py-2 text-sm hover:bg-primary/5 transition-colors ${o === value ? 'bg-primary/10 text-primary font-medium' : 'text-slate-700'}`}>{o}</button>
-            ))
-          ) : (
-            <button type="button" onClick={() => { onChange(search); setSearch(search); setOpen(false) }}
-              className="w-full text-left px-4 py-2 text-sm text-slate-400 italic hover:bg-primary/5">Use "{search}"</button>
-          )}
+        <div className="absolute top-full left-0 right-0 mt-1 z-30 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
+          {filtered.map((o) => (
+            <button key={o} type="button" onMouseDown={() => { onChange(o); setQuery(''); setOpen(false) }}
+              className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors">{o}</button>
+          ))}
+          {filtered.length === 0 && <div className="px-4 py-2.5 text-sm text-slate-400">No options found</div>}
         </div>
       )}
     </div>

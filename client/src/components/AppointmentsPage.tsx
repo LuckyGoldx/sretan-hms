@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import SearchableDropdown from './SearchableDropdown'
 import {
-  ArrowLeft, Calendar, Clock, Loader2, Search, Plus, X, CheckCircle, XCircle, User, Stethoscope, FileText
+  ArrowLeft, Calendar, Clock, Loader2, Search, Plus, X, CheckCircle, XCircle, User, Stethoscope, FileText, AlertTriangle
 } from 'lucide-react'
 
 const currentUser: { id: string; name: string; role: string } | null = (() => {
@@ -33,13 +34,23 @@ export default function AppointmentsPage() {
   const [doctorSearch, setDoctorSearch] = useState('')
   const [showPatientDropdown, setShowPatientDropdown] = useState(false)
   const [showDoctorDropdown, setShowDoctorDropdown] = useState(false)
+  const [departments, setDepartments] = useState<any[]>([])
+  const [bookDepartment, setBookDepartment] = useState('')
+  const [bookVisitType, setBookVisitType] = useState<'new' | 'follow_up'>('new')
+  const [consultModal, setConsultModal] = useState<any | null>(null)
+  const [consulting, setConsulting] = useState(false)
+  const [consultBlock, setConsultBlock] = useState<any | null>(null)
 
   const isDoctor = currentUser?.role === 'Doctor'
   const canBook = ['Nurse', 'Records', 'Admin', 'Doctor'].includes(currentUser?.role || '')
 
   function getEffectiveStatus(a: any): string {
+    // Completed anywhere in the system (the patient was consulted and finished).
+    if (a.consulted_after_booking || a.visit_status === 'completed') return 'completed'
     if (a.status !== 'scheduled') return a.status
-    return new Date(a.appointment_date) < new Date() ? 'expired' : 'scheduled'
+    // Date passed: paid => "Date Passed" (still consultable), unpaid => "Expired".
+    if (new Date(a.appointment_date) < new Date()) return a.has_paid ? 'date_passed' : 'expired'
+    return 'scheduled'
   }
 
   useEffect(() => {
@@ -48,14 +59,16 @@ export default function AppointmentsPage() {
       try {
         const params = new URLSearchParams()
         if (isDoctor && currentUser?.id) params.set('doctor_id', currentUser.id)
-        const [aptRes, patRes, docRes] = await Promise.all([
+        const [aptRes, patRes, docRes, deptRes] = await Promise.all([
           api.get(`/appointments?${params}`).catch(() => ({ data: [] })),
           api.get('/patients').catch(() => ({ data: [] })),
           api.get('/staff').catch(() => ({ data: [] })),
+          api.get('/departments').catch(() => ({ data: [] })),
         ])
         setAppointments(aptRes.data || [])
         setPatients(patRes.data || [])
         setDoctors((docRes.data || []).filter((s: any) => s.role === 'Doctor'))
+        setDepartments((deptRes.data || []).filter((d: any) => d.status !== 'inactive'))
       } catch {} finally { setLoading(false) }
     }
     load()
@@ -74,6 +87,7 @@ export default function AppointmentsPage() {
         reason: bookForm.reason || null,
         notes: bookForm.notes || null,
         created_by: currentUser?.id || null,
+        visit_type: bookVisitType,
       })
       setShowBook(false)
       setBookForm({ patient_id: '', doctor_id: '', appointment_date: '', reason: '', notes: '' })
@@ -91,6 +105,59 @@ export default function AppointmentsPage() {
     } catch {}
   }
 
+  // Department/doctor linkage: picking a doctor auto-fills their department; picking a
+  // department filters the doctor list (and clears a mismatched doctor).
+  const deptFilteredDoctors = bookDepartment
+    ? doctors.filter((d: any) => d.department_id === bookDepartment)
+    : doctors
+
+  function selectBookDepartment(id: string) {
+    setBookDepartment(id)
+    if (bookForm.doctor_id) {
+      const doc = doctors.find((d: any) => d.id === bookForm.doctor_id)
+      if (doc?.department_id && doc.department_id !== id) {
+        setBookForm((f) => ({ ...f, doctor_id: '' }))
+        setDoctorSearch('')
+      }
+    }
+  }
+
+  function selectBookDoctor(id: string) {
+    setBookForm((f) => ({ ...f, doctor_id: id }))
+    setDoctorSearch('')
+    setShowDoctorDropdown(false)
+    if (id) {
+      const doc = doctors.find((d: any) => d.id === id)
+      if (doc?.department_id) setBookDepartment(doc.department_id)
+    }
+  }
+
+  function openBook() {
+    setBookForm({ patient_id: '', doctor_id: '', appointment_date: '', reason: '', notes: '' })
+    setPatientSearch(''); setDoctorSearch(''); setBookDepartment(''); setBookVisitType('new')
+    if (currentUser?.role === 'Doctor') {
+      setBookForm((f) => ({ ...f, doctor_id: currentUser.id || '' }))
+      const self = doctors.find((d: any) => d.id === currentUser.id)
+      if (self?.department_id) setBookDepartment(self.department_id)
+    }
+    setShowBook(true)
+  }
+
+  async function handleStartConsult() {
+    if (!consultModal) return
+    setConsulting(true)
+    try {
+      if (consultModal.visit_id) {
+        await api.put(`/visits/${consultModal.visit_id}/start`, { performed_by: currentUser?.id })
+      }
+      navigate(`/consultation/${consultModal.patient_id}`)
+    } catch (err: any) {
+      const active = err?.response?.data?.activeConsultation
+      if (active) { setConsultBlock(active); setConsulting(false); return }
+      setConsulting(false)
+    }
+  }
+
   async function handleConfirmAction() {
     if (!confirmAction) return
     setConfirming(true)
@@ -104,27 +171,37 @@ export default function AppointmentsPage() {
     .filter((a) => {
       const effective = getEffectiveStatus(a)
       if (statusFilter) return effective === statusFilter
-      if (tab === 'active') return effective === 'scheduled'
+      if (tab === 'active') return effective === 'scheduled' || effective === 'date_passed'
       if (selectedDate) {
         const d = new Date(a.appointment_date).toISOString().slice(0, 10)
         if (d !== selectedDate) return false
       }
-      return effective !== 'scheduled'
+      return effective !== 'scheduled' && effective !== 'date_passed'
     })
 
   const stats = {
     scheduled: appointments.filter((a) => getEffectiveStatus(a) === 'scheduled').length,
-    completed: appointments.filter((a) => a.status === 'completed').length,
-    cancelled: appointments.filter((a) => a.status === 'cancelled').length,
+    datePassed: appointments.filter((a) => getEffectiveStatus(a) === 'date_passed').length,
+    completed: appointments.filter((a) => getEffectiveStatus(a) === 'completed').length,
+    cancelled: appointments.filter((a) => getEffectiveStatus(a) === 'cancelled').length,
     expired: appointments.filter((a) => getEffectiveStatus(a) === 'expired').length,
     total: appointments.length,
   }
 
   const statusStyles: Record<string, string> = {
     scheduled: 'bg-blue-100 text-blue-700',
+    date_passed: 'bg-indigo-100 text-indigo-700',
     completed: 'bg-emerald-100 text-emerald-700',
     cancelled: 'bg-rose-100 text-rose-700',
     expired: 'bg-amber-100 text-amber-700',
+  }
+
+  const statusLabels: Record<string, string> = {
+    scheduled: 'Scheduled',
+    date_passed: 'Date Passed',
+    completed: 'Completed',
+    cancelled: 'Cancelled',
+    expired: 'Expired',
   }
 
   return (
@@ -139,7 +216,7 @@ export default function AppointmentsPage() {
           </div>
         </div>
         {canBook && (
-          <button onClick={() => setShowBook(true)}
+          <button onClick={openBook}
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
             <Plus size={16} /> Book Appointment
           </button>
@@ -167,7 +244,7 @@ export default function AppointmentsPage() {
       <div className="flex gap-2">
         <button onClick={() => setTab('active')}
           className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${tab === 'active' ? 'bg-primary text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
-          Active ({stats.scheduled})
+          Active ({stats.scheduled + stats.datePassed})
         </button>
         <button onClick={() => setTab('history')}
           className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${tab === 'history' ? 'bg-primary text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
@@ -176,7 +253,7 @@ export default function AppointmentsPage() {
       </div>
 
       {tab === 'active' ? (
-        <p className="text-xs text-slate-400">Showing scheduled appointments. Past-due appointments shown as <strong>Expired</strong>.</p>
+        <p className="text-xs text-slate-400">Showing upcoming appointments. Paid appointments past their date show as <strong>Date Passed</strong>; unpaid ones move to History as <strong>Expired</strong>.</p>
       ) : (
         <div className="flex flex-wrap gap-3">
           <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)}
@@ -214,17 +291,11 @@ export default function AppointmentsPage() {
                     <span className="text-sm font-semibold text-sky-800">{dateStr}</span>
                     <span className="text-xs text-sky-600">{timeStr}</span>
                     <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${statusStyles[effectiveStatus] || 'bg-slate-100 text-slate-600'}`}>
-                      {effectiveStatus.charAt(0).toUpperCase() + effectiveStatus.slice(1)}
+                      {statusLabels[effectiveStatus] || effectiveStatus}
                     </span>
                   </div>
                   {effectiveStatus === 'scheduled' && (
                     <div className="flex items-center gap-2">
-                      {(a.doctor_id === currentUser?.id || currentUser?.role === 'Admin') && (
-                        <button onClick={() => setConfirmAction({ id: a.id, action: 'completed', patientName: a.patient_name })}
-                          className="px-3 py-1 rounded-lg bg-emerald-50 text-emerald-600 text-xs font-medium hover:bg-emerald-100 transition-colors flex items-center gap-1">
-                          <CheckCircle size={12} /> Complete
-                        </button>
-                      )}
                       {(a.doctor_id === currentUser?.id || currentUser?.role === 'Records' || currentUser?.role === 'Admin') && (
                         <button onClick={() => setConfirmAction({ id: a.id, action: 'cancelled', patientName: a.patient_name })}
                           className="px-3 py-1 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors flex items-center gap-1">
@@ -253,15 +324,18 @@ export default function AppointmentsPage() {
                   </div>
                   {a.notes && <p className="mt-2 text-xs text-slate-400 bg-slate-50 rounded-lg p-2">{a.notes}</p>}
                   {a.created_by_name && <p className="mt-1 text-[11px] text-slate-400">Booked by {a.created_by_name} on {new Date(a.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>}
-                  {effectiveStatus === 'scheduled' && (
-                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2">
+                  {(effectiveStatus === 'scheduled' || effectiveStatus === 'date_passed') && (
+                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center gap-2 flex-wrap">
                       {currentUser?.role !== 'Records' && (
                         <button onClick={() => navigate(`/patient/${a.patient_id}`)}
                           className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
                       )}
-                      {currentUser?.role === 'Doctor' && (
-                        <button onClick={() => navigate(`/consultation/${a.patient_id}`)}
+                      {currentUser?.role === 'Doctor' && a.has_paid && a.visit_id && (
+                        <button onClick={() => setConsultModal(a)}
                           className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-xs font-medium hover:bg-blue-100 transition-colors">Consult</button>
+                      )}
+                      {currentUser?.role === 'Doctor' && !a.has_paid && (
+                        <span className="text-[11px] text-slate-400">Fee pending — the patient becomes consultable once the consultation fee is paid.</span>
                       )}
                     </div>
                   )}
@@ -273,6 +347,92 @@ export default function AppointmentsPage() {
       )}
 
       {/* Booking Modal */}
+      {/* Start Consultation Confirm Modal */}
+      {consultModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!consulting) setConsultModal(null) }}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5 text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur flex items-center justify-center text-lg font-bold">
+                  {(consultModal.patient_name || '?').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold">Start Consultation</h2>
+                  <p className="text-emerald-100 text-xs font-mono truncate">{consultModal.hospital_number}</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">
+                Begin consultation for <strong className="text-slate-800">{consultModal.patient_name}</strong>?
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] font-medium">{consultModal.visit_type === 'follow_up' ? 'Follow-up' : 'New'} visit</span>
+                {consultModal.has_paid ? (
+                  <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 text-[10px] font-semibold">Consultation Paid</span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-700 text-[10px] font-semibold">Fee Pending</span>
+                )}
+              </div>
+              <div className="rounded-xl bg-amber-50 border border-amber-200 px-3.5 py-3 text-xs text-amber-800">
+                Starting marks the patient as <strong>With Doctor</strong> and locks the assignment — they cannot be reassigned or released until you complete the consultation. You can only have one active consultation at a time.
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+              <button onClick={() => setConsultModal(null)} disabled={consulting}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={handleStartConsult} disabled={consulting}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-all disabled:opacity-50">
+                {consulting ? <Loader2 size={14} className="animate-spin" /> : <Stethoscope size={14} />}
+                Start Consultation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Active Consultation Block Modal */}
+      {consultBlock && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setConsultBlock(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-6 py-5 text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"><AlertTriangle size={20} /></div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold">Active Consultation</h2>
+                  <p className="text-amber-100 text-xs">Complete it before starting a new one</p>
+                </div>
+                <button onClick={() => setConsultBlock(null)} className="ml-auto p-1.5 rounded-lg hover:bg-white/10"><X size={18} /></button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">You are currently consulting:</p>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold flex-shrink-0">
+                  {(consultBlock.full_name || '?').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 truncate">{consultBlock.full_name}</p>
+                  <p className="text-xs font-mono text-slate-400">{consultBlock.hospital_number}</p>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] font-medium">{consultBlock.visit_type === 'follow_up' ? 'Follow-up' : 'New'} visit</span>
+                    {consultBlock.department_name && <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-medium">{consultBlock.department_name}</span>}
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500">Complete this consultation before starting a new one. The patient stays locked until then.</p>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+              <button onClick={() => setConsultBlock(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Dismiss</button>
+              <button onClick={() => { const p = consultBlock.patient_id; setConsultBlock(null); if (p) navigate(`/consultation/${p}`) }}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition-all">
+                <Stethoscope size={14} /> Go to Active Consultation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Confirmation Modal */}
       {confirmAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!confirming) setConfirmAction(null) }}>
@@ -321,7 +481,7 @@ export default function AppointmentsPage() {
           <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Calendar size={18} className="text-sky-500" /> Book Appointment</h2>
-              <button onClick={() => { setShowBook(false); setBookForm({ patient_id: '', doctor_id: '', appointment_date: '', reason: '', notes: '' }); setPatientSearch(''); setDoctorSearch(''); setBookHour('9'); setBookMinute('00'); setBookAmPm('AM') }}
+              <button onClick={() => { setShowBook(false); setBookForm({ patient_id: '', doctor_id: '', appointment_date: '', reason: '', notes: '' }); setPatientSearch(''); setDoctorSearch(''); setBookDepartment(''); setBookVisitType('new'); setBookHour('9'); setBookMinute('00'); setBookAmPm('AM') }}
                 className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
             <div className="p-6 space-y-4 overflow-y-auto">
@@ -345,22 +505,55 @@ export default function AppointmentsPage() {
                 )}
               </div>
               <div className="relative">
-                <label className="block text-sm font-medium text-slate-600 mb-1">Doctor</label>
-                <input type="text" placeholder="Search doctor or leave empty..." value={doctorSearch || (bookForm.doctor_id ? doctors.find((d: any) => d.id === bookForm.doctor_id)?.name || '' : '')}
-                  onChange={(e) => { setDoctorSearch(e.target.value); setBookForm((p) => ({ ...p, doctor_id: '' })); setShowDoctorDropdown(true) }}
-                  onFocus={() => setShowDoctorDropdown(true)}
-                  onBlur={() => setTimeout(() => setShowDoctorDropdown(false), 200)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
-                {showDoctorDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
-                    <button key="any" type="button" onMouseDown={() => { setBookForm((f) => ({ ...f, doctor_id: '' })); setDoctorSearch(''); setShowDoctorDropdown(false) }}
-                      className="w-full text-left px-4 py-2.5 text-sm text-slate-500 hover:bg-slate-50 transition-colors">— Any available doctor —</button>
-                    {doctors.filter((d: any) => d.name.toLowerCase().includes(doctorSearch.toLowerCase())).map((d: any) => (
-                      <button key={d.id} type="button" onMouseDown={() => { setBookForm((f) => ({ ...f, doctor_id: d.id })); setDoctorSearch(''); setShowDoctorDropdown(false) }}
-                        className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors">{d.name}</button>
-                    ))}
-                  </div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">Department</label>
+                {currentUser?.role === 'Doctor' ? (
+                  <input type="text" readOnly value={doctors.find((d: any) => d.id === currentUser.id)?.department_name || '—'}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm bg-slate-50 text-slate-700 cursor-not-allowed" />
+                ) : (
+                  <SearchableDropdown
+                    value={bookDepartment}
+                    options={departments.map((d: any) => ({ id: d.id, label: d.name }))}
+                    placeholder="Search department (optional)..."
+                    emptyLabel="— All departments —"
+                    onSelect={selectBookDepartment}
+                  />
                 )}
+              </div>
+              <div className="relative">
+                <label className="block text-sm font-medium text-slate-600 mb-1">Doctor</label>
+                {currentUser?.role === 'Doctor' ? (
+                  <input type="text" readOnly value={doctors.find((d: any) => d.id === currentUser.id)?.name || currentUser?.name || 'Me'}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm bg-slate-50 text-slate-700 cursor-not-allowed" />
+                ) : (
+                  <>
+                  <input type="text" placeholder="Search doctor or leave empty..." value={doctorSearch || (bookForm.doctor_id ? deptFilteredDoctors.find((d: any) => d.id === bookForm.doctor_id)?.name || '' : '')}
+                    onChange={(e) => { setDoctorSearch(e.target.value); setBookForm((p) => ({ ...p, doctor_id: '' })); setShowDoctorDropdown(true) }}
+                    onFocus={() => setShowDoctorDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowDoctorDropdown(false), 200)}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  {showDoctorDropdown && (
+                    <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
+                      <button type="button" onMouseDown={() => selectBookDoctor('')}
+                        className="w-full text-left px-4 py-2.5 text-sm text-slate-500 hover:bg-slate-50 transition-colors">— Any available doctor —</button>
+                      {deptFilteredDoctors.filter((d: any) => d.name.toLowerCase().includes(doctorSearch.toLowerCase())).map((d: any) => (
+                        <button key={d.id} type="button" onMouseDown={() => selectBookDoctor(d.id)}
+                          className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors">{d.name}{d.department_name ? <span className="block text-[11px] text-slate-400">{d.department_name}</span> : null}</button>
+                      ))}
+                      {deptFilteredDoctors.length === 0 && <div className="px-4 py-2.5 text-sm text-slate-400">No doctors in this department</div>}
+                    </div>
+                  )}
+                  </>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1">Consultation Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setBookVisitType('new')}
+                    className={`px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${bookVisitType === 'new' ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>New</button>
+                  <button type="button" onClick={() => setBookVisitType('follow_up')}
+                    className={`px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${bookVisitType === 'follow_up' ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>Follow-up</button>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1.5">The consultation charge is raised at booking and collected at paypoint before the doctor can consult.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-600 mb-1">Date & Time *</label>
@@ -394,7 +587,7 @@ export default function AppointmentsPage() {
               </div>
             </div>
             <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl">
-              <button onClick={() => { setShowBook(false); setBookForm({ patient_id: '', doctor_id: '', appointment_date: '', reason: '', notes: '' }); setPatientSearch(''); setDoctorSearch('') }}
+              <button onClick={() => { setShowBook(false); setBookForm({ patient_id: '', doctor_id: '', appointment_date: '', reason: '', notes: '' }); setPatientSearch(''); setDoctorSearch(''); setBookDepartment(''); setBookVisitType('new') }}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
               <button onClick={handleBook} disabled={booking || !bookForm.patient_id || !bookDate}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">

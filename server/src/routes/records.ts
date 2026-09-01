@@ -31,11 +31,12 @@ const router = Router();
 router.get('/api/patients/:patientId/documents', async (req: Request, res: Response) => {
   try {
     const { patientId } = req.params;
+    const tenantId = getTenantId();
     const result = await pool.query(
       `SELECT d.*, s.name as uploaded_by_name FROM patient_documents d
        LEFT JOIN staff_users s ON s.id = d.uploaded_by
-       WHERE d.patient_id = $1 ORDER BY d.created_at DESC`,
-      [patientId]
+       WHERE d.patient_id = $1 AND d.tenant_id = $2 ORDER BY d.created_at DESC`,
+      [patientId, tenantId]
     );
     res.json(result.rows);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
@@ -44,6 +45,7 @@ router.get('/api/patients/:patientId/documents', async (req: Request, res: Respo
 router.post('/api/patients/:patientId/documents', upload.single('file'), async (req: Request, res: Response) => {
   try {
     const { patientId } = req.params;
+    const tenantId = getTenantId();
     const { document_type, notes, uploaded_by } = req.body;
     if (!document_type) {
       res.status(400).json({ error: true, message: 'document_type is required' });
@@ -55,8 +57,8 @@ router.post('/api/patients/:patientId/documents', upload.single('file'), async (
     var filePath = file ? file.filename : null;
     var id = uuidv4();
     const result = await pool.query(
-      'INSERT INTO patient_documents (id, patient_id, document_type, file_name, file_size, file_path, notes, uploaded_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *',
-      [id, patientId, document_type, fileName, fileSize, filePath, notes || null, uploaded_by || null]
+      'INSERT INTO patient_documents (id, tenant_id, patient_id, document_type, file_name, file_size, file_path, notes, uploaded_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *',
+      [id, tenantId, patientId, document_type, fileName, fileSize, filePath, notes || null, uploaded_by || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
@@ -65,10 +67,11 @@ router.post('/api/patients/:patientId/documents', upload.single('file'), async (
 router.put('/api/patients/:patientId/documents/:docId/meta', async (req: Request, res: Response) => {
   try {
     const { docId } = req.params;
+    const tenantId = getTenantId();
     const { file_name, notes } = req.body;
     const result = await pool.query(
-      'UPDATE patient_documents SET file_name = COALESCE($1, file_name), notes = COALESCE($2, notes) WHERE id = $3 RETURNING *',
-      [file_name || null, notes || null, docId]
+      'UPDATE patient_documents SET file_name = COALESCE($1, file_name), notes = COALESCE($2, notes) WHERE id = $3 AND tenant_id = $4 RETURNING *',
+      [file_name || null, notes || null, docId, tenantId]
     );
     if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Document not found' }); return; }
     res.json(result.rows[0]);
@@ -78,7 +81,8 @@ router.put('/api/patients/:patientId/documents/:docId/meta', async (req: Request
 router.delete('/api/patients/:patientId/documents/:docId', async (req: Request, res: Response) => {
   try {
     const { docId } = req.params;
-    const result = await pool.query('DELETE FROM patient_documents WHERE id = $1 RETURNING *', [docId]);
+    const tenantId = getTenantId();
+    const result = await pool.query('DELETE FROM patient_documents WHERE id = $1 AND tenant_id = $2 RETURNING *', [docId, tenantId]);
     if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Document not found' }); return; }
     res.json({ success: true, deleted: result.rows[0] });
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
@@ -88,14 +92,15 @@ router.delete('/api/patients/:patientId/documents/:docId', async (req: Request, 
 
 router.get('/api/record-requests', async (req: Request, res: Response) => {
   try {
+    const tenantId = readClinicProfile().GLOBAL_SAAS_TENANT_ID;
     const { status } = req.query;
     let query = `SELECT r.*, p.full_name as patient_name, p.hospital_number, s.name as approved_by_name
                  FROM record_requests r
                  JOIN patients p ON p.id = r.patient_id
                  LEFT JOIN staff_users s ON s.id = r.approved_by
-                 WHERE p.folder_activated IS DISTINCT FROM false`;
-    const params: any[] = [];
-    if (status) { query += ' AND r.status = $1'; params.push(status); }
+                 WHERE p.folder_activated IS DISTINCT FROM false AND r.tenant_id = $1`;
+    const params: any[] = [tenantId];
+    if (status) { query += ' AND r.status = $2'; params.push(status); }
     query += ' ORDER BY r.created_at DESC';
     const result = await pool.query(query, params);
     res.json(result.rows);
@@ -104,6 +109,7 @@ router.get('/api/record-requests', async (req: Request, res: Response) => {
 
 router.post('/api/record-requests', async (req: Request, res: Response) => {
   try {
+    const tenantId = readClinicProfile().GLOBAL_SAAS_TENANT_ID;
     const { patient_id, requester_name, requester_contact, purpose, notes } = req.body;
     if (!patient_id || !requester_name) {
       res.status(400).json({ error: true, message: 'patient_id and requester_name are required' });
@@ -111,9 +117,9 @@ router.post('/api/record-requests', async (req: Request, res: Response) => {
     }
     const id = uuidv4();
     const result = await pool.query(
-      `INSERT INTO record_requests (id, patient_id, requester_name, requester_contact, purpose, notes)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [id, patient_id, requester_name, requester_contact || null, purpose || null, notes || null]
+      `INSERT INTO record_requests (id, tenant_id, patient_id, requester_name, requester_contact, purpose, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [id, tenantId, patient_id, requester_name, requester_contact || null, purpose || null, notes || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
@@ -168,10 +174,11 @@ router.get('/api/documents/:filename', async (req: Request, res: Response) => {
 
 router.get('/api/insurance-types', async (req: Request, res: Response) => {
   try {
+    const tenantId = getTenantId();
     const { provider } = req.query;
-    let query = 'SELECT * FROM custom_insurance_types';
-    var params: any[] = [];
-    if (provider) { query += ' WHERE provider = $1'; params.push(provider); }
+    let query = 'SELECT * FROM custom_insurance_types WHERE tenant_id = $1';
+    var params: any[] = [tenantId];
+    if (provider) { query += ' AND provider = $2'; params.push(provider); }
     query += ' ORDER BY type_name';
     var result = await pool.query(query, params);
     res.json(result.rows);
@@ -180,17 +187,17 @@ router.get('/api/insurance-types', async (req: Request, res: Response) => {
 
 router.post('/api/insurance-types', async (req: Request, res: Response) => {
   try {
+    const tenantId = getTenantId();
     const { provider, type_name, created_by } = req.body;
     if (!provider || !type_name) { res.status(400).json({ error: true, message: 'provider and type_name are required' }); return; }
     var id = uuidv4();
-    var result = await pool.query('INSERT INTO custom_insurance_types (id, provider, type_name, created_by) VALUES ($1, $2, $3, $4) RETURNING *', [id, provider, type_name, created_by || null]);
+    var result = await pool.query('INSERT INTO custom_insurance_types (id, tenant_id, provider, type_name, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING *', [id, tenantId, provider, type_name, created_by || null]);
     
     // Also create/ensure the provider exists in insurance_providers
-    var tenantId = getTenantId();
-    var provCheck = await pool.query('SELECT id FROM insurance_providers WHERE name = $1', [type_name]);
+    var provCheck = await pool.query('SELECT id FROM insurance_providers WHERE name = $1 AND tenant_id = $2', [type_name, tenantId]);
     if (provCheck.rows.length === 0) {
       var providerCode = type_name.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 10) || 'CUSTOM';
-      var codeCheck = await pool.query('SELECT id FROM insurance_providers WHERE code = $1', [providerCode]);
+      var codeCheck = await pool.query('SELECT id FROM insurance_providers WHERE code = $1 AND tenant_id = $2', [providerCode, tenantId]);
       if (codeCheck.rows.length > 0) providerCode = providerCode + Math.floor(Math.random() * 100);
       var cat = provider === 'HMO' ? 'HMO' : provider === 'NHIA' ? 'NHIA' : 'Other';
       await pool.query(
@@ -208,7 +215,8 @@ router.post('/api/insurance-types', async (req: Request, res: Response) => {
 
 router.delete('/api/insurance-types/:id', async (req: Request, res: Response) => {
   try {
-    var result = await pool.query('DELETE FROM custom_insurance_types WHERE id = $1 RETURNING *', [req.params.id]);
+    const tenantId = getTenantId();
+    var result = await pool.query('DELETE FROM custom_insurance_types WHERE id = $1 AND tenant_id = $2 RETURNING *', [req.params.id, tenantId]);
     if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Type not found' }); return; }
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
@@ -218,17 +226,19 @@ router.delete('/api/insurance-types/:id', async (req: Request, res: Response) =>
 
 router.get('/api/document-types', async (_req: Request, res: Response) => {
   try {
-    var result = await pool.query('SELECT * FROM custom_document_types ORDER BY type_name');
+    const tenantId = getTenantId();
+    var result = await pool.query('SELECT * FROM custom_document_types WHERE tenant_id = $1 ORDER BY type_name', [tenantId]);
     res.json(result.rows);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
 router.post('/api/document-types', async (req: Request, res: Response) => {
   try {
+    const tenantId = getTenantId();
     const { type_name, created_by } = req.body;
     if (!type_name) { res.status(400).json({ error: true, message: 'type_name is required' }); return; }
     var id = uuidv4();
-    var result = await pool.query('INSERT INTO custom_document_types (id, type_name, created_by) VALUES ($1, $2, $3) RETURNING *', [id, type_name, created_by || null]);
+    var result = await pool.query('INSERT INTO custom_document_types (id, tenant_id, type_name, created_by) VALUES ($1, $2, $3, $4) RETURNING *', [id, tenantId, type_name, created_by || null]);
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
     if (err.code === '23505') { res.status(409).json({ error: true, message: 'Type already exists' }); return; }
@@ -238,7 +248,8 @@ router.post('/api/document-types', async (req: Request, res: Response) => {
 
 router.delete('/api/document-types/:id', async (req: Request, res: Response) => {
   try {
-    var result = await pool.query('DELETE FROM custom_document_types WHERE id = $1 RETURNING *', [req.params.id]);
+    const tenantId = getTenantId();
+    var result = await pool.query('DELETE FROM custom_document_types WHERE id = $1 AND tenant_id = $2 RETURNING *', [req.params.id, tenantId]);
     if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Type not found' }); return; }
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }

@@ -22,18 +22,54 @@ interface SetupStatus {
 const MODULES = [
   'Records',
   'Triage',
+  'Doctor',
+  'Nurses',
+  'Consultants',
   'Consultation',
   'Laboratory',
   'Pharmacy',
   'Radiology',
-  'Finance/HMO'
+  'Finance/HMO',
+  'Maternity',
+  'Insurance',
+  'Referrals',
+  'Appointments',
+  'Admissions',
+  'Paypoint',
+  'Store / Walk-in Sales'
 ]
+
+const MODULE_KEYS: Record<string, string> = {
+  Records: 'module_records',
+  Triage: 'module_triage',
+  Doctor: 'module_doctor',
+  Nurses: 'module_nurses',
+  Consultants: 'module_consultants',
+  Consultation: 'module_consultation',
+  Laboratory: 'module_laboratory',
+  Pharmacy: 'module_pharmacy',
+  Radiology: 'module_radiology',
+  'Finance/HMO': 'module_finance_hmo',
+  Maternity: 'module_maternity',
+  Insurance: 'module_insurance',
+  Referrals: 'module_referrals',
+  Appointments: 'module_appointments',
+  Admissions: 'module_admissions',
+  Paypoint: 'module_paypoint',
+  'Store / Walk-in Sales': 'module_store',
+}
 
 const THEME_CLASSES = [
   { value: 'theme-trust-blue', label: 'Trust Blue' },
   { value: 'theme-emerald-green', label: 'Emerald Green' },
   { value: 'theme-charcoal-clinical', label: 'Charcoal Clinical' },
-  { value: 'theme-royal-purple', label: 'Royal Purple' }
+  { value: 'theme-royal-purple', label: 'Royal Purple' },
+  { value: 'theme-ocean-teal', label: 'Ocean Teal' },
+  { value: 'theme-crimson-red', label: 'Crimson Red' },
+  { value: 'theme-sunset-amber', label: 'Sunset Amber' },
+  { value: 'theme-forest-green', label: 'Forest Green' },
+  { value: 'theme-slate-modern', label: 'Slate Modern' },
+  { value: 'theme-blush-rose', label: 'Blush Rose' }
 ]
 
 function TokenGate({ onVerified }: { onVerified: () => void }) {
@@ -203,6 +239,9 @@ export default function SetupConsole() {
       formData.append('phone', phone.trim())
       formData.append('currency_symbol', currency.trim())
       formData.append('active_modules', JSON.stringify(activeModules))
+      for (const label of MODULES) {
+        formData.append(MODULE_KEYS[label], String(activeModules.includes(label)))
+      }
       formData.append('primary_brand_color', brandColor)
       formData.append('ui_theme_class', themeClass)
       formData.append('deployment', deployment)

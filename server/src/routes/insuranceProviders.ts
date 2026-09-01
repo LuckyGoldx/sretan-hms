@@ -18,13 +18,18 @@ router.get('/api/insurance/providers', async (req: Request, res: Response) => {
     const insuranceUser = getInsuranceUser(req);
     let query = `SELECT id, name, code, category, contact_person, contact_phone, contact_email, address, is_active, created_at FROM insurance_providers`;
     const params: any[] = [];
+    const conds: string[] = [];
 
     // Editor/viewer insurance staff only see their own provider
     if (insuranceUser && insuranceUser.providerId && insuranceUser.role !== 'admin') {
-      query += ' WHERE id = $1';
+      conds.push(`id = $${params.length + 1}`);
       params.push(insuranceUser.providerId);
+    } else {
+      conds.push(`tenant_id = $${params.length + 1}`);
+      params.push(getTenantId());
     }
 
+    if (conds.length) query += ' WHERE ' + conds.join(' AND ');
     query += ' ORDER BY name';
     const result = await pool.query(query, params);
     res.json(result.rows);
@@ -77,8 +82,8 @@ router.put('/api/insurance/providers/:id', async (req: Request, res: Response) =
         category = COALESCE($3, category),
         contact_person = $4, contact_phone = $5, contact_email = $6, address = $7,
         is_active = COALESCE($8, is_active)
-       WHERE id = $9 RETURNING id, name, code, category, contact_person, contact_phone, contact_email, address, is_active, created_at`,
-      [name || null, code ? code.toUpperCase() : null, category || null, contact_person || null, contact_phone || null, contact_email || null, address || null, is_active !== undefined ? is_active : null, req.params.id]
+       WHERE id = $9 AND tenant_id = $10 RETURNING id, name, code, category, contact_person, contact_phone, contact_email, address, is_active, created_at`,
+      [name || null, code ? code.toUpperCase() : null, category || null, contact_person || null, contact_phone || null, contact_email || null, address || null, is_active !== undefined ? is_active : null, req.params.id, getTenantId()]
     );
 
     // Cascade changes to all patients linked to this provider
@@ -114,7 +119,7 @@ router.delete('/api/insurance/providers/:id', async (req: Request, res: Response
       res.status(403).json({ error: true, message: 'Forbidden. Only Super Admin can permanently delete providers.' });
       return;
     }
-    const prov = await pool.query('SELECT id, name, code FROM insurance_providers WHERE id = $1', [req.params.id]);
+    const prov = await pool.query('SELECT id, name, code FROM insurance_providers WHERE id = $1 AND tenant_id = $2', [req.params.id, getTenantId()]);
     if (prov.rows.length === 0) { res.status(404).json({ error: true, message: 'Provider not found' }); return; }
     const name = prov.rows[0].name;
     const providerId = req.params.id;

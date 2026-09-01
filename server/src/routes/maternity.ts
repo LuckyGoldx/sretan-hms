@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
+import { generateNumber } from '../utils/numbering';
 
 const router = Router();
 
@@ -288,12 +289,7 @@ router.post('/api/maternity-patients', async (req: Request, res: Response) => {
     const autoPara = totalPrevPara + enteredPara;
 
     const id = uuidv4();
-    const year = new Date().getFullYear();
-    const seqRes = await pool.query(
-      `SELECT COALESCE(MAX(SUBSTRING(booking_code FROM 'ANC-${year}-(\\d+)')::int), 0) + 1 AS next_seq FROM maternity_patients WHERE booking_code ~ '^ANC-${year}-'`
-    );
-    const seq = seqRes.rows[0]?.next_seq || 1;
-    const bookingCode = `ANC-${year}-${String(seq).padStart(5, '0')}`;
+    const bookingCode = await generateNumber(tenantId, 'anc', { prefix: 'ANC' });
     const result = await pool.query(
       `INSERT INTO maternity_patients (id, tenant_id, patient_id, lmp, edd, booking_gestational_age,
         gravida, para, living_children, miscarriages, baby_alive,

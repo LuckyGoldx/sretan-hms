@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
+import { generateNumber } from '../utils/numbering';
 import { clockGuard } from '../middleware/clockGuard';
 
 const router = Router();
@@ -87,6 +88,7 @@ router.get('/api/patients', async (req: Request, res: Response) => {
                          WHERE e.patient_id = p.id AND e.tenant_id = $1 AND s.role IN ('Doctor','Consultant') ORDER BY e.created_at DESC LIMIT 1) as last_consultation_by,
                         (SELECT s.name FROM staff_users s WHERE s.id = p.assigned_doctor_id) as assigned_doctor_name,
                         (SELECT d.name FROM departments d WHERE d.id = p.department_id) as department_name,
+                        (SELECT d.name FROM departments d WHERE d.id = p.last_consulted_department_id) as last_consulted_department_name,
                         (SELECT EXISTS(SELECT 1 FROM visits v
                                        WHERE v.patient_id = p.id AND v.assigned_doctor_id IS NULL
                                          AND v.status = 'waiting' AND v.consultation_status IN ('paid','insurance_authorized'))) as has_paid_consultation
@@ -301,6 +303,7 @@ router.get('/api/patients/:id', async (req: Request, res: Response) => {
                  AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider,
               (SELECT s.name FROM staff_users s WHERE s.id = p.assigned_doctor_id) as assigned_doctor_name,
               (SELECT d.name FROM departments d WHERE d.id = p.department_id) as department_name,
+              (SELECT d.name FROM departments d WHERE d.id = p.last_consulted_department_id) as last_consulted_department_name,
               (SELECT EXISTS(SELECT 1 FROM visits v
                              WHERE v.patient_id = p.id AND v.assigned_doctor_id IS NULL
                                AND v.status = 'waiting' AND v.consultation_status IN ('paid','insurance_authorized'))) as has_paid_consultation
@@ -368,18 +371,7 @@ router.post('/api/patients', async (req: Request, res: Response) => {
     const id = uuidv4();
     const config = readClinicProfile();
     const prefix = config.hospital_number_prefix || 'SRT';
-    const includeYear = config.hospital_number_include_year !== false;
-    const year = new Date().getFullYear();
-    const yearPart = includeYear ? `-${year}` : '';
-    const pattern = includeYear
-      ? `${prefix}-${year}-`
-      : `${prefix}-`;
-    const seqQuery = includeYear
-      ? `SELECT COALESCE(MAX(SUBSTRING(hospital_number FROM '${prefix}-${year}-(\\d+)')::int), 0) + 1 AS next_num FROM patients WHERE hospital_number ~ '^${prefix}-${year}-'`
-      : `SELECT COALESCE(MAX(SUBSTRING(hospital_number FROM '${prefix}-(\\d+)')::int), 0) + 1 AS next_num FROM patients WHERE hospital_number ~ '^${prefix}-'`;
-    const seqResult = await pool.query(seqQuery);
-    const nextNum = seqResult.rows[0]?.next_num || 1;
-    const hospitalNumber = `${pattern}${String(nextNum).padStart(5, '0')}`;
+    const hospitalNumber = await generateNumber(tenantId, 'hospital', { prefix });
     const result = await pool.query(
       `INSERT INTO patients (id, tenant_id, hospital_number, full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type, tribe, religion)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)

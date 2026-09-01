@@ -165,9 +165,9 @@ router.post('/api/insurance/cases/:caseId/generate-invoice', async (req: Request
       for (const svc of services) {
         const itemId = crypto.randomUUID();
         await client.query(
-          `INSERT INTO insurance_invoice_items (id, invoice_id, case_id, service_type, description, quantity, unit_price, total_price)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [itemId, invoiceId, req.params.caseId, svc.service_type, svc.service_name, svc.quantity, svc.unit_price, svc.total_price]
+          `INSERT INTO insurance_invoice_items (id, tenant_id, invoice_id, case_id, service_type, description, quantity, unit_price, total_price)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [itemId, c.tenant_id, invoiceId, req.params.caseId, svc.service_type, svc.service_name, svc.quantity, svc.unit_price, svc.total_price]
         );
         await client.query(
           `UPDATE insurance_case_services
@@ -266,9 +266,9 @@ router.post('/api/insurance/invoices', async (req: Request, res: Response) => {
       for (const svc of services) {
         const itemId = crypto.randomUUID();
         await client.query(
-          `INSERT INTO insurance_invoice_items (id, invoice_id, case_id, service_type, description, quantity, unit_price, total_price)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-          [itemId, invoiceId, svc.case_id, svc.service_type, svc.service_name, svc.quantity, svc.unit_price, svc.total_price]
+          `INSERT INTO insurance_invoice_items (id, tenant_id, invoice_id, case_id, service_type, description, quantity, unit_price, total_price)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          [itemId, tenantId, invoiceId, svc.case_id, svc.service_type, svc.service_name, svc.quantity, svc.unit_price, svc.total_price]
         );
         await client.query(
           `UPDATE insurance_case_services

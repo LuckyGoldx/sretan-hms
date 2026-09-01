@@ -3,6 +3,7 @@ import pool from '../db/pool';
 import { getInsuranceUser } from '../utils/insuranceAuth';
 import { autoSyncClinicalServices } from '../utils/autoSyncServices';
 import { readClinicProfile } from '../config/reader';
+import { generateNumber } from '../utils/numbering';
 import { getCoverageForService, getPatientPrimaryInsurance } from '../utils/coverageLookup';
 
 const router = Router();
@@ -29,25 +30,13 @@ async function markSourceOrderAsPaid(serviceType: string, serviceId: string | nu
 }
 
 // Helper: generate case number
-async function generateCaseNumber(providerCode: string): Promise<string> {
-  const year = new Date().getFullYear();
-  const result = await pool.query(
-    `SELECT COUNT(*)::int as count FROM insurance_cases WHERE case_number LIKE $1`,
-    [`${providerCode}-${year}-%`]
-  );
-  const next = (result.rows[0]?.count || 0) + 1;
-  return `${providerCode}-${year}-${String(next).padStart(5, '0')}`;
+async function generateCaseNumber(tenantId: string, providerCode: string): Promise<string> {
+  return generateNumber(tenantId, 'case', { prefix: providerCode, provider: providerCode });
 }
 
 // Helper: generate auth request number
-async function generateAuthNumber(): Promise<string> {
-  const year = new Date().getFullYear();
-  const result = await pool.query(
-    `SELECT COUNT(*)::int as count FROM insurance_auth_requests WHERE request_number LIKE $1`,
-    [`AUTH-${year}-%`]
-  );
-  const next = (result.rows[0]?.count || 0) + 1;
-  return `AUTH-${year}-${String(next).padStart(5, '0')}`;
+async function generateAuthNumber(tenantId: string): Promise<string> {
+  return generateNumber(tenantId, 'auth', { prefix: 'AUTH' });
 }
 
 // GET /api/insurance/cases - List cases
@@ -170,9 +159,9 @@ router.post('/api/insurance/cases', async (req: Request, res: Response) => {
       res.status(400).json({ error: true, message: 'Provider not found' });
       return;
     }
-    const caseNumber = await generateCaseNumber(provResult.rows[0].code);
-    const id = crypto.randomUUID();
     const tenantId = getTenantId();
+    const caseNumber = await generateCaseNumber(tenantId, provResult.rows[0].code);
+    const id = crypto.randomUUID();
 
     const result = await pool.query(
       `INSERT INTO insurance_cases (id, tenant_id, provider_id, patient_id, encounter_id, admission_id, case_number, auth_code, coverage_start_date, coverage_end_date, notes, created_by)
@@ -398,7 +387,7 @@ router.post('/api/insurance/auth-requests', async (req: Request, res: Response) 
     }
     const id = crypto.randomUUID();
     const tenantId = getTenantId();
-    const requestNumber = await generateAuthNumber();
+    const requestNumber = await generateAuthNumber(tenantId);
 
     const result = await pool.query(
       `INSERT INTO insurance_auth_requests (id, tenant_id, provider_id, patient_id, request_number, requested_services, estimated_amount, clinical_justification, requested_by)
@@ -651,18 +640,19 @@ router.post('/api/insurance/co-pay/pay', async (req: Request, res: Response) => 
     // Create payment record
     const paymentId = crypto.randomUUID();
     const receiptNumber = `COP-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
+    const payTenantId = caseResult.rows[0].tenant_id;
 
     await pool.query(
-      `INSERT INTO payments (id, patient_id, total_amount, payment_method, receipt_number, status)
-       VALUES ($1, $2, $3, $4, $5, 'paid')`,
-      [paymentId, patientId, amount, paymentMethod || 'cash', receiptNumber]
+      `INSERT INTO payments (id, tenant_id, patient_id, total_amount, payment_method, receipt_number, status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'paid')`,
+      [paymentId, payTenantId, patientId, amount, paymentMethod || 'cash', receiptNumber]
     );
 
     const coPayDesc = `Co-pay for case ${caseResult.rows[0].case_number}`;
     await pool.query(
-      `INSERT INTO payment_items (payment_id, service_type, description, item_name, quantity, unit_price, total_price)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [paymentId, 'insurance_co_pay', coPayDesc, coPayDesc, 1, amount, amount]
+      `INSERT INTO payment_items (tenant_id, payment_id, service_type, description, item_name, quantity, unit_price, total_price)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [payTenantId, paymentId, 'insurance_co_pay', coPayDesc, coPayDesc, 1, amount, amount]
     );
 
     // Update case co_pay_collected

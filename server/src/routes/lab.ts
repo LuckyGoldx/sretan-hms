@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
+import { generateNumber } from '../utils/numbering';
 
 const router = Router();
 
@@ -114,9 +115,7 @@ router.post('/api/lab-orders', async (req: Request, res: Response) => {
 
     let labNumber = providedLabNumber
     if (!labNumber) {
-      const seqResult = await pool.query(`SELECT COALESCE(MAX(SUBSTRING(lab_number FROM 'LAB-2026-(\\d+)')::int), 0) + 1 AS next_num FROM lab_orders WHERE lab_number ~ '^LAB-2026-'`);
-      const nextNum = seqResult.rows[0]?.next_num || 1;
-      labNumber = `LAB-2026-${String(nextNum).padStart(5, '0')}`;
+      labNumber = await generateNumber(tenantId, 'lab', { prefix: 'LAB' });
     }
 
     let orderNumber: string | null = null
@@ -403,13 +402,14 @@ router.put('/api/lab-results/:id/approve', async (req: Request, res: Response) =
     if (allCompleted.rows[0]?.done) {
       await pool.query(`UPDATE lab_orders SET status = 'completed' WHERE id = $1`, [labOrderId]);
       // Reduce inventory for the completed test (never below zero)
-      var orderData = await pool.query('SELECT test_name FROM lab_orders WHERE id = $1', [labOrderId]);
+        var orderData = await pool.query('SELECT test_name FROM lab_orders WHERE id = $1', [labOrderId]);
       if (orderData.rows.length > 0) {
         var testName = orderData.rows[0].test_name;
         await pool.query(
           `UPDATE inventory_items SET stock_count = GREATEST(0, stock_count - tim.quantity_consumed)
-           FROM test_inventory_map tim WHERE tim.test_name = $1 AND tim.inventory_item_id = inventory_items.id AND inventory_items.category = 'lab'`,
-          [testName]
+           FROM test_inventory_map tim WHERE tim.test_name = $1 AND tim.inventory_item_id = inventory_items.id
+             AND inventory_items.category = 'lab' AND tim.tenant_id = $2`,
+          [testName, getTenantId()]
         );
       }
     }
@@ -574,12 +574,13 @@ router.delete('/api/lab-specimens/:id', async (req: Request, res: Response) => {
 
 router.get('/api/lab-test-catalog', async (req: Request, res: Response) => {
   try {
+    const tenantId = getTenantId();
     const { search } = req.query;
-    let query = 'SELECT * FROM lab_test_catalog';
-    const params: any[] = [];
+    let query = 'SELECT * FROM lab_test_catalog WHERE tenant_id = $1';
+    const params: any[] = [tenantId];
 
     if (search) {
-      query += ` WHERE name ILIKE $1`;
+      query += ` AND name ILIKE $2`;
       params.push(`%${search}%`);
     }
 
@@ -593,12 +594,13 @@ router.get('/api/lab-test-catalog', async (req: Request, res: Response) => {
 
 router.get('/api/lab-panels', async (req: Request, res: Response) => {
   try {
+    const tenantId = getTenantId();
     const { catalog_id, test_name } = req.query;
     let query = `SELECT lp.*, c.name AS test_name
                  FROM lab_panels lp
                  LEFT JOIN lab_test_catalog c ON c.id = lp.catalog_id`;
-    const params: any[] = [];
-    const conds: string[] = [];
+    const params: any[] = [tenantId];
+    const conds: string[] = [`lp.tenant_id = $1`];
     if (catalog_id) { params.push(catalog_id); conds.push(`lp.catalog_id = $${params.length}`); }
     if (test_name) { params.push(`%${test_name}%`); conds.push(`c.name ILIKE $${params.length}`); }
     if (conds.length) { query += ' WHERE ' + conds.join(' AND '); }
@@ -612,6 +614,7 @@ router.get('/api/lab-panels', async (req: Request, res: Response) => {
 
 router.post('/api/lab-test-catalog', async (req: Request, res: Response) => {
   try {
+    const tenantId = getTenantId();
     const { name, category, price, specimen_type, description, reference_range_low, reference_range_high, reference_range_text,
             result_type, unit, allowed_values, abnormal_values, is_panel, loinc } = req.body;
     if (!name) { res.status(400).json({ error: true, message: 'name is required' }); return; }
@@ -620,9 +623,9 @@ router.post('/api/lab-test-catalog', async (req: Request, res: Response) => {
     }
     const rtype = ['numeric', 'qualitative', 'narrative', 'ratio', 'range', 'free_text'].includes(result_type) ? result_type : 'numeric';
     const result = await pool.query(
-      `INSERT INTO lab_test_catalog (name, category, price, specimen_type, description, reference_range_low, reference_range_high, reference_range_text, result_type, unit, allowed_values, abnormal_values, is_panel, loinc)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
-      [name, category || null, price || 0, specimen_type || null, description || null, reference_range_low || null, reference_range_high || null, reference_range_text || null,
+      `INSERT INTO lab_test_catalog (tenant_id, name, category, price, specimen_type, description, reference_range_low, reference_range_high, reference_range_text, result_type, unit, allowed_values, abnormal_values, is_panel, loinc)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+      [tenantId, name, category || null, price || 0, specimen_type || null, description || null, reference_range_low || null, reference_range_high || null, reference_range_text || null,
        rtype, unit || null, allowed_values ? JSON.stringify(allowed_values) : null, abnormal_values ? JSON.stringify(abnormal_values) : null, !!is_panel, loinc || null]
     );
     res.status(201).json(result.rows[0]);
@@ -634,6 +637,7 @@ router.post('/api/lab-test-catalog', async (req: Request, res: Response) => {
 router.put('/api/lab-test-catalog/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const tenantId = getTenantId();
     const { name, category, price, specimen_type, description, reference_range_low, reference_range_high, reference_range_text,
             result_type, unit, allowed_values, abnormal_values, is_panel, loinc } = req.body;
     const rtype = result_type !== undefined && ['numeric', 'qualitative', 'narrative', 'ratio', 'range', 'free_text'].includes(result_type) ? result_type : result_type;
@@ -646,12 +650,12 @@ router.put('/api/lab-test-catalog/:id', async (req: Request, res: Response) => {
         unit = COALESCE($10, unit),
         allowed_values = COALESCE($11, allowed_values), abnormal_values = COALESCE($12, abnormal_values),
         is_panel = COALESCE($13, is_panel), loinc = COALESCE($14, loinc)
-       WHERE id = $15 RETURNING *`,
+       WHERE id = $15 AND tenant_id = $16 RETURNING *`,
       [name, category, price, specimen_type, description, reference_range_low, reference_range_high, reference_range_text,
        rtype, unit,
        allowed_values !== undefined ? JSON.stringify(allowed_values) : undefined,
        abnormal_values !== undefined ? JSON.stringify(abnormal_values) : undefined,
-       is_panel !== undefined ? !!is_panel : undefined, loinc, id]
+       is_panel !== undefined ? !!is_panel : undefined, loinc, id, tenantId]
     );
     if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Test not found' }); return; }
     res.json(result.rows[0]);
@@ -663,7 +667,8 @@ router.put('/api/lab-test-catalog/:id', async (req: Request, res: Response) => {
 router.delete('/api/lab-test-catalog/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const result = await pool.query(`DELETE FROM lab_test_catalog WHERE id = $1 RETURNING id`, [id]);
+    const tenantId = getTenantId();
+    const result = await pool.query(`DELETE FROM lab_test_catalog WHERE id = $1 AND tenant_id = $2 RETURNING id`, [id, tenantId]);
     if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Test not found' }); return; }
     res.json({ message: 'Test deleted', id });
   } catch (err: any) {

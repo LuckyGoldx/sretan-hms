@@ -2,6 +2,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
+import { generateNumber } from '../utils/numbering';
 import { clockGuard } from '../middleware/clockGuard';
 
 const router = Router();
@@ -577,15 +578,8 @@ router.post('/api/referrals', async (req: Request, res: Response) => {
       }
     }
 
-    // Generate referral number REF-YYYY-XXXXX
-    const year = new Date().getFullYear();
-    const seq = await pool.query(
-      `SELECT COALESCE(MAX(SUBSTRING(referral_number FROM 'REF-' || $1 || '-(\\d+)')::int), 0) + 1 AS next_num
-       FROM referrals WHERE referral_number ~ $2`,
-      [String(year), `^REF-${year}-`]
-    );
-    const nextNum = seq.rows[0]?.next_num || 1;
-    const referralNumber = `REF-${year}-${String(nextNum).padStart(5, '0')}`;
+    // Generate referral number from the tenant pattern
+    const referralNumber = await generateNumber(getTenantId(), 'referral', { prefix: 'REF' });
 
     const id = uuidv4();
     // Raise the specialist/consultant fee (default from inventory) on the referral so

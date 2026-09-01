@@ -34,10 +34,11 @@ router.post('/api/nurse-notes/:id/view', async (req: Request, res: Response) => 
     const { id } = req.params;
     const { viewed_by } = req.body;
     if (!viewed_by) { res.status(400).json({ error: true, message: 'viewed_by is required' }); return; }
+    const tenantId = getTenantId();
     await pool.query(
-      `INSERT INTO clinical_note_views (note_id, viewed_by) VALUES ($1, $2)
+      `INSERT INTO clinical_note_views (note_id, tenant_id, viewed_by) VALUES ($1, $2, $3)
        ON CONFLICT (note_id, viewed_by) DO NOTHING`,
-      [id, viewed_by]
+      [id, tenantId, viewed_by]
     );
     res.json({ ok: true });
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
@@ -127,8 +128,8 @@ router.post('/api/treatments', async (req: Request, res: Response) => {
       for (const timeStr of timeList) {
         const doseId = uuidv4()
         await pool.query(
-          'INSERT INTO treatment_doses (id, treatment_id, session_id, scheduled_time) VALUES ($1, $2, $3, $4)',
-          [doseId, treatmentId, sessId, timeStr]
+          'INSERT INTO treatment_doses (id, tenant_id, treatment_id, session_id, scheduled_time) VALUES ($1, $2, $3, $4, $5)',
+          [doseId, tenantId, treatmentId, sessId, timeStr]
         )
       }
     }
@@ -198,8 +199,8 @@ router.post('/api/treatment-sessions', async (req: Request, res: Response) => {
       for (const timeStr of timeList) {
         const doseId = uuidv4()
         await pool.query(
-          'INSERT INTO treatment_doses (id, treatment_id, session_id, scheduled_time) VALUES ($1, $2, $3, $4)',
-          [doseId, treatment_id, sessId, timeStr]
+          'INSERT INTO treatment_doses (id, tenant_id, treatment_id, session_id, scheduled_time) VALUES ($1, $2, $3, $4, $5)',
+          [doseId, tenantId, treatment_id, sessId, timeStr]
         )
       }
     }
@@ -233,12 +234,13 @@ router.put('/api/treatment-sessions/:id', async (req: Request, res: Response) =>
 // ── Treatment Doses ──
 router.get('/api/treatment-doses', async (req: Request, res: Response) => {
   try {
+    const tenantId = getTenantId();
     const { treatment_id, session_id } = req.query;
     let query = `SELECT td.*, s.name as administered_by_name FROM treatment_doses td
                  LEFT JOIN staff_users s ON s.id = td.administered_by
-                 WHERE 1=1`;
-    const params: any[] = [];
-    let idx = 1;
+                 WHERE td.tenant_id = $1`;
+    const params: any[] = [tenantId];
+    let idx = 2;
     if (treatment_id) { query += ` AND td.treatment_id = $${idx}`; params.push(treatment_id); idx++; }
     if (session_id) { query += ` AND td.session_id = $${idx}`; params.push(session_id); idx++; }
     query += ' ORDER BY td.scheduled_time';
@@ -250,16 +252,17 @@ router.get('/api/treatment-doses', async (req: Request, res: Response) => {
 router.put('/api/treatment-doses/:id/administer', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const tenantId = getTenantId();
     const { administered_by, notes } = req.body;
     const result = await pool.query(
-      `UPDATE treatment_doses SET status = 'administered', administered_at = NOW(), administered_by = $1, notes = $2 WHERE id = $3 RETURNING *`,
-      [administered_by || null, notes || null, id]
+      `UPDATE treatment_doses SET status = 'administered', administered_at = NOW(), administered_by = $1, notes = $2 WHERE id = $3 AND tenant_id = $4 RETURNING *`,
+      [administered_by || null, notes || null, id, tenantId]
     );
     if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Dose not found' }); return; }
     const enriched = await pool.query(
       `SELECT td.*, s.name as administered_by_name FROM treatment_doses td
        LEFT JOIN staff_users s ON s.id = td.administered_by
-       WHERE td.id = $1`, [id]
+       WHERE td.id = $1 AND td.tenant_id = $2`, [id, tenantId]
     );
     res.json(enriched.rows[0]);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
@@ -268,15 +271,16 @@ router.put('/api/treatment-doses/:id/administer', async (req: Request, res: Resp
 router.put('/api/treatment-doses/:id/skip', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const tenantId = getTenantId();
     const { notes, administered_by } = req.body;
     await pool.query(
-      `UPDATE treatment_doses SET status = 'skipped', notes = $1, administered_at = NOW(), administered_by = $2 WHERE id = $3`,
-      [notes || null, administered_by || null, id]
+      `UPDATE treatment_doses SET status = 'skipped', notes = $1, administered_at = NOW(), administered_by = $2 WHERE id = $3 AND tenant_id = $4`,
+      [notes || null, administered_by || null, id, tenantId]
     );
     const enriched = await pool.query(
       `SELECT td.*, s.name as administered_by_name FROM treatment_doses td
        LEFT JOIN staff_users s ON s.id = td.administered_by
-       WHERE td.id = $1`, [id]
+       WHERE td.id = $1 AND td.tenant_id = $2`, [id, tenantId]
     );
     res.json(enriched.rows[0] || { success: true });
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
