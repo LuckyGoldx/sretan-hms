@@ -37,13 +37,16 @@ import insuranceCasesRouter from './routes/insuranceCases';
 import insuranceInvoicesRouter from './routes/insuranceInvoices';
 import insuranceReportsRouter from './routes/insuranceReports';
 import insuranceCoverageRouter from './routes/insuranceCoverage';
+import consultantsRouter from './routes/consultants';
+import notificationsRouter from './routes/notifications';
+import visitsRouter from './routes/visits';
 
 declare global {
   var clockTampered: boolean | undefined;
 }
 
 const app = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.use(corsMiddleware);
 app.use(express.json({ limit: '10mb' }));
@@ -78,6 +81,9 @@ app.use(insuranceCasesRouter);
 app.use(insuranceInvoicesRouter);
 app.use(insuranceReportsRouter);
 app.use(insuranceCoverageRouter);
+app.use(consultantsRouter);
+app.use(notificationsRouter);
+app.use(visitsRouter);
 
 app.use(errorHandler);
 

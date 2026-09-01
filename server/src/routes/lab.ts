@@ -39,13 +39,14 @@ router.get('/api/lab-orders', async (req: Request, res: Response) => {
 
     let query = `SELECT l.*, enc.patient_id, pat.hospital_number,
                   COALESCE(l.patient_name, pat.full_name, '') AS patient_name,
-                  doc.name AS doctor_name,
+                  doc.name AS doctor_name, doc.role AS doctor_role,
+                  enc.is_consultation, enc.department_id, dept.name AS department_name,
                   (SELECT COALESCE(json_agg(s.specimen_type ORDER BY s.created_at), '[]'::json) FROM lab_order_specimens s WHERE s.order_id = l.id) AS specimens,
                   (SELECT pr.name FROM patient_insurance_policies pp JOIN insurance_providers pr ON pp.provider_id = pr.id WHERE pp.patient_id = pat.id AND pp.is_active = true AND pp.coverage_type = 'primary' AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider,
                   (SELECT s.name FROM lab_results lr JOIN staff_users s ON s.id = lr.entered_by WHERE lr.lab_order_id = l.id AND lr.entered_by IS NOT NULL AND lr.status = 'completed' LIMIT 1) as entered_by_name,
                   (SELECT s.name FROM lab_results lr JOIN staff_users s ON s.id = lr.approved_by WHERE lr.lab_order_id = l.id AND lr.approved_by IS NOT NULL LIMIT 1) as approved_by_name,
                   (SELECT MIN(lr.approved_at) FROM lab_results lr WHERE lr.lab_order_id = l.id AND lr.approved_at IS NOT NULL) as approved_at
-                  FROM lab_orders l LEFT JOIN encounters enc ON enc.id = l.encounter_id LEFT JOIN patients pat ON pat.id = enc.patient_id LEFT JOIN staff_users doc ON doc.id = enc.staff_id WHERE l.tenant_id = $1`;
+                  FROM lab_orders l LEFT JOIN encounters enc ON enc.id = l.encounter_id LEFT JOIN patients pat ON pat.id = enc.patient_id LEFT JOIN staff_users doc ON doc.id = enc.staff_id LEFT JOIN departments dept ON dept.id = enc.department_id WHERE l.tenant_id = $1`;
     const params: any[] = [tenantId];
     let idx = 2;
 
@@ -475,7 +476,8 @@ router.get('/api/lab-results', async (req: Request, res: Response) => {
                   lo.specimen_type AS specimen_type, lo.priority AS priority,
                   lo.doctor_comment AS doctor_comment,
                   (SELECT COALESCE(json_agg(s.specimen_type ORDER BY s.created_at), '[]'::json) FROM lab_order_specimens s WHERE s.order_id = lo.id) AS specimens,
-                  doc.name AS doctor_name,
+                  doc.name AS doctor_name, doc.role AS doctor_role,
+                  enc.is_consultation, enc.department_id, dept.name AS department_name,
                   s.name as approved_by_name, es.name as entered_by_name,
                   COALESCE(lo.patient_name, pat.full_name, '') AS full_patient_name
                  FROM lab_results lr
@@ -483,6 +485,7 @@ router.get('/api/lab-results', async (req: Request, res: Response) => {
                  LEFT JOIN encounters enc ON enc.id = lo.encounter_id
                  LEFT JOIN patients pat ON pat.id = enc.patient_id
                  LEFT JOIN staff_users doc ON doc.id = enc.staff_id
+                 LEFT JOIN departments dept ON dept.id = enc.department_id
                  LEFT JOIN staff_users s ON s.id = lr.approved_by
                  LEFT JOIN staff_users es ON es.id = lr.entered_by
                  WHERE lr.tenant_id = $1`;

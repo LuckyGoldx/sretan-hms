@@ -38,6 +38,7 @@ export default function AdmissionsPage() {
   const [showVitalsPreview, setShowVitalsPreview] = useState(false)
   const [sortField, setSortField] = useState<SortField>('admitted_at')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [consultModal, setConsultModal] = useState<any | null>(null)
   const [wardFilter, setWardFilter] = useState('')
   const [datePreset, setDatePreset] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
@@ -312,7 +313,7 @@ export default function AdmissionsPage() {
                         <>
                         <button onClick={() => navigate(`/patient/${a.patient_id}`)}
                           className="px-3 py-1.5 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
-                        <button onClick={() => navigate(`/consultation/${a.patient_id}`)}
+                        <button onClick={() => setConsultModal(a)}
                           className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-xs font-medium hover:bg-blue-100 transition-colors">Consult</button>
                         <button onClick={() => setDischargeModal(a)}
                           className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 transition-colors flex items-center gap-1"><LogOut size={12} /> Discharge</button>
@@ -625,6 +626,47 @@ export default function AdmissionsPage() {
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform disabled:opacity-50">
                 {vitalsSubmitting ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
                 {vitalsSubmitting ? 'Saving...' : 'Confirm & Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Consult Confirmation Modal */}
+      {consultModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setConsultModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5 text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur flex items-center justify-center text-lg font-bold">
+                  {(consultModal.patient_name || '?').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold">Consult Patient</h2>
+                  <p className="text-emerald-100 text-xs font-mono truncate">{consultModal.hospital_number}</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">
+                Start a consultation for <strong className="text-slate-800">{consultModal.patient_name}</strong>
+                {consultModal.bed_number ? ` (Bed ${consultModal.bed_number})` : ''}?
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-medium">{consultModal.ward_name}</span>
+                {consultModal.bed_number && <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-medium">Bed {consultModal.bed_number}</span>}
+                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] font-medium">Admitted {new Date(consultModal.admitted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>
+              </div>
+              <div className="rounded-xl bg-amber-50 border border-amber-200 px-3.5 py-3 text-xs text-amber-800">
+                This patient is admitted to the ward. Starting a consultation opens their chart for review and treatment orders.
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+              <button onClick={() => setConsultModal(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={() => { const pid = consultModal.patient_id; setConsultModal(null); if (pid) navigate(`/consultation/${pid}`) }}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-all">
+                <Stethoscope size={14} /> Start Consultation
               </button>
             </div>
           </div>

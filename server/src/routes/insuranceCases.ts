@@ -3,6 +3,7 @@ import pool from '../db/pool';
 import { getInsuranceUser } from '../utils/insuranceAuth';
 import { autoSyncClinicalServices } from '../utils/autoSyncServices';
 import { readClinicProfile } from '../config/reader';
+import { getCoverageForService, getPatientPrimaryInsurance } from '../utils/coverageLookup';
 
 const router = Router();
 
@@ -943,6 +944,77 @@ router.get('/api/insurance/active-case/:patientId', async (req: Request, res: Re
   }
 });
 
+// === PER-ITEM COVERAGE QUOTE (Paypoint "Bill to Insurance" breakdown) ===
+
+// GET /api/insurance/coverage-quote?patientId=...&items=[{service_type,unit_price,quantity,description}]
+// Returns per-line insurer/patient split + totals based on the provider's per-service coverage.
+router.get('/api/insurance/coverage-quote', async (req: Request, res: Response) => {
+  try {
+    const patientId = String(req.query.patientId || '');
+    let items: any[] = [];
+    if (typeof req.query.items === 'string') {
+      try { items = JSON.parse(req.query.items); } catch { items = []; }
+    }
+
+    if (!patientId) {
+      res.status(400).json({ error: true, message: 'patientId is required' });
+      return;
+    }
+    if (!Array.isArray(items)) {
+      res.status(400).json({ error: true, message: 'items must be a JSON array' });
+      return;
+    }
+
+    const ins = await getPatientPrimaryInsurance(patientId);
+    if (!ins || !ins.active || !ins.providerId) {
+      res.json({ hasActiveCase: false, case_id: null, provider_name: null, patient: { co_pay: 0 }, insurer: { covered: 0 }, items: [] });
+      return;
+    }
+
+    const quoteItems: any[] = [];
+    let totalPatient = 0;
+    let totalInsurer = 0;
+
+    for (const item of items) {
+      const unitPrice = parseFloat(item.unit_price) || 0;
+      const qty = parseInt(item.quantity) || 1;
+      const lineTotal = Math.round(unitPrice * qty * 100) / 100;
+      const svcType = item.service_type === 'prescription' ? 'pharmacy' : (item.service_type || 'general');
+      const itemName = item.description || '';
+
+      let coveragePct = 100;
+      try { coveragePct = await getCoverageForService(ins.providerId as string, svcType, itemName); } catch {}
+      if (isNaN(coveragePct)) coveragePct = 100;
+      coveragePct = Math.max(0, Math.min(100, coveragePct));
+
+      const insurerLine = Math.round(lineTotal * coveragePct) / 100;
+      const patientLine = Math.round((lineTotal - insurerLine) * 100) / 100;
+      totalInsurer = Math.round((totalInsurer + insurerLine) * 100) / 100;
+      totalPatient = Math.round((totalPatient + patientLine) * 100) / 100;
+
+      quoteItems.push({
+        service_type: svcType,
+        description: itemName,
+        line_total: lineTotal,
+        coverage: coveragePct,
+        insurer_amount: insurerLine,
+        patient_amount: patientLine,
+      });
+    }
+
+    res.json({
+      hasActiveCase: true,
+      case_id: ins.caseId,
+      provider_name: ins.providerName,
+      patient: { co_pay: totalPatient },
+      insurer: { covered: totalInsurer },
+      items: quoteItems,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
 // === BILL TO INSURANCE (used by Paypoint/Pharmacy to add charges to an insured patient's case) ===
 
 router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Response) => {
@@ -983,7 +1055,11 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
       const qty = parseInt(item.quantity) || 1;
       const price = parseFloat(item.unit_price) || 0;
       const id = crypto.randomUUID();
-      const total = qty * price;
+      // Per-item split: when the client sends insurer_amount, bill only that portion to the
+      // case (the patient portion is collected as co-pay separately). Otherwise bill full line.
+      const total = item.insurer_amount !== undefined && item.insurer_amount !== null
+        ? parseFloat(item.insurer_amount) || 0
+        : qty * price;
       const result = await pool.query(
         `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, source_type, source_id, added_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
@@ -993,6 +1069,12 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
       await markSourceOrderAsPaid(item.service_type, item.service_id || null);
       if (item.service_type === 'folder_activation' && patientId) {
         await pool.query('UPDATE patients SET folder_activated = true WHERE id = $1', [patientId]);
+      }
+      if (item.service_type === 'consultation' && item.service_id) {
+        await pool.query(`UPDATE visits SET consultation_status = 'insurance_authorized' WHERE id = $1`, [item.service_id]);
+      }
+      if (item.service_type === 'referral_fee' && item.service_id) {
+        await pool.query(`UPDATE referrals SET consultant_fee_status = 'insurance_authorized' WHERE id = $1`, [item.service_id]);
       }
     }
 

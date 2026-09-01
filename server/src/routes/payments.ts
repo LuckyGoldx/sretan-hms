@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { getCoverageForService, getPatientPrimaryInsurance } from '../utils/coverageLookup';
+import { readClinicProfile } from '../config/reader';
 
 const router = Router();
 
@@ -59,7 +60,7 @@ async function markOrderAsPaid(item: any): Promise<void> {
 router.get('/api/payments/pending/:patientId', async (req: Request, res: Response) => {
   try {
     const { patientId } = req.params;
-    const [folderRes, prescriptionsRes, labRes, radiologyRes, admissionsRes] = await Promise.all([
+    const [folderRes, prescriptionsRes, labRes, radiologyRes, admissionsRes, visitsRes, referralsRes] = await Promise.all([
       pool.query('SELECT folder_activated FROM patients WHERE id = $1', [patientId]),
       pool.query(`SELECT pr.id, pr.drug_name, pr.dosage, pr.quantity, pr.created_at
         FROM prescriptions pr JOIN encounters enc ON enc.id = pr.encounter_id
@@ -73,7 +74,16 @@ router.get('/api/payments/pending/:patientId', async (req: Request, res: Respons
         FROM radiology_orders r JOIN encounters enc ON enc.id = r.encounter_id
         WHERE enc.patient_id = $1 AND COALESCE(r.is_paid, false) = false AND r.status NOT IN ($2, $3)
         ORDER BY r.created_at DESC`, [patientId, 'cancelled', 'completed']),
-      pool.query('SELECT a.id, a.admitted_at FROM admissions a WHERE a.patient_id = $1 AND COALESCE(a.is_paid, false) = false AND a.status = $2 ORDER BY a.admitted_at DESC', [patientId, 'active']),
+      pool.query(`SELECT a.id, a.admitted_at, w.name as ward_name
+        FROM admissions a LEFT JOIN wards w ON w.id = a.ward_id
+        WHERE a.patient_id = $1 AND COALESCE(a.is_paid, false) = false AND a.status = $2
+        ORDER BY a.admitted_at DESC`, [patientId, 'active']),
+      pool.query(`SELECT v.id, v.visit_type, v.consultation_fee, v.consultation_status, v.created_at
+        FROM visits v WHERE v.patient_id = $1 AND v.consultation_status = 'pending' AND COALESCE(v.consultation_fee, 0) > 0
+        ORDER BY v.created_at DESC`, [patientId]),
+      pool.query(`SELECT r.id, r.referral_number, r.consultant_fee, r.consultant_fee_status, r.created_at
+        FROM referrals r WHERE r.patient_id = $1 AND r.consultant_fee_status = 'pending' AND COALESCE(r.consultant_fee, 0) > 0
+        ORDER BY r.created_at DESC`, [patientId]),
     ]);
 
     var items: any[] = [];
@@ -113,8 +123,29 @@ router.get('/api/payments/pending/:patientId', async (req: Request, res: Respons
       items.push({ service_type: 'radiology', service_id: r.id, description: `Radiology: ${r.imaging_type}`, quantity: 1, unit_price: radPrice, cost_price: radCost, needsPrice: !radPrice });
     }
 
-    (admissionsRes.rows || []).forEach((r: any) => {
-      items.push({ service_type: 'admission', service_id: r.id, description: `Admission: ${r.ward_name}`, quantity: 1, unit_price: 0, needsPrice: true });
+    for (const r of (admissionsRes.rows || [])) {
+      let price = 0;
+      if (r.ward_name) {
+        try {
+          const inv = await pool.query(
+            `SELECT price FROM inventory_items
+             WHERE category = 'general' AND is_active = true AND drug_name ILIKE '%' || $1 || '%Admission%'
+             ORDER BY created_at DESC LIMIT 1`,
+            [r.ward_name]
+          );
+          if (inv.rows.length > 0) price = parseFloat(inv.rows[0].price) || 0;
+        } catch {}
+      }
+      items.push({ service_type: 'admission', service_id: r.id, description: `Admission: ${r.ward_name || 'Ward'}`, quantity: 1, unit_price: price, needsPrice: !(price > 0) });
+    }
+
+    (visitsRes.rows || []).forEach((r: any) => {
+      const typeLabel = r.visit_type === 'follow_up' ? 'Follow-up' : r.visit_type === 'review' ? 'Review' : 'New';
+      items.push({ service_type: 'consultation', service_id: r.id, description: `Consultation (${typeLabel} visit)`, quantity: 1, unit_price: parseFloat(r.consultation_fee) || 0, needsPrice: !(parseFloat(r.consultation_fee) > 0) });
+    });
+
+    (referralsRes.rows || []).forEach((r: any) => {
+      items.push({ service_type: 'referral_fee', service_id: r.id, description: `Specialist (Consultant) Fee — ${r.referral_number}`, quantity: 1, unit_price: parseFloat(r.consultant_fee) || 0, needsPrice: !(parseFloat(r.consultant_fee) > 0) });
     });
 
     // --- Auto-apply insurance coverage for insured patients ---
@@ -176,6 +207,7 @@ router.post('/api/payments', async (req: Request, res: Response) => {
     }
     // Fall back to the patient_id carried on the line items (some clients only send it per-item)
     const effectivePatientId: string | null = patient_id || (items as any[]).find((i: any) => i.patient_id)?.patient_id || null;
+    const tenantId = readClinicProfile().GLOBAL_SAAS_TENANT_ID;
 
     for (const item of items) {
       if ((item.unit_price !== undefined && item.unit_price < 0) || (item.quantity !== undefined && item.quantity <= 0)) {
@@ -184,13 +216,24 @@ router.post('/api/payments', async (req: Request, res: Response) => {
       }
     }
 
+    // Guard payments.created_by FK -> staff_users(id): a stale/invalid creator id
+    // (e.g. left over in localStorage from a consolidated account) would otherwise
+    // abort the whole payment with a foreign-key violation.
+    let creatorId: string | null = created_by || null;
+    if (creatorId) {
+      try {
+        const creatorCheck = await pool.query('SELECT 1 FROM staff_users WHERE id = $1', [creatorId]);
+        if (creatorCheck.rows.length === 0) creatorId = null;
+      } catch { creatorId = null; }
+    }
+
     var totalAmount = items.reduce((sum: number, i: any) => sum + ((i.unit_price || 0) * (i.quantity || 1)), 0);
     var receiptNumber = generateReceiptNumber();
     var paymentId = uuidv4();
 
     await pool.query(
       'INSERT INTO payments (id, receipt_number, patient_id, walkin_name, walkin_phone, total_amount, payment_method, notes, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-      [paymentId, receiptNumber, effectivePatientId, walkin_name || null, walkin_phone || null, totalAmount, payment_method || 'cash', notes || null, created_by || null]
+      [paymentId, receiptNumber, effectivePatientId, walkin_name || null, walkin_phone || null, totalAmount, payment_method || 'cash', notes || null, creatorId]
     );
 
     for (const item of items) {
@@ -224,6 +267,50 @@ router.post('/api/payments', async (req: Request, res: Response) => {
         await pool.query('UPDATE radiology_orders SET is_paid = true WHERE id = $1', [item.service_id]);
       } else if (item.service_type === 'admission' && item.service_id) {
         await pool.query('UPDATE admissions SET is_paid = true WHERE id = $1', [item.service_id]);
+      } else if (item.service_type === 'consultation' && item.service_id) {
+        await pool.query(`UPDATE visits SET consultation_status = 'paid' WHERE id = $1`, [item.service_id]);
+      } else if (item.service_type === 'referral_fee' && item.service_id) {
+        await pool.query(`UPDATE referrals SET consultant_fee_status = 'paid' WHERE id = $1`, [item.service_id]);
+      }
+    }
+
+    // Materialize consultation fees sold through the service catalog (e.g. "General Consultation (New)")
+    // into a paid, unused visit so the patient shows up in the claimable / unassigned queues.
+    // Visit-linked consultations (service_type === 'consultation' with a service_id) were handled above.
+    for (const item of items) {
+      // Referral fees are handled above — never materialize them into a visit.
+      if (item.service_type === 'referral_fee') continue;
+      const desc = String(item.description || '').toLowerCase();
+      const isConsultationSale = item.service_type === 'consultation' || desc.includes('consultation');
+      if (!isConsultationSale) continue;
+      if (item.service_type === 'consultation' && item.service_id) continue;
+      if (!effectivePatientId) continue;
+
+      const visitType = desc.includes('follow-up') || desc.includes('follow up') ? 'follow_up'
+        : desc.includes('review') ? 'review' : 'new';
+      const fee = parseFloat(item.unit_price) || 0;
+
+      // Reuse the patient's open waiting visit if one exists; otherwise create a paid, unused one.
+      const existing = await pool.query(
+        `SELECT id FROM visits
+         WHERE tenant_id = $1 AND patient_id = $2 AND status = 'waiting'
+           AND consultation_status IN ('pending', 'paid', 'insurance_authorized')
+         ORDER BY created_at DESC LIMIT 1`,
+        [tenantId, effectivePatientId]
+      );
+      if (existing.rows.length > 0) {
+        await pool.query(
+          `UPDATE visits SET consultation_status = 'paid',
+             consultation_fee = GREATEST(consultation_fee, $1)
+           WHERE id = $2`,
+          [fee, existing.rows[0].id]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO visits (id, tenant_id, patient_id, assigned_doctor_id, department_id, visit_type, consultation_fee, consultation_status, status)
+           VALUES ($1, $2, $3, NULL, NULL, $4, $5, 'paid', 'waiting')`,
+          [uuidv4(), tenantId, effectivePatientId, visitType, fee]
+        );
       }
     }
 
@@ -307,13 +394,32 @@ router.get('/api/payments/pending-summary', async (req: Request, res: Response) 
       adm AS (
         SELECT a.patient_id, p.full_name, p.hospital_number, p.phone, a.admitted_at as created_at,
                'admission' as service_type,
-               'Admission Fee' as description, 1 as item_count
+               ('Admission Fee' || CASE WHEN w.name IS NOT NULL THEN ' — ' || w.name ELSE '' END) as description,
+               1 as item_count
         FROM admissions a JOIN patients p ON p.id = a.patient_id
+        LEFT JOIN wards w ON w.id = a.ward_id
         WHERE COALESCE(a.is_paid, false) = false AND a.status = 'active'
+      ),
+      consult AS (
+        SELECT v.patient_id, p.full_name, p.hospital_number, p.phone, MAX(v.created_at) as created_at,
+               'consultation' as service_type,
+               'Consultation Fee' as description, COUNT(*)::int as item_count
+        FROM visits v JOIN patients p ON p.id = v.patient_id
+        WHERE v.consultation_status = 'pending' AND COALESCE(v.consultation_fee, 0) > 0
+        GROUP BY v.patient_id, p.full_name, p.hospital_number, p.phone
+      ),
+      ref_fee AS (
+        SELECT r.patient_id, p.full_name, p.hospital_number, p.phone, MAX(r.created_at) as created_at,
+               'referral_fee' as service_type,
+               'Specialist (Consultant) Fee' as description, COUNT(*)::int as item_count
+        FROM referrals r JOIN patients p ON p.id = r.patient_id
+        WHERE r.consultant_fee_status = 'pending' AND COALESCE(r.consultant_fee, 0) > 0
+        GROUP BY r.patient_id, p.full_name, p.hospital_number, p.phone
       ),
       all_pending AS (
         SELECT * FROM folder UNION ALL SELECT * FROM rx UNION ALL
-        SELECT * FROM lab UNION ALL SELECT * FROM rad UNION ALL SELECT * FROM adm
+        SELECT * FROM lab UNION ALL SELECT * FROM rad UNION ALL SELECT * FROM adm UNION ALL
+        SELECT * FROM consult UNION ALL SELECT * FROM ref_fee
       )
       SELECT ap.patient_id, ap.full_name, ap.hospital_number, ap.phone,
              json_agg(json_build_object('service_type', ap.service_type, 'description', ap.description, 'item_count', ap.item_count)) as services,
@@ -376,11 +482,41 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       ),
       adm_items AS (
         SELECT a.patient_id, p.full_name, p.hospital_number, p.phone, 'admission' as service_type,
-               a.id as service_id, ('Admission Fee') as description,
-               1 as quantity, 0::numeric as unit_price, true as needs_price,
+               a.id as service_id,
+               ('Admission Fee' || CASE WHEN w.name IS NOT NULL THEN ' — ' || w.name ELSE '' END) as description,
+               1 as quantity,
+               COALESCE((SELECT price FROM inventory_items
+                         WHERE category = 'general' AND is_active = true
+                           AND drug_name ILIKE '%' || w.name || '%Admission%'
+                         ORDER BY created_at DESC LIMIT 1), 0)::numeric as unit_price,
+               (COALESCE((SELECT price FROM inventory_items
+                          WHERE category = 'general' AND is_active = true
+                            AND drug_name ILIKE '%' || w.name || '%Admission%'
+                          ORDER BY created_at DESC LIMIT 1), 0) <= 0) as needs_price,
                a.admitted_at as created_at
         FROM admissions a JOIN patients p ON p.id = a.patient_id
+        LEFT JOIN wards w ON w.id = a.ward_id
         WHERE COALESCE(a.is_paid, false) = false AND a.status = 'active'
+      ),
+      consult_items AS (
+        SELECT v.patient_id, p.full_name, p.hospital_number, p.phone, 'consultation' as service_type,
+               v.id as service_id,
+               ('Consultation (' || CASE v.visit_type WHEN 'follow_up' THEN 'follow-up' WHEN 'review' THEN 'review' ELSE 'new' END || ' visit)') as description,
+               1 as quantity, COALESCE(v.consultation_fee, 0)::numeric as unit_price,
+               (COALESCE(v.consultation_fee, 0) <= 0) as needs_price,
+               v.created_at
+        FROM visits v JOIN patients p ON p.id = v.patient_id
+        WHERE v.consultation_status = 'pending' AND COALESCE(v.consultation_fee, 0) > 0
+      ),
+      ref_fee_items AS (
+        SELECT r.patient_id, p.full_name, p.hospital_number, p.phone, 'referral_fee' as service_type,
+               r.id as service_id,
+               ('Specialist (Consultant) Fee — ' || r.referral_number) as description,
+               1 as quantity, COALESCE(r.consultant_fee, 0)::numeric as unit_price,
+               (COALESCE(r.consultant_fee, 0) <= 0) as needs_price,
+               r.created_at
+        FROM referrals r JOIN patients p ON p.id = r.patient_id
+        WHERE r.consultant_fee_status = 'pending' AND COALESCE(r.consultant_fee, 0) > 0
       )
       SELECT sub.*,
         (SELECT prv.name FROM patient_insurance_policies pp
@@ -390,7 +526,8 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
          ORDER BY pp.created_at LIMIT 1) as insurance_provider
       FROM (
         SELECT * FROM folder UNION ALL SELECT * FROM rx_items UNION ALL
-        SELECT * FROM lab_items UNION ALL SELECT * FROM rad_items UNION ALL SELECT * FROM adm_items
+        SELECT * FROM lab_items UNION ALL SELECT * FROM rad_items UNION ALL SELECT * FROM adm_items UNION ALL
+        SELECT * FROM consult_items UNION ALL SELECT * FROM ref_fee_items
       ) sub ORDER BY created_at DESC NULLS LAST
     `);
     res.json(result.rows);

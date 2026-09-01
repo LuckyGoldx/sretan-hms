@@ -29,7 +29,7 @@ import {
   FlaskConical,
   Building2,
   ChevronDown,
-  Baby, Heart, Shield, TrendingUp,
+  Baby, Heart, Shield, TrendingUp, Send, UserCheck,
 } from 'lucide-react'
 
 const Login = lazy(() => import('./components/Login'))
@@ -45,6 +45,7 @@ const AdmissionsPage = lazy(() => import('./components/AdmissionsPage'))
 const WalkInSales = lazy(() => import('./components/WalkInSales'))
 const LabInventory = lazy(() => import('./components/LabInventory'))
 const DoctorResults = lazy(() => import('./components/DoctorResults'))
+const DoctorConsultations = lazy(() => import('./components/DoctorConsultations'))
 const DoctorLabResults = lazy(() => import('./components/DoctorLabResults'))
 const LabLowStock = lazy(() => import('./components/LabLowStock'))
 const AppointmentsPage = lazy(() => import('./components/AppointmentsPage'))
@@ -93,6 +94,7 @@ const MaternityLabourWard = lazy(() => import('./components/MaternityLabourWard'
 const MaternityPostnatalWard = lazy(() => import('./components/MaternityPostnatalWard'))
 const MaternityBooking = lazy(() => import('./components/MaternityBooking'))
 const MaternityLabourSummary = lazy(() => import('./components/MaternityLabourSummary'))
+const MaternityGuard = lazy(() => import('./components/MaternityGuard'))
 const InsuranceLogin = lazy(() => import('./components/InsuranceLogin'))
 const InsuranceDashboard = lazy(() => import('./components/InsuranceDashboard'))
 const InsuranceProviders = lazy(() => import('./components/InsuranceProviders'))
@@ -106,6 +108,14 @@ const InsurancePatientDetail = lazy(() => import('./components/InsurancePatientD
 const InsuranceAuthRequests = lazy(() => import('./components/InsuranceAuthRequests'))
 const InsuranceReports = lazy(() => import('./components/InsuranceReports'))
 const InsuranceLayout = lazy(() => import('./components/InsuranceLayout'))
+const InsuranceGuard = lazy(() => import('./components/InsuranceGuard'))
+const ConsultantDashboard = lazy(() => import('./components/ConsultantDashboard'))
+const ConsultantConsultation = lazy(() => import('./components/ConsultantConsultation'))
+const ConsultantConsultations = lazy(() => import('./components/ConsultantConsultations'))
+const ReferredPatients = lazy(() => import('./components/ReferredPatients'))
+const DepartmentsAdmin = lazy(() => import('./components/DepartmentsAdmin'))
+const NotificationBell = lazy(() => import('./components/NotificationBell'))
+const ReferralManagement = lazy(() => import('./components/ReferralManagement'))
 
 interface SidebarLink {
   to: string
@@ -124,10 +134,15 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse'], category: 'Clinical' },
   { to: '/my-prescriptions', label: 'Prescriptions', icon: Pill, roles: ['Doctor', 'Admin'], category: 'Clinical' },
   { to: '/vitals', label: 'Vitals', icon: Activity, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Clinical' },
-  { to: '/consultation', label: 'Consultation', icon: Stethoscope, roles: ['Doctor', 'Admin'], category: 'Clinical' },
-  { to: '/doctor/results', label: 'Results', icon: FileText, roles: ['Doctor'], category: 'Clinical' },
+  { to: '/referrals', label: 'Referrals', icon: Send, roles: ['Doctor', 'Nurse', 'Consultant', 'Admin'], category: 'Clinical' },
+  { to: '/doctor/results', label: 'Results', icon: FileText, roles: ['Doctor', 'Consultant'], category: 'Clinical' },
+  { to: '/doctor/consultations', label: 'Consultation', icon: Stethoscope, roles: ['Doctor'], category: 'Clinical' },
   { to: '/appointments', label: 'Appointments', icon: Calendar, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Clinical' },
   { to: '/admissions', label: 'Admissions', icon: Home, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Clinical' },
+  // ── Consultant ──
+  { to: '/consultant/dashboard', label: 'Consultant Dashboard', icon: Stethoscope, roles: ['Consultant', 'Admin'], category: 'Consultant' },
+  { to: '/consultant/patients', label: 'Referred Patients', icon: Users, roles: ['Consultant', 'Admin', 'Doctor'], category: 'Consultant' },
+  { to: '/consultant/my-consultations', label: 'My Consultations', icon: ClipboardList, roles: ['Consultant', 'Admin'], category: 'Consultant' },
   // ── Laboratory ──
   { to: '/lab', label: 'Lab Dashboard', icon: Beaker, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
   { to: '/lab/worklist', label: 'Worklist', icon: FileText, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory' },
@@ -157,15 +172,16 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/radiology-inventory', label: 'Radiology Inventory', icon: Package, roles: ['Admin', 'Radiology'], category: 'Radiology' },
   { to: '/radiology-expiry', label: 'Radiology Expiry', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology' },
   // ── Maternity ──
-  { to: '/maternity', label: 'Maternity Dashboard', icon: Baby, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Maternity' },
+  { to: '/maternity', label: 'Maternity Dashboard', icon: Baby, roles: ['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant'], category: 'Maternity' },
   { to: '/maternity/booking', label: 'Book Pregnancy', icon: UserPlus, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Maternity' },
-  { to: '/maternity/patients', label: 'Maternity Patients', icon: Users, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Maternity' },
-  { to: '/maternity/anc', label: 'ANC Visits', icon: Calendar, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Maternity' },
-  { to: '/maternity/labour', label: 'Labour & Delivery', icon: Stethoscope, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Maternity' },
-  { to: '/maternity/labour-summary', label: 'Labour Summary', icon: ClipboardList, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Maternity' },
-  { to: '/maternity/postnatal', label: 'Postnatal', icon: Heart, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Maternity' },
+  { to: '/maternity/patients', label: 'Maternity Patients', icon: Users, roles: ['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant'], category: 'Maternity' },
+  { to: '/maternity/anc', label: 'ANC Visits', icon: Calendar, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity' },
+  { to: '/maternity/labour', label: 'Labour & Delivery', icon: Stethoscope, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity' },
+  { to: '/maternity/labour-summary', label: 'Labour Summary', icon: ClipboardList, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity' },
+  { to: '/maternity/postnatal', label: 'Postnatal', icon: Heart, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity' },
   // ── Records ──
   { to: '/records/patients', label: 'Patient Records', icon: Users, roles: ['Records', 'Admin'], category: 'Records' },
+  { to: '/records/assignments', label: 'Assignments', icon: UserCheck, roles: ['Records', 'Admin'], category: 'Records' },
   { to: '/records/requests', label: 'Record Requests', icon: FileText, roles: ['Records', 'Admin'], category: 'Records' },
   // ── Finance ──
   { to: '/finance/dashboard', label: 'Finance Dashboard', icon: Banknote, roles: ['Finance', 'Admin'], category: 'Finance' },
@@ -188,6 +204,7 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/admin/insurance/staff', label: 'Staff', icon: Users, roles: ['Admin'], category: 'Insurance' },
   // ── Administration ──
   { to: '/services-inventory', label: 'Services Inventory', icon: Building2, roles: ['Admin'], category: 'Administration' },
+  { to: '/departments', label: 'Departments', icon: Building2, roles: ['Admin'], category: 'Administration' },
   { to: '/staff', label: 'Staff Management', icon: Users, roles: ['Admin'], category: 'Administration' },
   { to: '/superadmin', label: 'Super Admin', icon: Settings, roles: ['Admin'], category: 'Administration' },
   { to: '/setup', label: 'Setup', icon: Settings, roles: ['Admin'], category: 'Administration' },
@@ -214,7 +231,7 @@ function getStoredUser(): any {
 }
 
 function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [user, setUser] = useState<{ name: string; role: string } | null>(null)
+  const [user, setUser] = useState<{ name: string; role: string; id?: string } | null>(null)
   const [pendingRxCount, setPendingRxCount] = useState(0)
   const [pendingLabCount, setPendingLabCount] = useState(0)
   const [completedLabCount, setCompletedLabCount] = useState(0)
@@ -224,6 +241,8 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [pendingPatientsCount, setPendingPatientsCount] = useState(0)
   const [pendingResultsCount, setPendingResultsCount] = useState(0)
   const [doctorUnreadResultsCount, setDoctorUnreadResultsCount] = useState(0)
+  const [consultantResultsCount, setConsultantResultsCount] = useState(0)
+  const [completedReferralsUnviewed, setCompletedReferralsUnviewed] = useState(0)
   const [collapsedCategories, setCollapsedCategories] = useState<string[]>([])
 
   useEffect(() => {
@@ -288,6 +307,30 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         } else {
           setDoctorUnreadResultsCount(labUnreadCount)
         }
+        // Consultant results notification count
+        try {
+          const stored = localStorage.getItem('sretan_user')
+          if (stored) {
+            const u = JSON.parse(stored)
+            if (u.role === 'Consultant' && u.id) {
+              const notifRes = await fetch(`/api/consultants/result-notifications?staff_id=${u.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+              const notifData = await notifRes.json()
+              setConsultantResultsCount(notifData?.total || 0)
+            }
+          }
+        } catch {}
+        // Unviewed completed referrals badge (Consultant + Doctor in a department)
+        try {
+          const stored = localStorage.getItem('sretan_user')
+          if (stored) {
+            const u = JSON.parse(stored)
+            if ((u.role === 'Consultant' || u.role === 'Doctor') && u.id && u.department_id) {
+              const refRes = await fetch(`/api/consultants/completed-unviewed-count?staff_id=${u.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+              const refData = await refRes.json()
+              setCompletedReferralsUnviewed(refData?.unviewed || 0)
+            }
+          }
+        } catch {}
       } catch {}
     }
     fetchCounts()
@@ -313,10 +356,31 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const displayName = user?.name || 'User'
   const displayRole = user?.role || ''
   const role = user?.role || getRole()
+  const currentUserId = user?.id || (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
 
   const allowedLinks = sidebarLinks.filter(
-    (l) => !role || l.roles.includes(role)
+    (l) => {
+      if (role && !l.roles.includes(role)) return false
+      // Consultants only see Maternity links when their department grants it
+      if (role === 'Consultant' && l.category === 'Maternity') {
+        try {
+          const u = localStorage.getItem('sretan_user')
+          const modules = u ? JSON.parse(u).department_modules || [] : []
+          if (!Array.isArray(modules) || !modules.includes('maternity')) return false
+        } catch { return false }
+      }
+      return true
+    }
   )
+
+  // For the Consultant role, render Consultant-category items right after
+  // Dashboard so their module is the primary menu (Results/Clinical no longer first).
+  const orderedLinks = role === 'Consultant'
+    ? [...allowedLinks].sort((a, b) => {
+        const rank = (l: any) => l.category === 'Dashboard' ? 0 : l.category === 'Consultant' ? 1 : l.category === 'Maternity' ? 5 : 2
+        return rank(a) - rank(b)
+      })
+    : allowedLinks
 
   return (
     <>
@@ -353,7 +417,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
               if (!grouped[cat]) grouped[cat] = []
               grouped[cat].push(link)
             }
-            const categoryOrder = ['Dashboard', 'Clinical', 'Laboratory', 'Pharmacy', 'Radiology', 'Maternity', 'Records', 'Finance', 'Insurance', 'Administration']
+            const categoryOrder = ['Dashboard', 'Clinical', 'Consultant', 'Laboratory', 'Pharmacy', 'Radiology', 'Maternity', 'Records', 'Finance', 'Insurance', 'Administration']
             const sorted = Object.entries(grouped).sort(([a], [b]) => {
               const ia = categoryOrder.indexOf(a)
               const ib = categoryOrder.indexOf(b)
@@ -413,7 +477,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
               </div>
             ))
           })() : (
-            allowedLinks.map(({ to, label, icon: Icon }) => (
+            orderedLinks.map(({ to, label, icon: Icon }) => (
               <NavLink
                 key={to}
                 to={to}
@@ -444,8 +508,14 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                 {to === '/paypoint/patients' && pendingPatientsCount > 0 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingPatientsCount}</span>
                 )}
+                {to === '/consultant/patients' && (role === 'Consultant' || role === 'Doctor') && completedReferralsUnviewed > 1 && (
+                  <span className="ml-auto px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">{completedReferralsUnviewed}</span>
+                )}
                 {to === '/doctor/results' && role === 'Doctor' && doctorUnreadResultsCount > 0 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold">{doctorUnreadResultsCount}</span>
+                )}
+                {to === '/doctor/results' && role === 'Consultant' && consultantResultsCount > 0 && (
+                  <span className="ml-auto px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold">{consultantResultsCount}</span>
                 )}
                 {to === '/lab/results' && role === 'Doctor' && unreadLabCount > 0 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold">{unreadLabCount} unread</span>
@@ -466,6 +536,11 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
               <p className="text-sm font-medium text-slate-800 truncate">{displayName}</p>
               {displayRole && <p className="text-xs text-slate-500">{displayRole}</p>}
             </div>
+            {currentUserId && (
+              <Suspense fallback={<div className="w-8 h-8" />}>
+                <NotificationBell staffId={currentUserId} />
+              </Suspense>
+            )}
           </div>
           <button
             onClick={handleLogout}
@@ -510,6 +585,7 @@ function DashboardRouter() {
   if (role === 'Finance') return <Navigate to="/finance/dashboard" replace /> 
   if (role === 'Paypoint') return <Navigate to="/paypoint/dashboard" replace /> 
   if (role === 'Pharmacist') return <PharmacyDashboard />
+  if (role === 'Consultant') return <ConsultantDashboard />
   return <PatientDashboard />
 }
 
@@ -551,6 +627,7 @@ const RecordRequests = lazy(() => import('./components/RecordRequests'))
 const DocumentManager = lazy(() => import('./components/DocumentManager'))
 const RecordsPatientList = lazy(() => import('./components/RecordsPatientList'))
 const RecordsPatientDetail = lazy(() => import('./components/RecordsPatientDetail'))
+const RecordsAssignments = lazy(() => import('./components/RecordsAssignments'))
 function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -582,7 +659,7 @@ export default function App() {
             path="/dashboard"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin', 'Finance']}>
+                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin', 'Finance', 'Consultant']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <DashboardRouter />
                   </Suspense>
@@ -639,12 +716,96 @@ export default function App() {
             }
           />
           <Route
+            path="/referrals"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Doctor', 'Nurse', 'Consultant', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <ReferralManagement />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/consultant/dashboard"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Consultant', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <ConsultantDashboard />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/consultant/patients"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Consultant', 'Admin', 'Doctor']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <ReferredPatients />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/consultant/my-consultations"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Consultant', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <ConsultantConsultations />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/consultant/consultation/:patientId"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Consultant', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <ConsultantConsultation />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/departments"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <DepartmentsAdmin />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
             path="/doctor/results"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Doctor', 'Consultant']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <DoctorResults />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/doctor/consultations"
             element={
               <Layout>
                 <ProtectedRoute roles={['Doctor']}>
                   <Suspense fallback={<LoadingFallback />}>
-                    <DoctorResults />
+                    <DoctorConsultations />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>
@@ -654,7 +815,7 @@ export default function App() {
             path="/patients"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse', 'Records', 'Paypoint']}>
+                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse', 'Records', 'Paypoint', 'Consultant']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <MyPatients />
                   </Suspense>
@@ -666,7 +827,7 @@ export default function App() {
             path="/patient/:patientId"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse']}>
+                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse', 'Consultant']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <PatientChart />
                   </Suspense>
@@ -678,7 +839,7 @@ export default function App() {
             path="/my-prescriptions"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Admin']}>
+                <ProtectedRoute roles={['Doctor', 'Admin', 'Consultant']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <DoctorPrescriptions />
                   </Suspense>
@@ -744,14 +905,14 @@ export default function App() {
           <Route path="/radiology/review" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyReview /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/radiology/orders" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyOrders /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/radiology/history" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyHistory /></Suspense></ProtectedRoute></Layout>} />
-                    <Route path="/maternity" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityDashboard /></Suspense></ProtectedRoute></Layout>} />
+                    <Route path="/maternity" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityDashboard /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
           <Route path="/maternity/booking" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityBooking /></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/patients" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityPatientList /></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/patients/:id" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityPatientDetail /></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/anc" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityANCWorklist /></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/labour" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityLabourWard /></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/labour-summary" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityLabourSummary /></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/postnatal" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityPostnatalWard /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/patients" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityPatientList /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/patients/:id" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityPatientDetail /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/anc" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityANCWorklist /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/labour" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityLabourWard /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/labour-summary" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityLabourSummary /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/postnatal" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityPostnatalWard /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
           <Route
             path="/services-inventory" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><ServiceInventory /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance/dashboard" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinanceDashboard /></Suspense></ProtectedRoute></Layout>} />
@@ -903,6 +1064,18 @@ export default function App() {
             }
           />
           <Route
+            path="/records/assignments"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Records', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <RecordsAssignments />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
             path="/records/documents/:patientId"
             element={
               <Layout>
@@ -918,7 +1091,7 @@ export default function App() {
             path="/appointments"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin']}>
+                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <AppointmentsPage />
                   </Suspense>
@@ -999,17 +1172,17 @@ export default function App() {
             }
           />
           <Route path="/insurance/login" element={<Suspense fallback={<LoadingFallback />}><InsuranceLogin /></Suspense>} />
-          <Route path="/insurance/dashboard" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceDashboard /></InsuranceLayout></Suspense>} />
-          <Route path="/insurance/providers" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceProviders /></InsuranceLayout></Suspense>} />
-          <Route path="/insurance/staff" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceStaff /></InsuranceLayout></Suspense>} />
-          <Route path="/insurance/cases" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceCases /></InsuranceLayout></Suspense>} />
-          <Route path="/insurance/cases/new" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceNewCase /></InsuranceLayout></Suspense>} />
-          <Route path="/insurance/cases/:id" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceCaseDetail /></InsuranceLayout></Suspense>} />
-          <Route path="/insurance/invoices" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceInvoices /></InsuranceLayout></Suspense>} />
-          <Route path="/insurance/patients" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsurancePatients /></InsuranceLayout></Suspense>} />
-          <Route path="/insurance/patients/:patientId" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsurancePatientDetail /></InsuranceLayout></Suspense>} />
-          <Route path="/insurance/auth-requests" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceAuthRequests /></InsuranceLayout></Suspense>} />
-          <Route path="/insurance/reports" element={<Suspense fallback={<LoadingFallback />}><InsuranceLayout><InsuranceReports /></InsuranceLayout></Suspense>} />
+          <Route path="/insurance/dashboard" element={<Suspense fallback={<LoadingFallback />}><InsuranceGuard><InsuranceLayout><InsuranceDashboard /></InsuranceLayout></InsuranceGuard></Suspense>} />
+          <Route path="/insurance/providers" element={<Suspense fallback={<LoadingFallback />}><InsuranceGuard><InsuranceLayout><InsuranceProviders /></InsuranceLayout></InsuranceGuard></Suspense>} />
+          <Route path="/insurance/staff" element={<Suspense fallback={<LoadingFallback />}><InsuranceGuard><InsuranceLayout><InsuranceStaff /></InsuranceLayout></InsuranceGuard></Suspense>} />
+          <Route path="/insurance/cases" element={<Suspense fallback={<LoadingFallback />}><InsuranceGuard><InsuranceLayout><InsuranceCases /></InsuranceLayout></InsuranceGuard></Suspense>} />
+          <Route path="/insurance/cases/new" element={<Suspense fallback={<LoadingFallback />}><InsuranceGuard><InsuranceLayout><InsuranceNewCase /></InsuranceLayout></InsuranceGuard></Suspense>} />
+          <Route path="/insurance/cases/:id" element={<Suspense fallback={<LoadingFallback />}><InsuranceGuard><InsuranceLayout><InsuranceCaseDetail /></InsuranceLayout></InsuranceGuard></Suspense>} />
+          <Route path="/insurance/invoices" element={<Suspense fallback={<LoadingFallback />}><InsuranceGuard><InsuranceLayout><InsuranceInvoices /></InsuranceLayout></InsuranceGuard></Suspense>} />
+          <Route path="/insurance/patients" element={<Suspense fallback={<LoadingFallback />}><InsuranceGuard><InsuranceLayout><InsurancePatients /></InsuranceLayout></InsuranceGuard></Suspense>} />
+          <Route path="/insurance/patients/:patientId" element={<Suspense fallback={<LoadingFallback />}><InsuranceGuard><InsuranceLayout><InsurancePatientDetail /></InsuranceLayout></InsuranceGuard></Suspense>} />
+          <Route path="/insurance/auth-requests" element={<Suspense fallback={<LoadingFallback />}><InsuranceGuard><InsuranceLayout><InsuranceAuthRequests /></InsuranceLayout></InsuranceGuard></Suspense>} />
+          <Route path="/insurance/reports" element={<Suspense fallback={<LoadingFallback />}><InsuranceGuard><InsuranceLayout><InsuranceReports /></InsuranceLayout></InsuranceGuard></Suspense>} />
         </Routes>
       </Suspense>
     </BrowserRouter>

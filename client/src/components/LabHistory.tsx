@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import api from '../hooks/useAxios'
+import ConsultantTag from './ConsultantTag'
 import {
   FlaskConical, Search, Loader2, AlertTriangle, X, FileText, Clock, Calendar
 } from 'lucide-react'
@@ -156,6 +157,9 @@ export default function LabHistory() {
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <FlaskConical size={15} className="text-purple-500 flex-shrink-0" />
                   <span className="text-sm font-semibold text-slate-800 truncate">{r.test_name}</span>
+                  {(r.is_consultation || r.doctor_role === 'Consultant') && (
+                    <ConsultantTag departmentName={r.department_name} />
+                  )}
                   {r.result_number && (
                     <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-slate-100 text-slate-600 flex-shrink-0 font-mono">
                       #{r.result_number}
@@ -225,6 +229,12 @@ export default function LabHistory() {
                 <div><span className="text-slate-500">Test:</span> <span className="font-medium">{viewModal.test_name}</span></div>
                 <div><span className="text-slate-500">Approved by:</span> <span className="font-medium">{viewModal.approved_by || '—'}</span></div>
                 <div><span className="text-slate-500">Approved at:</span> <span className="font-medium">{viewModal.approved_at ? new Date(viewModal.approved_at).toLocaleString() : '—'}</span></div>
+                {(viewModal.is_consultation || viewModal.doctor_role === 'Consultant') && (
+                  <div className="col-span-2 flex items-center gap-2">
+                    <ConsultantTag departmentName={viewModal.department_name} />
+                    {viewModal.doctor_name && <span className="text-xs text-slate-400">Ordered by {viewModal.doctor_name}</span>}
+                  </div>
+                )}
               </div>
 
               {loadingDetails ? (

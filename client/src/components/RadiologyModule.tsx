@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import DoctorComment from './DoctorComment'
+import ConsultantTag from './ConsultantTag'
 import type { RadiologyOrder } from '../types'
 import {
   ArrowLeft,
@@ -256,10 +257,15 @@ export default function RadiologyModule() {
                         <p className="text-sm font-medium text-slate-800 truncate">
                           {order.imaging_type || 'Imaging'}
                         </p>
-                        <p className="text-xs text-slate-500">
-                          {order.patient_name || 'Walk-in'} &middot; {order.doctor_name ? `Dr. ${order.doctor_name}` : ''}
-                          {order.imaging_number && <span className="ml-1 font-mono">{order.imaging_number}</span>}
-                        </p>
+                        <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                          {((order as any).is_consultation || (order as any).doctor_role === 'Consultant') && (
+                            <ConsultantTag departmentName={(order as any).department_name} />
+                          )}
+                          <p className="text-xs text-slate-500">
+                            {order.patient_name || 'Walk-in'} &middot; {order.doctor_name ? `Dr. ${order.doctor_name}` : ''}
+                            {order.imaging_number && <span className="ml-1 font-mono">{order.imaging_number}</span>}
+                          </p>
+                        </div>
                         <p className="text-[10px] text-slate-400">
                           {new Date(order.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </p>

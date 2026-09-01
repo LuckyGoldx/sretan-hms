@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import api from '../hooks/useAxios'
 
-type StaffRole = 'Doctor' | 'Nurse' | 'Lab Scientist' | 'Pharmacist' | 'Records' | 'Paypoint' | 'Admin'
+type StaffRole = 'Doctor' | 'Nurse' | 'Lab Scientist' | 'Pharmacist' | 'Records' | 'Paypoint' | 'Admin' | 'Consultant'
 
 interface StaffMember {
   id: string
@@ -35,6 +35,8 @@ interface StaffMember {
   phone: string
   status: string
   licenseExpiry: string
+  department_id?: string | null
+  department_name?: string | null
 }
 
 interface LicenseAlert {
@@ -51,7 +53,7 @@ interface RosterCell {
 
 type RosterData = Record<string, Record<string, RosterCell>>
 
-const ROLES: StaffRole[] = ['Doctor', 'Nurse', 'Lab Scientist', 'Pharmacist', 'Records', 'Paypoint', 'Admin']
+const ROLES: StaffRole[] = ['Doctor', 'Nurse', 'Lab Scientist', 'Pharmacist', 'Records', 'Paypoint', 'Admin', 'Consultant']
 const SHIFTS = [
   { id: 'morning', label: 'Morning', hours: '6AM - 2PM', icon: Clock },
   { id: 'afternoon', label: 'Afternoon', hours: '2PM - 10PM', icon: Clock },
@@ -67,6 +69,7 @@ const ROLE_COLORS: Record<StaffRole, string> = {
   Records: 'bg-cyan-100 text-cyan-700 border-cyan-200',
   Paypoint: 'bg-amber-100 text-amber-700 border-amber-200',
   Admin: 'bg-slate-100 text-slate-700 border-slate-200',
+  Consultant: 'bg-indigo-100 text-indigo-700 border-indigo-200',
 }
 
 const ROLE_ICONS: Record<StaffRole, React.FC<{ className?: string }>> = {
@@ -77,6 +80,7 @@ const ROLE_ICONS: Record<StaffRole, React.FC<{ className?: string }>> = {
   Records: FileText,
   Paypoint: Receipt,
   Admin: Users,
+  Consultant: Stethoscope,
 }
 
 const INITIAL_LICENSE_ALERTS: LicenseAlert[] = [
@@ -144,13 +148,18 @@ export default function StaffManagement() {
     role: '' as StaffRole | '',
     phone: '',
     password: '',
+    department_id: '',
   })
   const [formErrors, setFormErrors] = useState<Partial<Record<keyof typeof newStaff, string>>>({})
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([])
 
   const weekDates = getWeekDates(currentWeekStart)
 
   useEffect(() => {
     fetchStaff()
+    api.get('/departments').then((res) => {
+      setDepartments((res.data || []).filter((d: any) => d.status === 'active'))
+    }).catch(() => {})
   }, [])
 
   async function fetchStaff() {
@@ -166,6 +175,8 @@ export default function StaffManagement() {
         phone: s.phone || '',
         status: s.status || 'active',
         licenseExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+        department_id: s.department_id || null,
+        department_name: s.department_name || null,
       }))
       setStaffList(mapped)
     } catch {
@@ -265,6 +276,7 @@ export default function StaffManagement() {
     else if (!/\S+@\S+\.\S+/.test(newStaff.email)) errs.email = 'Invalid email'
     if (newStaff.username.trim() && !/^[a-z0-9._-]+$/i.test(newStaff.username.trim())) errs.username = 'Username may only contain letters, numbers, dots, dashes and underscores'
     if (!newStaff.role) errs.role = 'Role is required'
+    if (newStaff.role === 'Consultant' && !newStaff.department_id) errs.department_id = 'Department is required for Consultants'
     if (!newStaff.phone.trim()) errs.phone = 'Phone is required'
     if (!newStaff.password.trim()) errs.password = 'Password is required'
     else if (newStaff.password.length < 4) errs.password = 'Password must be at least 4 characters'
@@ -283,6 +295,7 @@ export default function StaffManagement() {
         phone: newStaff.phone.trim(),
         role: newStaff.role,
         password: newStaff.password,
+        department_id: newStaff.department_id || undefined,
       }
       const res = await api.post('/staff', payload)
       const newMember: StaffMember = {
@@ -294,17 +307,19 @@ export default function StaffManagement() {
         phone: res.data.phone || '',
         status: 'active',
         licenseExpiry: new Date(Date.now() + 365 * 86400000).toISOString(),
+        department_id: res.data.department_id || null,
+        department_name: departments.find((d) => d.id === res.data.department_id)?.name || null,
       }
       setStaffList((prev) => [...prev, newMember])
       setAddSuccess(true)
       setTimeout(() => {
         setShowAddModal(false)
         setAddSuccess(false)
-        setNewStaff({ name: '', email: '', username: '', role: '', phone: '', password: '' })
+        setNewStaff({ name: '', email: '', username: '', role: '', phone: '', password: '', department_id: '' })
         setFormErrors({})
       }, 1200)
-    } catch {
-      setFormErrors({ name: 'Failed to add staff. Please try again.' })
+    } catch (err: any) {
+      setFormErrors({ name: err?.response?.data?.message || 'Failed to add staff. Please try again.' })
     } finally {
       setSubmitting(false)
     }
@@ -313,7 +328,7 @@ export default function StaffManagement() {
   const closeModal = useCallback(() => {
     if (addSuccess) return
     setShowAddModal(false)
-    setNewStaff({ name: '', email: '', username: '', role: '', phone: '', password: '' })
+    setNewStaff({ name: '', email: '', username: '', role: '', phone: '', password: '', department_id: '' })
     setFormErrors({})
   }, [addSuccess])
 
@@ -464,7 +479,7 @@ export default function StaffManagement() {
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50">
-                  {['Name', 'Role', 'Email', 'Phone', 'Status'].map((col) => (
+                  {['Name', 'Role', 'Department', 'Email', 'Phone', 'Status'].map((col) => (
                     <th
                       key={col}
                       className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider"
@@ -504,6 +519,13 @@ export default function StaffManagement() {
                             <RoleIcon className="w-3 h-3" />
                             {staff.role}
                           </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          {staff.department_name ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium border border-indigo-100">
+                              {staff.department_name}
+                            </span>
+                          ) : <span className="text-sm text-slate-400">—</span>}
                         </td>
                         <td className="px-6 py-4 text-sm text-slate-600">{staff.email}</td>
                         <td className="px-6 py-4 text-sm text-slate-600">{staff.phone || '—'}</td>
@@ -815,6 +837,28 @@ export default function StaffManagement() {
                     </select>
                     {formErrors.role && <p className="text-xs text-rose-500 mt-1">{formErrors.role}</p>}
                   </div>
+
+                  {newStaff.role === 'Consultant' && (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Department <span className="text-rose-500">*</span></label>
+                      <select
+                        value={newStaff.department_id}
+                        onChange={(e) => {
+                          setNewStaff((p) => ({ ...p, department_id: e.target.value }))
+                          setFormErrors((p) => ({ ...p, department_id: undefined }))
+                        }}
+                        className={`w-full px-4 py-2.5 rounded-xl border text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all bg-white ${
+                          formErrors.department_id ? 'border-rose-300 bg-rose-50' : 'border-slate-200'
+                        }`}
+                      >
+                        <option value="">Select department</option>
+                        {departments.map((d) => (
+                          <option key={d.id} value={d.id}>{d.name}</option>
+                        ))}
+                      </select>
+                      {formErrors.department_id && <p className="text-xs text-rose-500 mt-1">{formErrors.department_id}</p>}
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1.5">Phone</label>

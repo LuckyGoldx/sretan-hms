@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import api from '../hooks/useAxios'
 import DoctorComment from './DoctorComment'
+import ConsultantTag from './ConsultantTag'
 import { printLabReport } from '../utils/labPrint'
 import {
   FlaskConical, Search, Loader2, CheckCircle, XCircle, AlertTriangle, Plus, X, FileText, Clock, Copy, Printer, Shield
@@ -577,6 +578,9 @@ export default function LabWorklist() {
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <FlaskConical size={15} className="text-purple-500 flex-shrink-0" />
                   <span className="text-sm font-semibold text-slate-800 truncate">{o.test_name}</span>
+                  {(o.is_consultation || o.doctor_role === 'Consultant') && (
+                    <ConsultantTag departmentName={o.department_name} />
+                  )}
                   <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium flex-shrink-0 ${statusStyles[o.status] || 'bg-slate-100 text-slate-600'}`}>
                     {statusLabels[o.status] || o.status.charAt(0).toUpperCase() + o.status.slice(1)}
                   </span>

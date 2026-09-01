@@ -1,8 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Users, Clock, Activity, UserCheck, Stethoscope, LogOut, RefreshCw, FileText, Plus, X, Loader2, Bed, Home, Heart, ArrowLeft, Mic, CheckCircle, Shield } from 'lucide-react'
+import { Search, Users, Clock, Activity, UserCheck, Stethoscope, LogOut, RefreshCw, FileText, Plus, X, Loader2, Bed, Home, Heart, ArrowLeft, Mic, CheckCircle, Shield, UserPlus, Building2 } from 'lucide-react'
 import api from '../hooks/useAxios'
 import type { Patient } from '../types/index'
+import ActivePatients from './ActivePatients'
+import Pagination from './Pagination'
+import AssignmentBoard from './AssignmentBoard'
 
 const statusOptions = [
   { value: '', label: 'All' },
@@ -112,8 +115,12 @@ export default function MyPatients() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [listPage, setListPage] = useState(1)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [tab, setTab] = useState<'all' | 'mine'>('all')
+  const [tab, setTab] = useState<'all' | 'mine' | 'active' | 'assign'>(() => {
+    try { const u = localStorage.getItem('sretan_user'); if (u && JSON.parse(u).role === 'Doctor') return 'assign' } catch {}
+    return 'active'
+  })
   const [admissionMap, setAdmissionMap] = useState<Record<string, { id: string; ward_name: string; admitted_at: string; admitted_by_name?: string; bed_number?: string }>>({})
   const [wards, setWards] = useState<{ id: string; name: string }[]>([])
   const [admitModal, setAdmitModal] = useState<{ patientId: string; patientName: string } | null>(null)
@@ -124,10 +131,24 @@ export default function MyPatients() {
   const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
   const [vitalsSubmitting, setVitalsSubmitting] = useState(false)
   const [showVitalsPreview, setShowVitalsPreview] = useState(false)
+  const [assignModal, setAssignModal] = useState<{ patientId: string; patientName: string } | null>(null)
+  const [assignDoctorId, setAssignDoctorId] = useState('')
+  const [assignDepartmentId, setAssignDepartmentId] = useState('')
+  const [assignVisitType, setAssignVisitType] = useState<'new' | 'follow_up'>('new')
+  const [assignFee, setAssignFee] = useState('')
+  const [assigning, setAssigning] = useState(false)
+  const [claimingId, setClaimingId] = useState<string | null>(null)
+  const [doctors, setDoctors] = useState<any[]>([])
+  const [departments, setDepartments] = useState<any[]>([])
+  const [defaultFees, setDefaultFees] = useState<{ new_visit: number; follow_up: number } | null>(null)
 
   const doctorId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
   const currentRole: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role } catch {} return null })()
   const isNurse = currentRole === 'Nurse'
+  const isDoctor = currentRole === 'Doctor'
+  const canAssign = currentRole === 'Admin' || currentRole === 'Nurse' || currentRole === 'Records'
+  const canSeeFee = currentRole === 'Admin' || currentRole === 'Records'
+  const showAssignTab = isDoctor || canAssign
 
   const fetchPatients = useCallback(async () => {
     setLoading(true)
@@ -154,6 +175,12 @@ export default function MyPatients() {
   }, [])
 
   useEffect(() => {
+    api.get('/staff').then((r) => setDoctors((r.data || []).filter((s: any) => s.role === 'Doctor' || s.role === 'Consultant'))).catch(() => {})
+    api.get('/departments').then((r) => setDepartments((r.data || []).filter((d: any) => d.status !== 'inactive'))).catch(() => {})
+    api.get('/visits/consultation-fees').then((r) => setDefaultFees(r.data || null)).catch(() => {})
+  }, [])
+
+  useEffect(() => {
     fetchPatients()
   }, [fetchPatients])
 
@@ -162,6 +189,9 @@ export default function MyPatients() {
     const matchesStatus = !statusFilter || p.status === statusFilter
     return matchesSearch && matchesStatus
   })
+
+  const listTotalPages = Math.max(1, Math.ceil(filtered.length / 30))
+  const listPageRows = filtered.slice((listPage - 1) * 30, listPage * 30)
 
   const stats = {
     total: patients.length,
@@ -177,6 +207,47 @@ export default function MyPatients() {
       await api.put(`/patients/${patientId}`, { status })
       setPatients((prev) => prev.map((p) => (p.id === patientId ? { ...p, status } : p)))
     } catch { setError('Failed to update patient status.') } finally { setActionLoading(null) }
+  }
+
+  async function handleClaim(patientId: string) {
+    setClaimingId(patientId)
+    setError('')
+    try {
+      await api.post(`/patients/${patientId}/claim`, { staff_id: doctorId, performed_by: doctorId })
+      await fetchPatients()
+    } catch (err: any) { setError(err?.response?.data?.message || 'Failed to claim patient') } finally { setClaimingId(null) }
+  }
+
+  async function handleAssignSubmit() {
+    if (!assignModal) return
+    setAssigning(true)
+    setError('')
+    try {
+      await api.post('/visits', {
+        patient_id: assignModal.patientId,
+        assigned_doctor_id: assignDoctorId || null,
+        department_id: assignDepartmentId || null,
+        visit_type: assignVisitType,
+        consultation_fee: assignFee ? parseFloat(assignFee) : undefined,
+        performed_by: doctorId,
+      })
+      setAssignModal(null); setAssignDoctorId(''); setAssignDepartmentId(''); setAssignVisitType('new'); setAssignFee('')
+      await fetchPatients()
+    } catch (err: any) { setError(err?.response?.data?.message || 'Failed to assign patient') } finally { setAssigning(false) }
+  }
+
+  function changeVisitType(t: 'new' | 'follow_up') {
+    setAssignVisitType(t)
+    if (!defaultFees) return
+    const oldDefault = assignVisitType === 'follow_up' ? defaultFees.follow_up : defaultFees.new_visit
+    const newDefault = t === 'follow_up' ? defaultFees.follow_up : defaultFees.new_visit
+    if (!assignFee || Number(assignFee) === oldDefault) {
+      setAssignFee(String(newDefault))
+    }
+  }
+
+  function closeAssignModal() {
+    setAssignModal(null); setAssignDoctorId(''); setAssignDepartmentId(''); setAssignVisitType('new'); setAssignFee('')
   }
 
   async function handleAdmit() {
@@ -251,17 +322,39 @@ export default function MyPatients() {
       </div>
 
       {/* Tab Switcher */}
-      <div className="flex gap-2">
-        <button onClick={() => setTab('all')}
+      <div className="flex gap-2 flex-wrap">
+        {isDoctor && (
+          <button onClick={() => { setTab('assign'); setListPage(1) }}
+            className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${
+              tab === 'assign' ? 'bg-sky-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}>Assign / Queue</button>
+        )}
+        <button onClick={() => setTab('active')}
+          className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${
+            tab === 'active' ? 'bg-emerald-500 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}>Active Patients</button>
+        <button onClick={() => { setTab('all'); setListPage(1) }}
           className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${
             tab === 'all' ? 'bg-primary text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
           }`}>All Patients</button>
-        <button onClick={() => setTab('mine')}
+        <button onClick={() => { setTab('mine'); setListPage(1) }}
           className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${
             tab === 'mine' ? 'bg-primary text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
           }`}>My Patients</button>
+        {!isDoctor && showAssignTab && (
+          <button onClick={() => { setTab('assign'); setListPage(1) }}
+            className={`px-5 py-2 rounded-xl text-sm font-medium transition-all ${
+              tab === 'assign' ? 'bg-sky-600 text-white shadow-md' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}>Assign / Queue</button>
+        )}
       </div>
 
+      {tab === 'assign' ? (
+        <AssignmentBoard />
+      ) : tab === 'active' ? (
+        <ActivePatients />
+      ) : (
+        <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-4">
           <div className="flex items-center gap-2 text-slate-400 mb-1">
@@ -307,13 +400,13 @@ export default function MyPatients() {
             type="text"
             placeholder="Search patients by name..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setSearch(e.target.value); setListPage(1) }}
             className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow"
           />
         </div>
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
+          onChange={(e) => { setStatusFilter(e.target.value); setListPage(1) }}
           className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-shadow appearance-none min-w-[160px]"
         >
           {statusOptions.map((opt) => (
@@ -333,8 +426,9 @@ export default function MyPatients() {
       )}
 
       {!loading && !error && filtered.length > 0 && (
+        <>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((patient) => {
+          {listPageRows.map((patient) => {
             const statCfg = statusConfig[patient.status] || { label: patient.status, bg: 'bg-slate-100', text: 'text-slate-600' }
             return (
               <div
@@ -371,6 +465,13 @@ export default function MyPatients() {
                   <BloodTypeBadge type={patient.blood_type} />
                 </div>
 
+                {patient.assigned_doctor_name && (
+                  <div className="flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 rounded-lg px-2.5 py-1.5">
+                    <UserCheck size={12} />
+                    <span>Assigned to <strong>{patient.assigned_doctor_name}</strong>{patient.department_name ? ` · ${patient.department_name}` : ''}</span>
+                  </div>
+                )}
+
                 {patient.phone && (
                   <p className="text-xs text-slate-500 flex items-center gap-1.5">
                     <span className="text-slate-300">{patient.phone}</span>
@@ -402,16 +503,31 @@ export default function MyPatients() {
                     </button>
                     
                     </>
-                  ) : (
+                  ) : admissionMap[patient.id] ? (
                     <button onClick={() => navigate(`/consultation/${patient.id}`)}
                       className="flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-xs font-semibold rounded-xl hover:scale-[1.01] transition-all duration-200 shadow-sm">
                       <Stethoscope className="w-3.5 h-3.5" /> Consult
                     </button>
-                  )}
+                  ) : null}
                   <button onClick={() => navigate(`/patient/${patient.id}`)}
                     className="flex items-center gap-1.5 px-3 py-2 bg-white text-slate-600 text-xs font-semibold rounded-xl border border-slate-200 hover:bg-slate-50 transition-all duration-200">
                     <FileText className="w-3.5 h-3.5" /> Chart
                   </button>
+
+                  {canAssign && !admissionMap[patient.id] && patient.status !== 'discharged' && (
+                    <button onClick={() => setAssignModal({ patientId: patient.id, patientName: patient.full_name })}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-sky-50 text-sky-700 text-xs font-semibold rounded-xl border border-sky-200 hover:bg-sky-100 transition-all duration-200">
+                      <UserPlus className="w-3.5 h-3.5" /> Assign
+                    </button>
+                  )}
+
+                  {!isNurse && !canAssign && !patient.assigned_doctor_id && !admissionMap[patient.id] && patient.status !== 'discharged' && patient.has_paid_consultation && (
+                    <button onClick={() => handleClaim(patient.id)} disabled={claimingId === patient.id}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-xl border border-emerald-200 hover:bg-emerald-100 transition-all duration-200 disabled:opacity-50">
+                      {claimingId === patient.id ? <Loader2 size={12} className="animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}
+                      Claim
+                    </button>
+                  )}
 
                   {!admissionMap[patient.id] && patient.status === 'in_triage' ? (
                     <button onClick={() => handleStatusUpdate(patient.id, 'waiting')} disabled={actionLoading === patient.id}
@@ -446,6 +562,10 @@ export default function MyPatients() {
             )
           })}
         </div>
+        <div className="mt-2">
+          <Pagination page={listPage} totalPages={listTotalPages} onChange={setListPage} totalItems={filtered.length} perPage={30} />
+        </div>
+        </>
       )}
 
       {/* Admit Modal */}
@@ -479,6 +599,69 @@ export default function MyPatients() {
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-all disabled:opacity-50">
                 {admitting ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
                 Admit Patient
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Doctor Modal */}
+      {assignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!assigning) closeAssignModal() }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
+                <UserPlus size={18} className="text-sky-500" />
+                Assign Patient
+              </h2>
+              <button onClick={closeAssignModal} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">Patient: <strong>{assignModal.patientName}</strong></p>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">Doctor</label>
+                <select value={assignDoctorId} onChange={(e) => setAssignDoctorId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                  <option value="">-- Leave unassigned (queue) --</option>
+                  {doctors.map((d) => <option key={d.id} value={d.id}>{d.name} ({d.role})</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">Department</label>
+                <select value={assignDepartmentId} onChange={(e) => setAssignDepartmentId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                  <option value="">-- Select department --</option>
+                  {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">Consultation Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => changeVisitType('new')}
+                    className={`px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${assignVisitType === 'new' ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>New</button>
+                  <button type="button" onClick={() => changeVisitType('follow_up')}
+                    className={`px-4 py-2.5 rounded-xl border text-sm font-medium transition-all ${assignVisitType === 'follow_up' ? 'bg-sky-600 text-white border-sky-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>Follow-up</button>
+                </div>
+              </div>
+              {canSeeFee && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-600 mb-1.5">Consultation Fee (₦)</label>
+                  <input type="number" min={0} step="any" placeholder="Leave blank to use default" value={assignFee}
+                    onChange={(e) => setAssignFee(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  {defaultFees && (
+                    <p className="text-[11px] text-slate-400 mt-1">Default: ₦{Number(assignVisitType === 'follow_up' ? defaultFees.follow_up : defaultFees.new_visit).toLocaleString()} ({assignVisitType === 'follow_up' ? 'follow-up' : 'new'})</p>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+              <button onClick={closeAssignModal}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={handleAssignSubmit} disabled={assigning}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 transition-all disabled:opacity-50">
+                {assigning ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
+                Assign
               </button>
             </div>
           </div>
@@ -630,6 +813,8 @@ export default function MyPatients() {
             </div>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   )

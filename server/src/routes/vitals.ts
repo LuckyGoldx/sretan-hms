@@ -115,6 +115,29 @@ router.post('/api/vitals', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/vitals/patient/:patientId -- today's vitals for a patient (for the consultation page).
+router.get('/api/vitals/patient/:patientId', async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    const patientId = String(req.params.patientId);
+
+    const result = await pool.query(
+      `SELECT v.*, s.name as recorded_by_name, e.encounter_type
+       FROM vitals v
+       JOIN encounters e ON e.id = v.encounter_id
+       LEFT JOIN staff_users s ON s.id = v.recorded_by
+       WHERE e.patient_id = $1 AND v.tenant_id = $2 AND v.deleted_at IS NULL
+         AND v.created_at::date = CURRENT_DATE
+       ORDER BY v.created_at DESC`,
+      [patientId, tenantId]
+    );
+
+    res.json(result.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
 router.get('/api/vitals/:encounterId', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();

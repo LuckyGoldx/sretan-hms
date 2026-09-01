@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../hooks/useAxios'
 import type { Prescription } from '../types'
+import ConsultantTag from './ConsultantTag'
 import {
   Pill, ClipboardList, CheckCircle, Loader2, AlertTriangle, X, ArrowLeft, Stethoscope, Shield, Search, ChevronLeft, ChevronRight,
 } from 'lucide-react'
@@ -10,6 +11,9 @@ interface PendingPrescription extends Prescription {
   patient_id?: string
   patient_name?: string
   doctor_name?: string
+  doctor_role?: string
+  is_consultation?: boolean
+  department_name?: string | null
   billed_to_insurance?: boolean
   hospital_number?: string
   phone?: string
@@ -162,7 +166,11 @@ export default function Dispensing() {
                     {rx.phone ? ` · ${rx.phone}` : ''}
                     {rx.instructions ? ` · ${rx.instructions}` : ' · No instructions'}
                   </p>
-                  {rx.doctor_name && <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><Stethoscope size={11} /> Prescribed by: <strong>{rx.doctor_name}</strong></p>}
+                  {rx.doctor_name && <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><Stethoscope size={11} /> Prescribed by: <strong>{rx.doctor_name}</strong>
+                    {(rx.is_consultation || rx.doctor_role === 'Consultant') && (
+                      <ConsultantTag departmentName={rx.department_name} />
+                    )}
+                  </p>}
                 </div>
                 <button
                   onClick={() => openDispenseModal(rx)}
@@ -206,7 +214,11 @@ export default function Dispensing() {
                 <p className="text-sm text-slate-600"><span className="font-semibold">Drug:</span> {modal.rx.drug_name}</p>
                 <p className="text-sm text-slate-600"><span className="font-semibold">Dosage:</span> {modal.rx.dosage}</p>
                 <p className="text-sm text-slate-600"><span className="font-semibold">Patient:</span> {modal.rx.patient_name || 'Unknown'}{modal.rx.hospital_number ? ` · ${modal.rx.hospital_number}` : ''}</p>
-                {modal.rx.doctor_name && <p className="text-sm text-slate-600 flex items-center gap-1"><Stethoscope size={14} className="text-slate-400" /><span className="font-semibold">Prescribed by:</span> {modal.rx.doctor_name}</p>}
+                {modal.rx.doctor_name && <p className="text-sm text-slate-600 flex items-center gap-1"><Stethoscope size={14} className="text-slate-400" /><span className="font-semibold">Prescribed by:</span> {modal.rx.doctor_name}
+                  {(modal.rx.is_consultation || modal.rx.doctor_role === 'Consultant') && (
+                    <ConsultantTag departmentName={modal.rx.department_name} />
+                  )}
+                </p>}
                 <div className="mt-3">
                   <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1"><ClipboardList size={12} /> Doctor's Note</p>
                   <div className="rounded-xl bg-slate-50 border border-slate-100 px-3.5 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">

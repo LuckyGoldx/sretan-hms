@@ -19,8 +19,11 @@ router.post('/api/auth/login', async (req: Request, res: Response) => {
     const tenantId = profile.GLOBAL_SAAS_TENANT_ID;
 
     const result = await pool.query(
-      `SELECT id, name, email, username, role, password FROM staff_users
-       WHERE (LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($1)) AND tenant_id = $2 AND status = 'active'`,
+      `SELECT su.id, su.name, su.email, su.username, su.role, su.password, su.department_id,
+              d.name as department_name, d.modules as department_modules
+       FROM staff_users su
+       LEFT JOIN departments d ON d.id = su.department_id
+       WHERE (LOWER(su.username) = LOWER($1) OR LOWER(su.email) = LOWER($1)) AND su.tenant_id = $2 AND su.status = 'active'`,
       [identifier, tenantId]
     );
 
@@ -48,6 +51,9 @@ router.post('/api/auth/login', async (req: Request, res: Response) => {
         email: user.email,
         username: user.username || '',
         role: user.role,
+        department_id: user.department_id || null,
+        department_name: user.department_name || null,
+        department_modules: user.department_modules || [],
       },
     });
   } catch (err: any) {

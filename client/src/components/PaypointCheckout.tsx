@@ -55,6 +55,8 @@ export default function PaypointCheckout() {
   const [coPayAmount, setCoPayAmount] = useState(0)
   const [coPayLoading, setCoPayLoading] = useState(false)
   const [insuredCoverage, setInsuredCoverage] = useState<any>(null)
+  const [coverageQuote, setCoverageQuote] = useState<any>(null)
+  const [quoteLoading, setQuoteLoading] = useState(false)
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
@@ -117,6 +119,26 @@ export default function PaypointCheckout() {
   function removeFromCart(idx: number) { setCart((prev) => prev.filter((_, i) => i !== idx)) }
   function updateQty(idx: number, qty: number) { setCart((prev) => prev.map((c, i) => i === idx ? { ...c, quantity: Math.max(1, qty) } : c)) }
 
+  async function loadCoverageQuote(items: CartItem[]) {
+    if (!selectedPatient || items.length === 0) { setCoverageQuote(null); return }
+    setQuoteLoading(true)
+    try {
+      const payload = items.map((c) => ({ service_type: c.service_type, unit_price: c.unit_price, quantity: c.quantity, description: c.description }))
+      const res = await api.get(`/insurance/coverage-quote?patientId=${selectedPatient.id}&items=${encodeURIComponent(JSON.stringify(payload))}`)
+      setCoverageQuote(res.data || null)
+    } catch { setCoverageQuote(null) } finally { setQuoteLoading(false) }
+  }
+
+  useEffect(() => {
+    if (billToInsurance && selectedPatient) {
+      loadCoverageQuote(cart)
+    } else {
+      setCoverageQuote(null)
+      setQuoteLoading(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billToInsurance, cart, selectedPatient?.id])
+
   const total = cart.reduce((s, c) => s + c.unit_price * c.quantity, 0)
 
   async function handlePayment() {
@@ -124,17 +146,19 @@ export default function PaypointCheckout() {
     setSubmitting(true)
     try {
       if (billToInsurance && insuranceInfo && selectedPatient) {
-        // Split checkout: collect co-pay + bill remaining to insurance
-        const items = cart.map((c) => ({
+        // Split checkout using the per-item coverage quote (Section 9 of the analysis).
+        const quoteItems = coverageQuote?.items || []
+        const items = cart.map((c, i) => ({
           service_type: c.service_type,
           service_id: c.service_id,
           description: c.description,
           quantity: c.quantity,
           unit_price: c.unit_price,
+          insurer_amount: quoteItems[i]?.insurer_amount !== undefined ? quoteItems[i].insurer_amount : (c.unit_price * c.quantity),
         }))
         const totalBill = cart.reduce((s, c) => s + c.unit_price * c.quantity, 0)
-        const patientCoPay = Math.min(coPayAmount, totalBill)
-        const insuranceBilled = totalBill - patientCoPay
+        const patientCoPay = coverageQuote?.patient?.co_pay ?? Math.min(coPayAmount, totalBill)
+        const insuranceBilled = coverageQuote?.insurer?.covered ?? (totalBill - patientCoPay)
 
         // Collect co-pay from patient
         let coPayReceipt = null
@@ -154,7 +178,7 @@ export default function PaypointCheckout() {
           }
         }
 
-        // Bill remaining to insurance
+        // Bill the insurer portion to the case
         let insuranceRes = null
         if (insuranceBilled > 0) {
           try {
@@ -185,7 +209,7 @@ export default function PaypointCheckout() {
           staff_name: currentUser?.name,
         })
         setShowReceipt(true); setCart([])
-        setBillToInsurance(false); setCoPayAmount(0)
+        setBillToInsurance(false); setCoPayAmount(0); setCoverageQuote(null)
         if (selectedPatient) {
           const pending = await api.get(`/payments/pending/${selectedPatient.id}`)
           setPendingItems(pending.data?.items || [])
@@ -381,6 +405,12 @@ export default function PaypointCheckout() {
                         <div className="min-w-[60px] text-right"><label className="text-[10px] text-slate-400">Total</label>
                           <p className="text-sm font-bold text-slate-800">₦{(item.unit_price * item.quantity).toLocaleString()}</p></div>
                       </div>
+                      {billToInsurance && (coverageQuote?.items || [])[i] && (
+                        <div className="mt-2 pt-2 border-t border-slate-200/70 text-[10px] space-y-0.5">
+                          <div className="flex justify-between text-emerald-600"><span>Insurer ({(coverageQuote.items[i] as any).coverage}%)</span><span className="font-medium">₦{Number((coverageQuote.items[i] as any).insurer_amount).toLocaleString()}</span></div>
+                          <div className="flex justify-between text-amber-600"><span>Patient pays</span><span className="font-medium">₦{Number((coverageQuote.items[i] as any).patient_amount).toLocaleString()}</span></div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -402,10 +432,24 @@ export default function PaypointCheckout() {
                     <span className="text-xs text-slate-400">{cart.length} item(s)</span>
                     <span className="text-lg font-bold text-slate-800">₦{total.toLocaleString()}</span>
                   </div>
-                  <button onClick={handlePayment} disabled={submitting || cart.length === 0}
+                  {billToInsurance && (
+                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3 space-y-1.5">
+                      {quoteLoading ? (
+                        <div className="flex items-center gap-2 text-xs text-emerald-700"><Loader2 size={14} className="animate-spin" /> Calculating coverage...</div>
+                      ) : coverageQuote ? (
+                        <>
+                          <div className="flex justify-between text-xs"><span className="text-slate-500">Patient pays ({paymentMethod})</span><span className="font-bold text-amber-600">₦{Number(coverageQuote.patient?.co_pay || 0).toLocaleString()}</span></div>
+                          <div className="flex justify-between text-xs"><span className="text-slate-500">Insurer billed ({coverageQuote.provider_name || 'HMO'})</span><span className="font-bold text-emerald-600">₦{Number(coverageQuote.insurer?.covered || 0).toLocaleString()}</span></div>
+                        </>
+                      ) : (
+                        <p className="text-xs text-amber-600">Unable to load coverage. Please retry or bill without insurance.</p>
+                      )}
+                    </div>
+                  )}
+                  <button onClick={handlePayment} disabled={submitting || cart.length === 0 || (billToInsurance && quoteLoading)}
                     className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-all">
                     {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-                    {submitting ? 'Processing...' : `Pay ₦${total.toLocaleString()}`}
+                    {submitting ? 'Processing...' : billToInsurance && coverageQuote ? `Collect ₦${Number(coverageQuote.patient?.co_pay || 0).toLocaleString()} + Bill Insurance` : `Pay ₦${total.toLocaleString()}`}
                   </button>
                 </div>
               )}

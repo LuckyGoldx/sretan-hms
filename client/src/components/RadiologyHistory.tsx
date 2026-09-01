@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import DoctorComment from './DoctorComment'
+import ConsultantTag from './ConsultantTag'
 import {
   Scan, Loader2, FileText, X, Search, Clock, ArrowLeft, User, Calendar
 } from 'lucide-react'
@@ -99,6 +100,9 @@ export default function RadiologyHistory() {
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <Scan size={15} className="text-indigo-500 flex-shrink-0" />
                   <span className="text-sm font-semibold text-slate-800 truncate">{o.imaging_type}</span>
+                  {(o.is_consultation || o.doctor_role === 'Consultant') && (
+                    <ConsultantTag departmentName={o.department_name} />
+                  )}
                   <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium flex-shrink-0 ${o.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : o.status === 'processing' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
                     {o.status?.charAt(0).toUpperCase() + o.status?.slice(1)}
                   </span>
@@ -140,6 +144,9 @@ export default function RadiologyHistory() {
                 <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
                   <p className="text-xs text-slate-500 mb-1">Ordered By</p>
                   <p className="text-sm font-semibold">{detail.doctor_name || '—'}</p>
+                  {(detail.is_consultation || detail.doctor_role === 'Consultant') && (
+                    <div className="mt-1.5"><ConsultantTag departmentName={detail.department_name} size="sm" /></div>
+                  )}
                 </div>
               </div>
               <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 flex justify-between text-sm">

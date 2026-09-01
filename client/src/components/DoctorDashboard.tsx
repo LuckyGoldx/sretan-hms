@@ -2,14 +2,22 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import type { Patient } from '../types'
+import ActivePatients from './ActivePatients'
 import {
   Users, Search, Stethoscope, Pill, Beaker, Activity, Loader2,
-  ChevronRight, Eye, Calendar, Shield
+  ChevronRight, Eye, Calendar, Shield, Send
 } from 'lucide-react'
+
+function formatTime(ts?: string): string {
+  try {
+    return new Date(ts || '').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  } catch { return '' }
+}
 
 export default function DoctorDashboard() {
   const navigate = useNavigate()
   const [patients, setPatients] = useState<Patient[]>([])
+  const [admissionMap, setAdmissionMap] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [stats, setStats] = useState({ total: 0, todayRx: 0, pendingLab: 0, inConsultation: 0, appointments: 0 })
@@ -34,6 +42,13 @@ export default function DoctorDashboard() {
           inConsultation: pats.filter((p: Patient) => p.status === 'with_doctor').length,
           appointments: (aptRes.data || []).length,
         })
+        // Track which patients are currently admitted (in a bed) — they get no Consult action.
+        try {
+          const admRes = await api.get('/admissions?status=active').catch(() => ({ data: [] }))
+          const map: Record<string, boolean> = {}
+          ;(admRes.data || []).forEach((a: any) => { if (a.patient_id) map[a.patient_id] = true })
+          setAdmissionMap(map)
+        } catch {}
       } catch {} finally { setLoading(false) }
     }
     load()
@@ -83,11 +98,16 @@ export default function DoctorDashboard() {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <button onClick={() => navigate('/patients')}
           className="flex items-center gap-3 p-4 rounded-xl bg-blue-50 border border-blue-100 text-left hover:bg-blue-100 transition-colors">
           <Users size={20} className="text-blue-600" />
           <div><p className="text-sm font-medium text-slate-800">Patients</p><p className="text-xs text-slate-500">Full patient list</p></div>
+        </button>
+        <button onClick={() => navigate('/referrals')}
+          className="flex items-center gap-3 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-left hover:bg-indigo-100 transition-colors">
+          <Send size={20} className="text-indigo-600" />
+          <div><p className="text-sm font-medium text-slate-800">Referrals</p><p className="text-xs text-slate-500">Refer patients & track progress</p></div>
         </button>
         <button onClick={() => navigate('/lab')}
           className="flex items-center gap-3 p-4 rounded-xl bg-amber-50 border border-amber-100 text-left hover:bg-amber-100 transition-colors">
@@ -137,6 +157,18 @@ export default function DoctorDashboard() {
                     )}
                   </p>
                   <p className="text-xs text-slate-400">{patient.sex} &middot; {patient.dob?.slice(0, 10) || '—'} &middot; {patient.phone || '—'}</p>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    {(patient as any).last_vitals_at && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-50 border border-teal-100 text-teal-700 text-[10px] font-medium">
+                        <Activity size={10} /> Vitals {formatTime((patient as any).last_vitals_at)}{(patient as any).last_vitals_by ? ` by ${(patient as any).last_vitals_by}` : ''}
+                      </span>
+                    )}
+                    {(patient as any).last_consultation_at && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-medium">
+                        <Stethoscope size={10} /> Consulted {formatTime((patient as any).last_consultation_at)}{(patient as any).last_consultation_by ? ` by ${(patient as any).last_consultation_by}` : ''}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 ml-3">
                   <span className={`px-2.5 py-0.5 rounded-lg text-xs font-medium whitespace-nowrap ${
@@ -146,15 +178,31 @@ export default function DoctorDashboard() {
                     patient.status === 'discharged' ? 'bg-green-100 text-green-700' :
                     'bg-slate-100 text-slate-600'
                   }`}>{patient.status.replace('_', ' ')}</span>
-                  <button onClick={() => navigate(`/consultation/${patient.id}`)}
-                    className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-xs font-medium hover:bg-blue-100 transition-colors flex items-center gap-1">
-                    <Eye size={12} /> Consult
-                  </button>
+                  {admissionMap[patient.id] && (
+                    <button onClick={() => navigate(`/consultation/${patient.id}`)}
+                      className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-600 text-xs font-medium hover:bg-blue-100 transition-colors flex items-center gap-1">
+                      <Eye size={12} /> Consult
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         )}
+      </div>
+
+      {/* Active Patients board */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
+        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Activity size={18} className="text-emerald-600" />
+            <h2 className="text-sm font-semibold text-slate-800">Active Patients</h2>
+          </div>
+          <button onClick={() => navigate('/patients')} className="text-xs text-emerald-600 font-medium hover:underline">Manage</button>
+        </div>
+        <div className="p-5">
+          <ActivePatients />
+        </div>
       </div>
     </div>
   )

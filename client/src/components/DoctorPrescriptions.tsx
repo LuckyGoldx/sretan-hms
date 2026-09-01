@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import ConsultantTag from './ConsultantTag'
 import {
   Pill, Search, Clock, Loader2, AlertTriangle, CheckCircle, XCircle, ArrowLeft, Eye
 } from 'lucide-react'
@@ -15,6 +16,9 @@ interface RxItem {
   created_at: string
   encounter_id: string
   patient_name?: string
+  is_consultation?: boolean
+  doctor_role?: string
+  department_name?: string | null
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -129,7 +133,14 @@ export default function DoctorPrescriptions() {
               <tbody className="divide-y divide-slate-50">
                 {filtered.map((rx) => (
                   <tr key={rx.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-3.5 font-medium text-slate-800">{rx.drug_name}</td>
+                    <td className="px-5 py-3.5 font-medium text-slate-800">
+                      <span className="inline-flex items-center gap-2">
+                        {rx.drug_name}
+                        {(rx.is_consultation || rx.doctor_role === 'Consultant') && (
+                          <ConsultantTag departmentName={rx.department_name} />
+                        )}
+                      </span>
+                    </td>
                     <td className="px-5 py-3.5 text-slate-600">{rx.dosage || '—'}</td>
                     <td className="px-5 py-3.5">{rx.quantity}</td>
                     <td className="px-5 py-3.5 text-slate-600">{rx.patient_name || 'Unknown'}</td>

@@ -3,10 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, ScrollText, ClipboardList, Pill, Microscope, Scan, Search, Clock, X, Plus,
   ChevronDown, CheckCircle, XCircle, AlertTriangle, Loader2, Syringe, FlaskConical, Activity, Mic, Baby,
-  FileText, FileImage, Shield,
+  FileText, FileImage, Shield, Building2, Zap, UserCheck, LogOut, Stethoscope, ChevronUp,
 } from 'lucide-react'
 import api from '../hooks/useAxios'
 import DoctorComment from './DoctorComment'
+import ReferralModal from './ReferralModal'
+import ConsultantTag from './ConsultantTag'
+import CompleteConsultationModal from './CompleteConsultationModal'
+import CollapsibleReason from './CollapsibleReason'
+import ChartModal from './ChartModal'
 import type { Patient, Encounter } from '../types/index'
 
 interface SoapForm { subjective: string; objective: string; assessment: string; plan: string; notes: string }
@@ -21,28 +26,6 @@ const icd11Codes = ICD11_CODES.map((c) => ({ code: c.code, label: c.label }))
 const PER_PAGE = 15
 const fallbackImagingTypes = ['X-Ray', 'Ultrasound', 'CT', 'MRI']
 const emptySoap: SoapForm = { subjective: '', objective: '', assessment: '', plan: '', notes: '' }
-
-function Pagination({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (n: number) => void }) {
-  if (totalPages <= 1) return null
-  const pages: number[] = []
-  const maxVisible = 5
-  if (totalPages <= maxVisible) { for (let i = 1; i <= totalPages; i++) pages.push(i) }
-  else if (page <= 3) { for (let i = 1; i <= maxVisible; i++) pages.push(i) }
-  else if (page >= totalPages - 2) { for (let i = totalPages - maxVisible + 1; i <= totalPages; i++) pages.push(i) }
-  else { for (let i = page - 2; i <= page + 2; i++) pages.push(i) }
-  return (
-    <div className="flex items-center justify-center gap-2 pt-3 pb-1">
-      <button onClick={() => onChange(Math.max(1, page - 1))} disabled={page <= 1}
-        className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Previous</button>
-      {pages.map((p) => (
-        <button key={p} onClick={() => onChange(p)}
-          className={`w-8 h-8 rounded-lg text-xs font-medium transition-colors ${p === page ? 'bg-primary text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{p}</button>
-      ))}
-      <button onClick={() => onChange(Math.min(totalPages, page + 1))} disabled={page >= totalPages}
-        className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Next</button>
-    </div>
-  )
-}
 
 type TabId = 'soap' | 'orders' | 'prescribe' | 'icd'
 
@@ -117,11 +100,14 @@ function VoiceInput({ value, onChange }: { value: string; onChange: (val: string
   )
 }
 
-export default function DoctorConsultation() {
+export default function DoctorConsultation({ referral }: { referral?: any }) {
   const navigate = useNavigate()
   const { patientId } = useParams<{ patientId: string }>()
   const urlParams = new URLSearchParams(window.location.search)
   const encounterTypeRef = useRef<string>(urlParams.get('type') || 'consultation')
+  const isConsultantMode = urlParams.get('consultant') === '1'
+  const referralIdParam = urlParams.get('referral_id')
+  const departmentIdParam = urlParams.get('department_id')
   const [patient, setPatient] = useState<Patient | null>(null)
   const [encounters, setEncounters] = useState<Encounter[]>([])
   const [loading, setLoading] = useState(true)
@@ -160,9 +146,9 @@ export default function DoctorConsultation() {
   const [allLabOrders, setAllLabOrders] = useState<any[]>([])
   const [allRadOrders, setAllRadOrders] = useState<any[]>([])
   const [allPrescriptions, setAllPrescriptions] = useState<any[]>([])
-  const [soapPage, setSoapPage] = useState(1)
-  const [ordersPage, setOrdersPage] = useState(1)
-  const [rxPage, setRxPage] = useState(1)
+  const [soapVisibleCount, setSoapVisibleCount] = useState(PER_PAGE)
+  const [ordersVisibleCount, setOrdersVisibleCount] = useState(PER_PAGE)
+  const [rxVisibleCount, setRxVisibleCount] = useState(PER_PAGE)
   const [rxDetailModal, setRxDetailModal] = useState<any | null>(null)
   const [radiologyDetailModal, setRadiologyDetailModal] = useState<any | null>(null)
   const [radModalImage, setRadModalImage] = useState<string | null>(null)
@@ -174,6 +160,15 @@ export default function DoctorConsultation() {
   const [soapIcdSearch, setSoapIcdSearch] = useState('')
   const [soapIcdOpen, setSoapIcdOpen] = useState(false)
   const diagnosesRef = useRef<HTMLDivElement>(null)
+  const [showReferralModal, setShowReferralModal] = useState(false)
+  const [showCompleteModal, setShowCompleteModal] = useState(false)
+  const [showChartModal, setShowChartModal] = useState(false)
+  const [visit, setVisit] = useState<any>(null)
+  const [visitBusy, setVisitBusy] = useState(false)
+  const [showStartConfirm, setShowStartConfirm] = useState(false)
+  const [activeConsultBlock, setActiveConsultBlock] = useState<any | null>(null)
+  const [todayVitals, setTodayVitals] = useState<any[]>([])
+  const [chartInitialSection, setChartInitialSection] = useState<string | undefined>(undefined)
 
   const showToast = useCallback((message: string, type: 'success' | 'error') => { setToast({ show: true, message, type }) }, [])
   const dismissToast = useCallback(() => { setToast((prev) => ({ ...prev, show: false })) }, [])
@@ -205,9 +200,15 @@ export default function DoctorConsultation() {
     if (activeEncounterRef.current) return activeEncounterRef.current
     if (!patientId) return null
     try {
-      const encBody: any = { patient_id: patientId, encounter_type: encounterTypeRef.current, chief_complaint: '', staff_id: currentStaffId }
+      const encBody: any = { patient_id: patientId, encounter_type: encounterTypeRef.current, staff_id: currentStaffId }
       if (maternityPatientIdRef.current) encBody.maternity_patient_id = maternityPatientIdRef.current
-      const encResponse = await api.post('/encounters', encBody)
+      if (isConsultantMode) {
+        encBody.is_consultation = true
+        if (referralIdParam) encBody.referral_id = referralIdParam
+        if (departmentIdParam) encBody.department_id = departmentIdParam
+      }
+      // find-or-create today's encounter (groups the day's work under one encounter)
+      const encResponse = await api.post('/encounters/ensure', encBody)
       if (!encResponse.data?.id) return null
       activeEncounterRef.current = encResponse.data.id
       return encResponse.data.id
@@ -225,6 +226,9 @@ export default function DoctorConsultation() {
     if (!patientId) return
     setPendingDiagnoses([])
     activeEncounterRef.current = null
+    setSoapVisibleCount(PER_PAGE)
+    setOrdersVisibleCount(PER_PAGE)
+    setRxVisibleCount(PER_PAGE)
     const fetchData = async () => {
       setLoading(true)
       try {
@@ -284,6 +288,17 @@ export default function DoctorConsultation() {
             setInsuranceCoverage(covData)
           }
         } catch {}
+        // Fetch active visit (assignment / consultation billing state)
+        try {
+          const vRes = await api.get(`/visits?patient_id=${patientId}&active=true`)
+          const vlist = vRes.data || []
+          setVisit(vlist.length > 0 ? vlist[0] : null)
+        } catch { setVisit(null) }
+        // Fetch today's vitals so the doctor can see whether nursing captured them.
+        try {
+          const vRes = await api.get(`/vitals/patient/${patientId}`)
+          setTodayVitals(vRes.data || [])
+        } catch { setTodayVitals([]) }
         } catch { showToast('Failed to load patient data', 'error') } finally { setLoading(false) }
     }
     fetchData()
@@ -310,7 +325,99 @@ export default function DoctorConsultation() {
     } catch { setTimelineModal({ encounter: enc, doctorName, prescriptions: [], labOrders: [], radiologyOrders: [] }) }
   }
 
-  const handleSoapChange = (field: keyof SoapForm, value: string) => setSoap((prev) => ({ ...prev, [field]: value }))
+  const handleSoapChange = (field: keyof SoapForm, value: string) => {
+    setSoap((prev) => ({ ...prev, [field]: value }))
+    saveDraft(field, value)
+  }
+
+  // ── Draft auto-save (textboxes persist until the doctor submits) ──
+  const draftBase = `sretan_draft_${currentStaffId || 'anon'}_${patientId || 'nopatient'}_${encounterTypeRef.current}`
+  const draftKey = (field: string) => `${draftBase}_${field}`
+  const draftLoadedRef = useRef(false)
+
+  // Save the exact value passed in (fixes stale-closure last-character loss on refresh)
+  function saveDraft(field?: keyof SoapForm, value?: string) {
+    try {
+      if (field && value !== undefined) {
+        if (value.trim()) localStorage.setItem(draftKey(field), value)
+        else localStorage.removeItem(draftKey(field))
+      } else {
+        // fallback: save all non-empty soap fields
+        for (const f of ['subjective', 'objective', 'assessment', 'plan', 'notes'] as const) {
+          if (soap[f]?.trim()) localStorage.setItem(draftKey(f), soap[f])
+        }
+      }
+      if (pendingDiagnoses.length > 0) {
+        localStorage.setItem(`${draftBase}_diagnoses`, JSON.stringify(pendingDiagnoses))
+      }
+    } catch {}
+  }
+
+  function loadDraft() {
+    try {
+      const restored: Partial<SoapForm> = {}
+      for (const f of ['subjective', 'objective', 'assessment', 'plan', 'notes'] as const) {
+        const v = localStorage.getItem(draftKey(f))
+        if (v) restored[f] = v
+      }
+      if (Object.keys(restored).length > 0) setSoap((prev) => ({ ...prev, ...restored }))
+      try {
+        const diags = localStorage.getItem(`${draftBase}_diagnoses`)
+        if (diags) { const parsed = JSON.parse(diags); if (Array.isArray(parsed) && parsed.length > 0) setPendingDiagnoses(parsed) }
+      } catch {}
+      // Order form drafts
+      setPrescription((prev) => ({
+        ...prev,
+        drug_name: localStorage.getItem(draftKey('rx_drug')) || prev.drug_name,
+        dosage: localStorage.getItem(draftKey('rx_dosage')) || prev.dosage,
+        instructions: localStorage.getItem(draftKey('rx_instructions')) || prev.instructions,
+      }))
+      setLabForm((prev) => ({
+        ...prev,
+        test_name: localStorage.getItem(draftKey('lab_test')) || prev.test_name,
+        doctor_comment: localStorage.getItem(draftKey('lab_comment')) || prev.doctor_comment,
+      }))
+      setRadiologyForm((prev) => ({
+        ...prev,
+        imaging_type: localStorage.getItem(draftKey('rad_type')) || prev.imaging_type,
+        doctor_comment: localStorage.getItem(draftKey('rad_comment')) || prev.doctor_comment,
+      }))
+    } catch {}
+  }
+
+  function clearDraft() {
+    try {
+      for (const f of ['subjective', 'objective', 'assessment', 'plan', 'notes'] as const) localStorage.removeItem(draftKey(f))
+      localStorage.removeItem(`${draftBase}_diagnoses`)
+    } catch {}
+  }
+
+  // Load draft on mount (after patient resolves)
+  useEffect(() => {
+    if (!patientId) return
+    draftLoadedRef.current = false
+    const t = setTimeout(() => {
+      loadDraft()
+      draftLoadedRef.current = true
+    }, 300)
+    return () => { clearTimeout(t); draftLoadedRef.current = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [patientId])
+
+  // Save diagnoses draft when they change (only after the draft has been loaded,
+  // so the mount-time empty state never wipes a saved diagnosis list before restore,
+  // and switching patients never writes one patient's diagnoses under another's key).
+  useEffect(() => {
+    if (!patientId || !draftLoadedRef.current) return
+    try {
+      if (pendingDiagnoses.length > 0) {
+        localStorage.setItem(`${draftBase}_diagnoses`, JSON.stringify(pendingDiagnoses))
+      } else {
+        localStorage.removeItem(`${draftBase}_diagnoses`)
+      }
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingDiagnoses])
 
   async function loadOrdersData() {
     const encIds = new Set<string>()
@@ -335,8 +442,8 @@ export default function DoctorConsultation() {
 
   async function refreshOrders() {
     await loadOrdersData()
-    setOrdersPage(1)
-    setRxPage(1)
+    setOrdersVisibleCount(PER_PAGE)
+    setRxVisibleCount(PER_PAGE)
   }
 
   useEffect(() => {
@@ -347,17 +454,63 @@ export default function DoctorConsultation() {
     return () => { clearInterval(interval); window.removeEventListener('focus', onFocus) }
   }, [patientId, encounters])
 
+  const handleCompleteConsultation = async () => {
+    if (!referral?.id) return
+    setShowCompleteModal(true)
+  }
+
+  async function startConsultation() {
+    if (!patientId) return
+    setVisitBusy(true)
+    try {
+      if (visit?.id) {
+        const r = await api.put(`/visits/${visit.id}/start`, { performed_by: currentStaffId })
+        setVisit(r.data)
+      } else {
+        const created = await api.post('/visits', { patient_id: patientId, assigned_doctor_id: currentStaffId, performed_by: currentStaffId })
+        const r = await api.put(`/visits/${created.data.id}/start`, { performed_by: currentStaffId })
+        setVisit(r.data)
+      }
+      setShowStartConfirm(false)
+      showToast('Consultation started', 'success')
+    } catch (err: any) {
+      const active = err?.response?.data?.activeConsultation
+      if (active) { setShowStartConfirm(false); setActiveConsultBlock(active); return }
+      showToast(err?.response?.data?.message || 'Failed to start consultation', 'error')
+    } finally { setVisitBusy(false) }
+  }
+
+  async function completeVisit() {
+    if (!visit?.id) return
+    setVisitBusy(true)
+    try {
+      const r = await api.put(`/visits/${visit.id}/complete`, { performed_by: currentStaffId })
+      setVisit(r.data)
+      showToast('Consultation completed', 'success')
+      setTimeout(() => navigate('/doctor/consultations'), 1000)
+    } catch (err: any) { showToast(err?.response?.data?.message || 'Failed to complete consultation', 'error') } finally { setVisitBusy(false) }
+  }
+
   const handleSoapSubmit = async () => {
     if (!patientId) return
-    if (!soap.subjective && !soap.objective && !soap.assessment && !soap.plan) { showToast('Please fill in at least one SOAP field', 'error'); return }
+    const allBlank = !soap.subjective && !soap.objective && !soap.assessment && !soap.plan && !soap.notes
+    if (allBlank) { showToast('Please fill in at least one field (SOAP or Notes)', 'error'); return }
     setSoapSubmitting(true)
     try {
       const encId = await ensureEncounter()
       if (!encId) { showToast('Failed to create encounter', 'error'); setSoapSubmitting(false); return }
       const diagnoses = pendingDiagnoses.map((d) => ({ code: d.code, label: d.label, diagnosed_at: new Date().toISOString() }))
-      await api.put(`/encounters/${encId}`, { encounter_type: encounterTypeRef.current, chief_complaint: soap.subjective.slice(0, 500), soap_notes: soap, diagnoses: diagnoses.length > 0 ? diagnoses : undefined })
+      // Append a new note under the encounter (never overwrites prior notes)
+      await api.post('/encounter-notes', {
+        encounter_id: encId,
+        staff_id: currentStaffId,
+        chief_complaint: soap.subjective.slice(0, 500),
+        soap_notes: soap,
+        diagnoses: diagnoses.length > 0 ? diagnoses : undefined,
+      })
       showToast('SOAP note saved successfully', 'success')
       maybePromptAnc(encId)
+      clearDraft()
       setSoap(emptySoap)
       setPendingDiagnoses([])
       const { data: refreshed } = await api.get<any>(`/patients/${patientId}`)
@@ -372,6 +525,7 @@ export default function DoctorConsultation() {
       const encId = await ensureEncounter()
       await api.post('/lab-orders', { encounter_id: encId, test_name: labForm.test_name.trim(), lab_number: patient?.hospital_number || undefined, doctor_comment: labForm.doctor_comment.trim() || undefined })
       showToast('Lab order submitted', 'success'); if (encId) maybePromptAnc(encId); setLabForm({ test_name: '', doctor_comment: '' }); setActiveModal(null)
+      try { localStorage.removeItem(draftKey('lab_comment')); localStorage.removeItem(draftKey('lab_test')) } catch {}
       refreshOrders()
     } catch { showToast('Failed to submit lab order', 'error') } finally { setLabSubmitting(false) }
   }
@@ -385,6 +539,7 @@ export default function DoctorConsultation() {
       const patName = patient?.full_name || ''
       await api.post('/radiology-orders', { encounter_id: encId, imaging_type: radiologyForm.imaging_type, doctor_name: doctorName, patient_name: patName, doctor_comment: radiologyForm.doctor_comment.trim() || undefined })
       showToast('Radiology order submitted', 'success'); if (encId) maybePromptAnc(encId); setRadiologyForm({ imaging_type: '', doctor_comment: '' }); setActiveModal(null)
+      try { localStorage.removeItem(draftKey('rad_comment')); localStorage.removeItem(draftKey('rad_type')) } catch {}
       refreshOrders()
     } catch { showToast('Failed to submit radiology order', 'error') } finally { setRadiologySubmitting(false) }
   }
@@ -397,6 +552,7 @@ export default function DoctorConsultation() {
       await api.post('/prescriptions', { encounter_id: encId, drug_name: prescription.drug_name.trim(), dosage: prescription.dosage, quantity: Number(prescription.quantity) || 0, instructions: prescription.instructions })
       showToast('Prescription created', 'success'); if (encId) maybePromptAnc(encId)
       setPrescription({ drug_name: '', dosage: '', quantity: '', instructions: '' })
+      try { localStorage.removeItem(draftKey('rx_drug')); localStorage.removeItem(draftKey('rx_dosage')); localStorage.removeItem(draftKey('rx_instructions')) } catch {}
       refreshOrders()
     } catch { showToast('Failed to create prescription', 'error') } finally { setPrescriptionSubmitting(false) }
   }
@@ -436,22 +592,199 @@ export default function DoctorConsultation() {
       <Toast toast={toast} onClose={dismissToast} />
 
       {/* Patient Header */}
-      <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center"><ClipboardList className="w-5 h-5 text-primary" /></div>
-        <div>
-          <h1 className="text-xl font-semibold text-slate-800">Doctor Consultation</h1>
-          <p className="text-sm text-slate-400 flex items-center gap-2 flex-wrap">
-            {patient.full_name}
-            {patient.primary_provider && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium flex-shrink-0">
-                <Shield size={10} /> {patient.primary_provider}
-              </span>
-            )}
-            <span>&middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; {patient.blood_type || 'Blood type N/A'}</span>
-          </p>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0"><ClipboardList className="w-5 h-5 text-primary" /></div>
+          <div className="min-w-0">
+            <h1 className="text-xl font-semibold text-slate-800 truncate">Doctor Consultation</h1>
+            <p className="text-sm text-slate-400 flex items-center gap-2 flex-wrap">
+              {patient.full_name}
+              {patient.primary_provider && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-medium flex-shrink-0">
+                  <Shield size={10} /> {patient.primary_provider}
+                </span>
+              )}
+              <span>&middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; {patient.blood_type || 'Blood type N/A'}</span>
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+          <button
+            onClick={() => setShowChartModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-semibold hover:bg-slate-50 transition-colors"
+          >
+            <FileText className="w-4 h-4" /> Chart
+          </button>
+          <button
+            onClick={() => setShowReferralModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-500 text-white text-sm font-semibold hover:bg-indigo-600 transition-colors flex-shrink-0"
+          >
+            <Building2 className="w-4 h-4" /> Refer / Transfer
+          </button>
         </div>
       </div>
+
+      {/* Visit / Consultation banner */}
+      <div className={`rounded-2xl border p-4 ${visit ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50 border-slate-200'}`}>
+        <div className="flex items-start gap-3 flex-wrap">
+          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0"><Stethoscope className="w-4 h-4 text-primary" /></div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold text-slate-800">Visit / Consultation</p>
+              {visit ? (
+                <>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${visit.status === 'with_doctor' ? 'bg-violet-100 text-violet-700' : visit.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{visit.status.replace('_', ' ')}</span>
+                  <span className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium">{visit.visit_type === 'follow_up' ? 'Follow-up' : visit.visit_type === 'review' ? 'Review' : 'New'} visit</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${visit.consultation_status === 'paid' ? 'bg-emerald-100 text-emerald-700' : visit.consultation_status === 'insurance_authorized' ? 'bg-indigo-100 text-indigo-700' : visit.consultation_status === 'waived' ? 'bg-slate-100 text-slate-500' : 'bg-rose-100 text-rose-700'}`}>{visit.consultation_status.replace('_', ' ')}</span>
+                  {visit.assigned_doctor_name && <span className="text-[11px] text-slate-400">Assigned: <strong>{visit.assigned_doctor_name}</strong></span>}
+                </>
+              ) : (
+                <span className="text-xs text-slate-400">No active visit — start one to record the consultation.</span>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+            {visit && visit.status !== 'completed' ? (
+              <>
+                {visit.status === 'waiting' && (
+                  <button onClick={() => setShowStartConfirm(true)} disabled={visitBusy}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-blue-600 disabled:opacity-50 transition-colors">
+                    {visitBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />} Start Consultation
+                  </button>
+                )}
+                <button onClick={completeVisit} disabled={visitBusy}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+                  {visitBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Complete Consultation
+                </button>
+              </>
+            ) : (
+              <button onClick={() => setShowStartConfirm(true)} disabled={visitBusy}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-blue-600 disabled:opacity-50 transition-colors">
+                {visitBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />} Start Consultation
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Today's Vitals */}
+      <div className={`rounded-2xl border p-4 ${todayVitals.length > 0 ? 'bg-white border-slate-200 shadow-sm' : 'bg-amber-50 border-amber-200'}`}>
+        <div className="flex items-start gap-3 flex-wrap">
+          <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${todayVitals.length > 0 ? 'bg-emerald-50' : 'bg-amber-100'}`}>
+            <Activity className={`w-4 h-4 ${todayVitals.length > 0 ? 'text-emerald-600' : 'text-amber-600'}`} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold text-slate-800">Today's Vitals</p>
+              {todayVitals.length > 0 ? (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-semibold uppercase tracking-wide">Captured</span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold uppercase tracking-wide">Not Captured</span>
+              )}
+            </div>
+            {todayVitals.length > 0 ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mt-3">
+                {(() => {
+                  const v = todayVitals[0]
+                  const items: { label: string; value: string; flag?: boolean }[] = []
+                  if (v.systolic_bp && v.diastolic_bp) items.push({ label: 'BP', value: `${v.systolic_bp}/${v.diastolic_bp} mmHg` })
+                  if (v.pulse) items.push({ label: 'Pulse', value: `${v.pulse} bpm` })
+                  if (v.temperature) items.push({ label: 'Temp', value: `${v.temperature} °C`, flag: Number(v.temperature) < 32 || Number(v.temperature) > 43 })
+                  if (v.respiration_rate) items.push({ label: 'Resp', value: `${v.respiration_rate} /min` })
+                  if (v.spo2) items.push({ label: 'SpO₂', value: `${v.spo2}%` })
+                  if (v.weight) items.push({ label: 'Weight', value: `${v.weight} kg` })
+                  if (items.length === 0) items.push({ label: 'Recorded', value: new Date(v.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) })
+                  return items.map((it) => (
+                    <div key={it.label} className={`rounded-xl border px-3 py-2 ${it.flag ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-100'}`}>
+                      <p className="text-[10px] text-slate-400">{it.label}</p>
+                      <p className={`text-sm font-semibold ${it.flag ? 'text-rose-700' : 'text-slate-800'}`}>{it.value}</p>
+                    </div>
+                  ))
+                })()}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-3 mt-2">
+                <p className="text-xs text-amber-800">Vitals for this patient for today have not been captured yet. Nursing should record them at triage before consultation.</p>
+              </div>
+            )}
+          </div>
+          <button onClick={() => { setChartInitialSection('vitals'); setShowChartModal(true) }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-blue-600 transition-colors flex-shrink-0">
+            <FileText className="w-3.5 h-3.5" /> Open Chart (Vitals)
+          </button>
+        </div>
+      </div>
+
+      {/* Consultant Referral Banner */}
+      {isConsultantMode && referral && (
+        <div className={`rounded-2xl border p-4 ${
+          referral.priority === 'emergency' ? 'bg-rose-50 border-rose-200' :
+          referral.priority === 'urgent' ? 'bg-amber-50 border-amber-200' :
+          'bg-sky-50 border-sky-200'
+        }`}>
+          <div className="flex items-start gap-3 flex-wrap">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+              referral.priority === 'emergency' ? 'bg-rose-100 text-rose-600' :
+              referral.priority === 'urgent' ? 'bg-amber-100 text-amber-600' :
+              'bg-sky-100 text-sky-600'
+            }`}>
+              {referral.priority === 'emergency' ? <AlertTriangle className="w-4 h-4" /> : <Stethoscope className="w-4 h-4" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-slate-800">
+                  Referral {referral.referral_number}
+                </p>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
+                  referral.priority === 'emergency' ? 'bg-rose-200 text-rose-800' :
+                  referral.priority === 'urgent' ? 'bg-amber-200 text-amber-800' :
+                  'bg-sky-200 text-sky-800'
+                }`}>{referral.priority}</span>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
+                  referral.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                  referral.status === 'rejected' ? 'bg-rose-100 text-rose-700' :
+                  referral.status === 'cancelled' ? 'bg-slate-100 text-slate-500' :
+                  referral.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
+                  referral.status === 'in_consultation' ? 'bg-violet-100 text-violet-700' :
+                  'bg-amber-100 text-amber-700'
+                }`}>{referral.status.replace('_', ' ')}</span>
+                {referral.to_department_name && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-medium">
+                    <Building2 className="w-3 h-3" /> {referral.to_department_name}
+                  </span>
+                )}
+              </div>
+              {referral.reason && (
+                <div className="mt-1.5">
+                  <CollapsibleReason text={referral.reason} />
+                </div>
+              )}
+              <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                {referral.referred_by_name && <span>Referred by <strong>{referral.referred_by_name}</strong></span>}
+                {referral.accepted_by_name && <span>· Accepted by <strong>{referral.accepted_by_name}</strong>{referral.accepted_at ? ` on ${new Date(referral.accepted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}</span>}
+                {referral.to_consultant_name && <span>· Consultant: <strong>{referral.to_consultant_name}</strong></span>}
+              </div>
+            </div>
+            <div className="flex flex-col items-end gap-2 flex-shrink-0">
+              {referral.status !== 'completed' && (
+                <button
+                  onClick={handleCompleteConsultation}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors"
+                >
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Complete Consultation
+                </button>
+              )}
+              {referral.status === 'completed' && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-700 text-xs font-medium">
+                  <CheckCircle className="w-3.5 h-3.5" /> Referral closed
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Vitals Display */}
       {vitals && (
@@ -495,10 +828,6 @@ export default function DoctorConsultation() {
                 {lastANCVisit && <span>Last ANC: {lastANCVisit.visit_date?.slice(0, 10)}</span>}
               </div>
             </div>
-            <button onClick={() => window.location.href = `/maternity/patients/${maternityRecord.id}`}
-              className="flex-shrink-0 px-3 py-1.5 text-xs font-medium text-purple-700 bg-white border border-purple-200 rounded-xl hover:bg-purple-50">
-              View Full Chart
-            </button>
           </div>
         </div>
       )}
@@ -684,7 +1013,7 @@ export default function DoctorConsultation() {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 pointer-events-none" />
                 <input type="text" placeholder="Type drug name or search inventory..." value={prescription.drug_name}
-                  onChange={(e) => { setPrescription((prev) => ({ ...prev, drug_name: e.target.value })); setShowDrugSuggestions(true) }}
+                  onChange={(e) => { setPrescription((prev) => ({ ...prev, drug_name: e.target.value })); setShowDrugSuggestions(true); try { localStorage.setItem(draftKey('rx_drug'), e.target.value) } catch {} }}
                   onFocus={() => setShowDrugSuggestions(true)} onBlur={() => setTimeout(() => setShowDrugSuggestions(false), 200)}
                   className="w-full rounded-xl border border-slate-200 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
               </div>
@@ -702,7 +1031,7 @@ export default function DoctorConsultation() {
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1.5">Dosage</label>
                 <input type="text" placeholder="e.g. 500mg" value={prescription.dosage}
-                  onChange={(e) => setPrescription((prev) => ({ ...prev, dosage: e.target.value }))}
+                  onChange={(e) => { setPrescription((prev) => ({ ...prev, dosage: e.target.value })); try { localStorage.setItem(draftKey('rx_dosage'), e.target.value) } catch {} }}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
               </div>
               <div>
@@ -717,7 +1046,7 @@ export default function DoctorConsultation() {
                 <VoiceInput value={prescription.instructions} onChange={(val) => setPrescription((prev) => ({ ...prev, instructions: val }))} />
               </label>
               <textarea placeholder="e.g. Take one capsule three times daily after meals" value={prescription.instructions}
-                onChange={(e) => setPrescription((prev) => ({ ...prev, instructions: e.target.value }))}
+                onChange={(e) => { setPrescription((prev) => ({ ...prev, instructions: e.target.value })); try { localStorage.setItem(draftKey('rx_instructions'), e.target.value) } catch {} }}
                 className="auto-expand-sm w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
             </div>
             <button onClick={handlePrescriptionSubmit} disabled={prescriptionSubmitting}
@@ -776,8 +1105,9 @@ export default function DoctorConsultation() {
           {sortedEncounters.length === 0 ? (
             <p className="text-sm text-slate-400">No prior encounters found.</p>
           ) : (
+            <>
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {(sortedEncounters.slice((soapPage - 1) * PER_PAGE, soapPage * PER_PAGE)).map((enc, idx) => {
+              {(sortedEncounters.slice(0, soapVisibleCount)).map((enc, idx) => {
                 const staffName = enc.staff_id ? staffCache[enc.staff_id] : null
                 const realIdx = sortedEncounters.indexOf(enc)
                 return (
@@ -788,8 +1118,13 @@ export default function DoctorConsultation() {
                     <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5"><Clock className="w-4 h-4 text-primary" /></div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className={`text-xs font-semibold uppercase tracking-wider ${enc.encounter_type === 'maternity' ? 'text-purple-600' : 'text-slate-700'}`}>{enc.encounter_type}</span>
+                        <span className={`text-xs font-semibold uppercase tracking-wider ${enc.encounter_type === 'maternity' ? 'text-purple-600' : 'text-slate-700'}`}>
+                          {enc.encounter_type === 'maternity' ? 'CONSULTATION (MATERNITY)' : enc.encounter_type}
+                        </span>
                         {enc.encounter_type === 'maternity' && <span className="text-[9px] font-bold text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded-full">MAT</span>}
+                        {(enc as any).is_consultation && (
+                          <ConsultantTag departmentName={(enc as any).department_name} />
+                        )}
                         <span className="text-xs text-slate-400">{new Date(enc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                         {realIdx === 0 && <span className="text-[10px] font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">Current</span>}
                       </div>
@@ -803,8 +1138,16 @@ export default function DoctorConsultation() {
                 )
               })}
             </div>
+            {sortedEncounters.length > soapVisibleCount && (
+              <div className="pt-2">
+                <button onClick={() => setSoapVisibleCount((c) => c + PER_PAGE)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-slate-300 text-sm font-medium text-primary hover:bg-primary/5 hover:border-primary transition-colors">
+                  <ChevronDown className="w-4 h-4" /> Show more ({Math.min(PER_PAGE, sortedEncounters.length - soapVisibleCount)} more of {sortedEncounters.length})
+                </button>
+              </div>
+            )}
+            </>
           )}
-          <Pagination page={soapPage} totalPages={Math.max(1, Math.ceil(sortedEncounters.length / PER_PAGE))} onChange={setSoapPage} />
         </div>
       )}
 
@@ -817,10 +1160,11 @@ export default function DoctorConsultation() {
           {(allLabOrders.length + allRadOrders.length) === 0 ? (
             <p className="text-sm text-slate-400">No prior lab or radiology orders.</p>
           ) : (
+            <>
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
               {[...allLabOrders.map((o: any) => ({ ...o, _type: 'lab' })), ...allRadOrders.map((o: any) => ({ ...o, _type: 'radiology' }))]
                 .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-                .slice((ordersPage - 1) * PER_PAGE, ordersPage * PER_PAGE)
+                .slice(0, ordersVisibleCount)
                 .map((ord: any) => (
                 <div key={ord.id}
                   className="flex items-start gap-4 p-3.5 rounded-xl border border-slate-100 bg-slate-50/40 hover:shadow-md transition-all cursor-pointer"
@@ -842,6 +1186,9 @@ export default function DoctorConsultation() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold text-slate-800">{ord._type === 'lab' ? ord.test_name : ord.imaging_type}</span>
+                      {(ord.is_consultation || ord.doctor_role === 'Consultant') && (
+                        <ConsultantTag departmentName={ord.department_name} />
+                      )}
                       <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${
                         ord.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
                       }`}>{ord.status}</span>
@@ -857,8 +1204,16 @@ export default function DoctorConsultation() {
                 </div>
               ))}
             </div>
+            {allLabOrders.length + allRadOrders.length > ordersVisibleCount && (
+              <div className="pt-2">
+                <button onClick={() => setOrdersVisibleCount((c) => c + PER_PAGE)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-slate-300 text-sm font-medium text-primary hover:bg-primary/5 hover:border-primary transition-colors">
+                  <ChevronDown className="w-4 h-4" /> Show more ({Math.min(PER_PAGE, (allLabOrders.length + allRadOrders.length) - ordersVisibleCount)} more of {allLabOrders.length + allRadOrders.length})
+                </button>
+              </div>
+            )}
+            </>
           )}
-          <Pagination page={ordersPage} totalPages={Math.max(1, Math.ceil((allLabOrders.length + allRadOrders.length) / PER_PAGE))} onChange={setOrdersPage} />
         </div>
       )}
 
@@ -871,14 +1226,18 @@ export default function DoctorConsultation() {
           {allPrescriptions.length === 0 ? (
             <p className="text-sm text-slate-400">No prior prescriptions.</p>
           ) : (
+            <>
             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {[...allPrescriptions].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice((rxPage - 1) * PER_PAGE, rxPage * PER_PAGE).map((rx: any) => (
+              {[...allPrescriptions].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()).slice(0, rxVisibleCount).map((rx: any) => (
                 <div key={rx.id} onClick={() => setRxDetailModal(rx)}
                   className="cursor-pointer flex items-start gap-4 p-3.5 rounded-xl border border-slate-100 bg-slate-50/40 hover:shadow-md transition-all">
                   <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5"><Pill className="w-4 h-4 text-primary" /></div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold text-slate-800">{rx.drug_name}</span>
+                      {(rx.is_consultation || rx.doctor_role === 'Consultant') && (
+                        <ConsultantTag departmentName={rx.department_name} />
+                      )}
                       {rx.dosage && <span className="text-xs text-slate-500">{rx.dosage}</span>}
                       {rx.quantity ? <span className="text-xs text-slate-400">Qty: {rx.quantity}</span> : null}
                       {rx.status === 'dispensed' ? (
@@ -896,8 +1255,16 @@ export default function DoctorConsultation() {
                 </div>
               ))}
             </div>
+            {allPrescriptions.length > rxVisibleCount && (
+              <div className="pt-2">
+                <button onClick={() => setRxVisibleCount((c) => c + PER_PAGE)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-slate-300 text-sm font-medium text-primary hover:bg-primary/5 hover:border-primary transition-colors">
+                  <ChevronDown className="w-4 h-4" /> Show more ({Math.min(PER_PAGE, allPrescriptions.length - rxVisibleCount)} more of {allPrescriptions.length})
+                </button>
+              </div>
+            )}
+            </>
           )}
-          <Pagination page={rxPage} totalPages={Math.max(1, Math.ceil(allPrescriptions.length / PER_PAGE))} onChange={setRxPage} />
         </div>
       )}
 
@@ -1054,14 +1421,14 @@ export default function DoctorConsultation() {
                   <label className="block text-xs font-medium text-slate-500 mb-1.5">Test Name</label>
                   <div className="relative">
                     <input type="text" placeholder="Search lab tests..." value={labTestSearch || labForm.test_name}
-                      onChange={(e) => { setLabTestSearch(e.target.value); setLabForm({ test_name: '', doctor_comment: labForm.doctor_comment }); setShowLabTestDropdown(true) }}
+                      onChange={(e) => { setLabTestSearch(e.target.value); setLabForm({ test_name: '', doctor_comment: labForm.doctor_comment }); setShowLabTestDropdown(true); try { localStorage.setItem(draftKey('lab_test'), e.target.value) } catch {} }}
                       onFocus={() => setShowLabTestDropdown(true)}
                       onBlur={() => setTimeout(() => setShowLabTestDropdown(false), 200)}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
                     {showLabTestDropdown && (
                       <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
                         {mergedLabTests.filter((t: any) => t.name.toLowerCase().includes((labTestSearch || labForm.test_name).toLowerCase())).slice(0, 10).map((t: any, i: number) => (
-                          <button key={`${t.name}-${i}`} type="button" onMouseDown={() => { setLabForm({ test_name: t.name, doctor_comment: labForm.doctor_comment }); setLabTestSearch(''); setShowLabTestDropdown(false) }}
+                          <button key={`${t.name}-${i}`} type="button" onMouseDown={() => { setLabForm({ test_name: t.name, doctor_comment: labForm.doctor_comment }); setLabTestSearch(''); setShowLabTestDropdown(false); try { localStorage.setItem(draftKey('lab_test'), t.name) } catch {} }}
                             className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors">{t.name} <span className="text-slate-400 text-xs">{t.category}</span></button>
                         ))}
                         {mergedLabTests.filter((t: any) => t.name.toLowerCase().includes((labTestSearch || labForm.test_name).toLowerCase())).length === 0 && (
@@ -1075,7 +1442,7 @@ export default function DoctorConsultation() {
                   <label className="block text-xs font-medium text-slate-500 mb-1.5">Doctor's Comment</label>
                   <textarea placeholder="Optional: Add clinical notes or specific instructions for the lab..."
                     value={labForm.doctor_comment}
-                    onChange={(e) => setLabForm({ ...labForm, doctor_comment: e.target.value })}
+                    onChange={(e) => { setLabForm({ ...labForm, doctor_comment: e.target.value }); try { localStorage.setItem(draftKey('lab_comment'), e.target.value) } catch {} }}
                     rows={3}
                     className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
                 </div>
@@ -1093,14 +1460,14 @@ export default function DoctorConsultation() {
                   <label className="block text-xs font-medium text-slate-500 mb-1.5">Imaging Type</label>
                   <div className="relative">
                     <input type="text" placeholder="Search imaging types..." value={radiologySearch || radiologyForm.imaging_type}
-                      onChange={(e) => { setRadiologySearch(e.target.value); setRadiologyForm({ ...radiologyForm, imaging_type: '' }); setShowRadiologyDropdown(true) }}
+                      onChange={(e) => { setRadiologySearch(e.target.value); setRadiologyForm({ ...radiologyForm, imaging_type: '' }); setShowRadiologyDropdown(true); try { localStorage.setItem(draftKey('rad_type'), e.target.value) } catch {} }}
                       onFocus={() => setShowRadiologyDropdown(true)}
                       onBlur={() => setTimeout(() => setShowRadiologyDropdown(false), 200)}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
                     {showRadiologyDropdown && (
                       <div className="absolute top-full left-0 right-0 mt-1 z-20 bg-white rounded-xl border border-slate-200 shadow-lg max-h-48 overflow-y-auto">
                         {radiologyImagingTypes.filter((t) => t.toLowerCase().includes((radiologySearch || radiologyForm.imaging_type).toLowerCase())).slice(0, 10).map((type) => (
-                          <button key={type} type="button" onMouseDown={() => { setRadiologyForm({ ...radiologyForm, imaging_type: type }); setRadiologySearch(''); setShowRadiologyDropdown(false) }}
+                          <button key={type} type="button" onMouseDown={() => { setRadiologyForm({ ...radiologyForm, imaging_type: type }); setRadiologySearch(''); setShowRadiologyDropdown(false); try { localStorage.setItem(draftKey('rad_type'), type) } catch {} }}
                             className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-blue-50 transition-colors">{type}</button>
                         ))}
                         {radiologyImagingTypes.filter((t) => t.toLowerCase().includes((radiologySearch || radiologyForm.imaging_type).toLowerCase())).length === 0 && (
@@ -1114,7 +1481,7 @@ export default function DoctorConsultation() {
                   <label className="block text-xs font-medium text-slate-500 mb-1.5">Doctor's Comment</label>
                   <textarea placeholder="Optional: Add clinical notes or specific instructions for the radiologist..."
                     value={radiologyForm.doctor_comment}
-                    onChange={(e) => setRadiologyForm({ ...radiologyForm, doctor_comment: e.target.value })}
+                    onChange={(e) => { setRadiologyForm({ ...radiologyForm, doctor_comment: e.target.value }); try { localStorage.setItem(draftKey('rad_comment'), e.target.value) } catch {} }}
                     rows={3}
                     className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
                 </div>
@@ -1145,8 +1512,17 @@ export default function DoctorConsultation() {
             <div className="p-6 space-y-5">
               {/* Meta */}
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><span className="text-slate-500">Type:</span> <span className="font-medium text-slate-700 capitalize">{timelineModal.encounter.encounter_type}</span></div>
+                <div><span className="text-slate-500">Type:</span> <span className="font-medium text-slate-700 capitalize">{timelineModal.encounter.encounter_type === 'maternity' ? 'Consultation (Maternity)' : timelineModal.encounter.encounter_type}</span></div>
                 <div><span className="text-slate-500">Doctor:</span> <span className="font-medium text-slate-700">{timelineModal.doctorName}</span></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500">Department:</span>
+                  <span className="font-medium text-slate-700">{(timelineModal.encounter as any).department_name || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {(timelineModal.encounter as any).is_consultation && (
+                    <ConsultantTag departmentName={(timelineModal.encounter as any).department_name} />
+                  )}
+                </div>
                 <div><span className="text-slate-500">Created:</span> <span className="font-medium text-slate-700">{new Date(timelineModal.encounter.created_at).toLocaleString()}</span></div>
                 {timelineModal.encounter.updated_at !== timelineModal.encounter.created_at && (
                   <div><span className="text-slate-500">Last Updated:</span> <span className="font-medium text-slate-700">{new Date(timelineModal.encounter.updated_at).toLocaleString()}</span></div>
@@ -1161,23 +1537,50 @@ export default function DoctorConsultation() {
                 </div>
               )}
 
-              {/* SOAP Notes */}
+              {/* SOAP Notes (all notes for this encounter) */}
               {(() => {
-                const soapNotes = timelineModal.encounter.soap_notes
+                const fields = ['subjective', 'objective', 'assessment', 'plan', 'notes'] as const
+                const notesArr = Array.isArray((timelineModal.encounter as any).notes) ? (timelineModal.encounter as any).notes : []
+                const fallbackSoap = timelineModal.encounter.soap_notes
                   ? (typeof timelineModal.encounter.soap_notes === 'string' ? JSON.parse(timelineModal.encounter.soap_notes) : timelineModal.encounter.soap_notes)
                   : null
-                if (!soapNotes) return null
-                const fields = ['subjective', 'objective', 'assessment', 'plan'] as const
+                if (notesArr.length === 0 && !fallbackSoap) return null
                 return (
                   <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">SOAP Notes</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {fields.map((f) => soapNotes[f] ? (
-                        <div key={f} className="bg-slate-50 rounded-xl p-3">
-                          <p className="text-xs font-medium text-primary capitalize mb-0.5">{f}</p>
-                          <p className="text-sm text-slate-700">{soapNotes[f]}</p>
-                        </div>
-                      ) : null)}
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      SOAP Notes {notesArr.length > 1 ? `(${notesArr.length})` : ''}
+                    </p>
+                    <div className="space-y-3">
+                      {(notesArr.length > 0 ? notesArr : [fallbackSoap]).map((note: any, ni: number) => {
+                        const nSoap = typeof note.soap_notes === 'string' ? JSON.parse(note.soap_notes) : (note.soap_notes || note)
+                        return (
+                          <div key={ni} className="border border-slate-200 rounded-xl p-3">
+                            {(notesArr.length > 1 || note.created_at) && (
+                              <p className="text-[10px] text-slate-400 mb-1.5">
+                                {notesArr.length > 1 ? `Note ${ni + 1}` : 'Note'} · {note.staff_name || '—'}
+                                {note.created_at ? ` · ${new Date(note.created_at).toLocaleString()}` : ''}
+                              </p>
+                            )}
+                            <div className="grid grid-cols-2 gap-2">
+                              {fields.map((f) => (nSoap && nSoap[f]) ? (
+                                <div key={f} className="bg-slate-50 rounded-xl p-2.5">
+                                  <p className="text-xs font-medium text-primary capitalize mb-0.5">{f}</p>
+                                  <p className="text-[15px] leading-relaxed text-slate-800 whitespace-pre-wrap break-words">{nSoap[f]}</p>
+                                </div>
+                              ) : null)}
+                            </div>
+                            {Array.isArray(note.diagnoses) && note.diagnoses.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {note.diagnoses.map((d: any, di: number) => (
+                                  <span key={di} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px]">
+                                    <span className="font-mono">{d.code}</span> {d.label}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )
@@ -1397,6 +1800,130 @@ export default function DoctorConsultation() {
               }}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium hover:scale-[1.01] transition-transform">
                 <CheckCircle size={14} /> Yes, record ANC visit
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showReferralModal && (
+        <ReferralModal
+          patientId={patientId}
+          patientName={patient.full_name}
+          onClose={() => setShowReferralModal(false)}
+        />
+      )}
+
+      {showCompleteModal && referral && (
+        <CompleteConsultationModal
+          referral={referral}
+          patientName={patient?.full_name}
+          hospitalNumber={patient?.hospital_number}
+          labCount={allLabOrders.filter((o: any) => o.is_consultation || o.doctor_role === 'Consultant').length}
+          radiologyCount={allRadOrders.filter((o: any) => o.is_consultation || o.doctor_role === 'Consultant').length}
+          prescriptionCount={allPrescriptions.filter((o: any) => o.is_consultation || o.doctor_role === 'Consultant').length}
+          defaultOutcome={soap.assessment || soap.plan}
+          onClose={() => setShowCompleteModal(false)}
+          onCompleted={() => {
+            setShowCompleteModal(false)
+            showToast('Consultation completed — referral closed', 'success')
+            setTimeout(() => navigate('/consultant/dashboard'), 1200)
+          }}
+        />
+      )}
+
+      {showChartModal && patientId && (
+        <ChartModal
+          patientId={patientId}
+          maternityId={maternityPatientIdRef.current || (maternityRecord?.id ?? null)}
+          initialSection={chartInitialSection}
+          onClose={() => setShowChartModal(false)}
+        />
+      )}
+
+      {showStartConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!visitBusy) setShowStartConfirm(false) }}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5 text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur flex items-center justify-center text-lg font-bold">
+                  {(patient?.full_name || '?').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold">Start Consultation</h2>
+                  <p className="text-emerald-100 text-xs font-mono truncate">{patient?.hospital_number}</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">
+                Begin consultation for <strong className="text-slate-800">{patient?.full_name}</strong>?
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] font-medium">{visit ? (visit.visit_type === 'follow_up' ? 'Follow-up' : visit.visit_type === 'review' ? 'Review' : 'New') : 'New'} visit</span>
+                {visit && (
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
+                    visit.consultation_status === 'paid' ? 'bg-emerald-100 text-emerald-700'
+                    : visit.consultation_status === 'settled' ? 'bg-teal-100 text-teal-700'
+                    : visit.consultation_status === 'waived' ? 'bg-slate-100 text-slate-500'
+                    : 'bg-amber-100 text-amber-700'
+                  }`}>
+                    {visit.consultation_status === 'paid' ? 'Consultation Paid' : visit.consultation_status === 'settled' ? 'Settled' : visit.consultation_status === 'waived' ? 'Fee Waived' : 'Fee Pending'}
+                  </span>
+                )}
+              </div>
+              <div className="rounded-xl bg-amber-50 border border-amber-200 px-3.5 py-3 text-xs text-amber-800">
+                Starting marks the patient as <strong>With Doctor</strong> and locks the assignment — they cannot be reassigned or released until you complete the consultation. You can only have one active consultation at a time.
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+              <button onClick={() => setShowStartConfirm(false)} disabled={visitBusy}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={startConsultation} disabled={visitBusy}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-all disabled:opacity-50">
+                {visitBusy ? <Loader2 size={14} className="animate-spin" /> : <Stethoscope size={14} />}
+                Start Consultation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeConsultBlock && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setActiveConsultBlock(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-6 py-5 text-white">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"><AlertTriangle size={20} /></div>
+                <div className="min-w-0">
+                  <h2 className="text-base font-semibold">Active Consultation</h2>
+                  <p className="text-amber-100 text-xs">Complete it before starting a new one</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-600">You are currently consulting:</p>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex items-start gap-3">
+                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold flex-shrink-0">
+                  {(activeConsultBlock.full_name || '?').split(' ').map((n: string) => n[0]).slice(0, 2).join('').toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-800 truncate">{activeConsultBlock.full_name}</p>
+                  <p className="text-xs font-mono text-slate-400">{activeConsultBlock.hospital_number}</p>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                    <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] font-medium">{activeConsultBlock.visit_type === 'follow_up' ? 'Follow-up' : activeConsultBlock.visit_type === 'review' ? 'Review' : 'New'} visit</span>
+                    {activeConsultBlock.department_name && <span className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 text-[10px] font-medium">{activeConsultBlock.department_name}</span>}
+                    {activeConsultBlock.started_at && <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium">Started {new Date(activeConsultBlock.started_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>}
+                  </div>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500">Complete this consultation before starting a new one. The patient stays locked until then.</p>
+            </div>
+            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
+              <button onClick={() => setActiveConsultBlock(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Dismiss</button>
+              <button onClick={() => { const p = activeConsultBlock.patient_id; setActiveConsultBlock(null); if (p) navigate(`/consultation/${p}`) }}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-amber-600 text-white text-sm font-medium hover:bg-amber-700 transition-all">
+                <Stethoscope size={14} /> Go to Active Consultation
               </button>
             </div>
           </div>

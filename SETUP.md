@@ -107,7 +107,7 @@ The login page is at **http://localhost:5173/login**.
 
 ### Default Login Credentials
 
-Login with a **username** or email. These 7 accounts are seeded automatically on first startup:
+Login with a **username** or email. These 8 accounts are seeded automatically on first startup:
 
 | Role | Username | Email | Password |
 |------|----------|-------|----------|
@@ -118,6 +118,7 @@ Login with a **username** or email. These 7 accounts are seeded automatically on
 | Pharmacist | `pharmacy` | `pharmacy@sretan.com` | `pharm123` |
 | Records | `records` | `records@sretan.com` | `records123` |
 | Paypoint | `paypoint` | `paypoint@sretan.com` | `pay123` |
+| Consultant | `consultant` | `consultant@sretan.com` | `consultant` |
 
 If they don't exist, seed them:
 ```powershell

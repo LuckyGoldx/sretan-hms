@@ -3,12 +3,17 @@ import { useParams, useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import { printRadiologyReport } from '../utils/print'
 import DoctorComment from './DoctorComment'
+import ReferralModal from './ReferralModal'
+import ConsultationReport from './ConsultationReport'
+import CollapsibleReason from './CollapsibleReason'
+import ConsultantTag from './ConsultantTag'
 import type { Patient, Encounter } from '../types'
 import { Trash2 } from 'lucide-react'
 import {
   User, Clock, Pill, Beaker, Scan, Activity, Loader2, Bed, Search, ClipboardList, ChevronDown, Info,
   AlertTriangle, ChevronRight, ArrowLeft, Stethoscope, FlaskConical, Droplets, XCircle,
-  FileText, X, Plus, CheckCircle, Edit2, Mic, Printer, FileImage, Baby, Calendar as CalIcon, Heart, PenLine, Shield
+  FileText, X, Plus, CheckCircle, Edit2, Mic, Printer, FileImage, Baby, Calendar as CalIcon, Heart, PenLine, Shield,
+  Building2, Zap, Send
 } from 'lucide-react'
 
 const PER_PAGE = 15
@@ -136,8 +141,9 @@ async function fetchDoctorName(staffId: string): Promise<string> {
   try { const s = await api.get(`/staff/${staffId}`); return s.data?.name || 'Unknown Doctor' } catch { return 'Unknown Doctor' }
 }
 
-export default function PatientChart() {
-  const { patientId } = useParams<{ patientId: string }>()
+export default function PatientChart({ patientId: patientIdProp, hideBack, initialSection }: { patientId?: string; hideBack?: boolean; initialSection?: string } = {}) {
+  const { patientId: routePatientId } = useParams<{ patientId: string }>()
+  const patientId = patientIdProp || routePatientId
   const navigate = useNavigate()
 
   function openAddPolicy() {
@@ -159,6 +165,9 @@ export default function PatientChart() {
 
   const [patient, setPatient] = useState<Patient | null>(null)
   const [encounters, setEncounters] = useState<any[]>([])
+  const [referrals, setReferrals] = useState<any[]>([])
+  const [showReferralModal, setShowReferralModal] = useState(false)
+  const [reportReferralId, setReportReferralId] = useState<string | null>(null)
   const [rxList, setRxList] = useState<any[]>([])
   const [labOrders, setLabOrders] = useState<any[]>([])
   const [labResults, setLabResults] = useState<Record<string, any[]>>({})
@@ -374,7 +383,10 @@ export default function PatientChart() {
   const [fluidPage, setFluidPage] = useState(1)
   const [admPage, setAdmPage] = useState(1)
   const [loading, setLoading] = useState(true)
-  const [activeSection, setActiveSection] = useState<string>('summary')
+  const [activeSection, setActiveSection] = useState<string>(() => {
+    if (initialSection) return initialSection
+    return new URLSearchParams(window.location.search).get('tab') || 'summary'
+  })
   const [modalRx, setModalRx] = useState<any | null>(null)
   const [modalEnc, setModalEnc] = useState<any | null>(null)
   const [modalEncData, setModalEncData] = useState<{ prescriptions: any[]; labOrders: any[]; labResultsMap: Record<string, any[]>; radiologyOrders: any[]; doctorName: string } | null>(null)
@@ -403,8 +415,19 @@ export default function PatientChart() {
   }, [])
 
   const currentUser: { id: string; name: string; role: string } | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u) } catch {} return null })()
+  const role = currentUser?.role || ''
   const isNurse = currentUser?.role === 'Nurse'
   const isDoctor = currentUser?.role === 'Doctor'
+  const currentStaffId = currentUser?.id || ''
+  const myDeptId = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).department_id || '' } catch {} return '' })()
+  // A consultant may consult only patients actively referred to their department
+  const isPatientReferredToMe = role === 'Consultant' && !!myDeptId && referrals.some((r: any) =>
+    r.to_department_id === myDeptId && ['pending', 'accepted', 'in_consultation'].includes(r.status)
+  )
+  // Consult / Transfer are only available when this patient is assigned to (or claimed by)
+  // the viewing doctor/consultant.
+  const isAssignedToMe = !!(patient?.assigned_doctor_id && patient.assigned_doctor_id === currentStaffId)
+  const canConsultPatient = (isDoctor && isAssignedToMe) || (role === 'Consultant' && isPatientReferredToMe)
   const isAdmin = currentUser?.role === 'Admin'
   const isRecords = currentUser?.role === 'Records'
   const canManagePolicies = isAdmin || isRecords
@@ -611,6 +634,10 @@ export default function PatientChart() {
         const admRes = await api.get(`/admissions?patient_id=${patientId}`).catch(() => ({ data: [] }))
         setAdmissions(admRes.data || [])
 
+        // Fetch referrals
+        const refRes = await api.get(`/referrals?patient_id=${patientId}`).catch(() => ({ data: [] }))
+        setReferrals(refRes.data || [])
+
         // Fetch maternity data
         try {
           const matRes = await fetch(`/api/maternity-patients?patient_id=${patientId}`, {
@@ -689,6 +716,12 @@ export default function PatientChart() {
     }
   }, [rxList.length])
 
+  // Auto-open a consultation report when navigated with ?report=<referralId>
+  useEffect(() => {
+    const reportId = new URLSearchParams(window.location.search).get('report')
+    if (reportId) setReportReferralId(reportId)
+  }, [patientId])
+
   useEffect(() => {
     if (labOrders.length > 0 && !(labOrders[0] as any).doctor_name) {
       enrichWithDoctor(labOrders).then(setLabOrders)
@@ -745,12 +778,12 @@ export default function PatientChart() {
 
   const doctorNotes = nurseNotes.filter((n: any) => n.note_type === 'doctor')
   const nurseOnlyNotes = nurseNotes.filter((n: any) => n.note_type !== 'doctor')
-  const soapEncounters = encounters.filter((e: any) => e.soap_notes && (e.soap_notes.subjective || e.soap_notes.objective || e.soap_notes.assessment || e.soap_notes.plan))
+  const soapEncounters = encounters.filter((e: any) => e.soap_notes && (e.soap_notes.subjective || e.soap_notes.objective || e.soap_notes.assessment || e.soap_notes.plan || e.soap_notes.notes))
 
   const sections = [
     { id: 'summary', label: 'Summary', icon: FileText },
     { id: 'vitals', label: vitalsList.length > 0 ? `Vitals (${vitalsList.length})` : 'Vitals', icon: Activity },
-    { id: 'encounters', label: encounters.filter((e: any) => e.soap_notes && (e.soap_notes.subjective || e.soap_notes.objective || e.soap_notes.assessment || e.soap_notes.plan)).length > 0 ? `Encounters (${encounters.filter((e: any) => e.soap_notes && (e.soap_notes.subjective || e.soap_notes.objective || e.soap_notes.assessment || e.soap_notes.plan)).length})` : 'Encounters', icon: Clock },
+    { id: 'encounters', label: encounters.filter((e: any) => e.soap_notes && (e.soap_notes.subjective || e.soap_notes.objective || e.soap_notes.assessment || e.soap_notes.plan || e.soap_notes.notes)).length > 0 ? `Encounters (${encounters.filter((e: any) => e.soap_notes && (e.soap_notes.subjective || e.soap_notes.objective || e.soap_notes.assessment || e.soap_notes.plan || e.soap_notes.notes)).length})` : 'Encounters', icon: Clock },
     { id: 'prescriptions', label: rxList.length > 0 ? `Rx (${rxList.length})` : 'Rx', icon: Pill },
     { id: 'lab', label: labOrders.length > 0 ? `Lab (${labOrders.length})` : 'Lab', icon: FlaskConical },
     { id: 'radiology', label: radOrders.length > 0 ? `Radiology (${radOrders.length})` : 'Radiology', icon: Scan },
@@ -759,6 +792,7 @@ export default function PatientChart() {
     { id: 'treatment_summary', label: `Tx Summary (${treatments.length})`, icon: ClipboardList },
     { id: 'fluid_balance', label: fluidSessions.length > 0 ? `Fluid (${fluidSessions.length})` : 'Fluid', icon: Droplets },
     { id: 'maternity', label: 'Maternity', icon: Baby },
+    { id: 'referrals', label: referrals.length > 0 ? `Referrals (${referrals.length})` : 'Referrals', icon: Building2 },
     { id: 'insurance', label: 'Insurance', icon: Shield },
     { id: 'nurse_clinical_notes', label: nurseOnlyNotes.length > 0 ? `Nurses Clin. Notes (${nurseOnlyNotes.length})` : 'Nurses Clin. Notes', icon: FileText },
     { id: 'doctor_clinical_notes', label: (doctorNotes.length + soapEncounters.length) > 0 ? `Doctors Cli. Notes (${doctorNotes.length + soapEncounters.length})` : 'Doctors Cli. Notes', icon: Stethoscope },
@@ -770,7 +804,9 @@ export default function PatientChart() {
     <div className="max-w-6xl mx-auto space-y-6 overflow-x-hidden">
       {/* Header */}
       <div className="flex items-start gap-3 flex-wrap">
-        <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100 flex-shrink-0 mt-0.5"><ArrowLeft size={20} className="text-slate-500" /></button>
+        {!hideBack && (
+          <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-slate-100 flex-shrink-0 mt-0.5"><ArrowLeft size={20} className="text-slate-500" /></button>
+        )}
         <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5"><User className="w-5 h-5 text-primary" /></div>
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold text-slate-800 truncate">Patient Chart</h1>
@@ -784,20 +820,28 @@ export default function PatientChart() {
             <span>&middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; {patient.blood_type || 'N/A'}</span>
           </p>
         </div>
-        {isNurse || isDoctor ? (
+        {!hideBack && (isNurse || isDoctor || role === 'Consultant' ? (
           <div className="w-full lg:w-auto flex items-center gap-2 lg:ml-auto pt-2 lg:pt-0">
-            <button onClick={() => { setShowVitalsForm(true); setActiveSection('vitals') }}
-              className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
-              <Activity size={15} /> Record Vitals
-            </button>
-            {isDoctor && (
+            {(isNurse || isDoctor || role === 'Admin') && (
+              <button onClick={() => { setShowVitalsForm(true); setActiveSection('vitals') }}
+                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
+                <Activity size={15} /> Record Vitals
+              </button>
+            )}
+            {canConsultPatient && (
               <button onClick={() => navigate(`/consultation/${patientId}`)}
                 className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-medium hover:bg-slate-50 transition-colors">
                 <Stethoscope size={15} /> Consult
               </button>
             )}
+            {canConsultPatient && (
+              <button onClick={() => setShowReferralModal(true)}
+                className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 text-white text-sm font-medium hover:bg-indigo-600 transition-colors">
+                <Send size={15} /> Refer / Transfer
+              </button>
+            )}
           </div>
-        ) : null}
+        ) : null)}
       </div>
 
       {/* Section Tabs */}
@@ -1007,6 +1051,11 @@ export default function PatientChart() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-semibold uppercase text-slate-700">{enc.encounter_type}</span>
+                        {enc.is_consultation && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold">
+                            <Stethoscope size={10} /> CONSULTANT{enc.department_name ? ` · ${enc.department_name}` : ''}
+                          </span>
+                        )}
                         <span className="text-xs text-slate-400">{new Date(enc.created_at).toLocaleString()}</span>
                         {doctorName && <span className="text-[11px] text-slate-500">by <strong>{doctorName}</strong></span>}
                       </div>
@@ -1052,7 +1101,14 @@ export default function PatientChart() {
                       <td className="px-5 py-3 font-medium text-slate-800 truncate max-w-[160px]">{rx.drug_name}</td>
                       <td className="px-5 py-3 text-slate-500">{rx.dosage || '—'}</td>
                       <td className="px-5 py-3">{rx.quantity}</td>
-                      <td className="px-5 py-3 text-xs text-slate-600">{rx.doctor_name || '—'}</td>
+                      <td className="px-5 py-3 text-xs text-slate-600">
+                        <span className="inline-flex items-center gap-1.5">
+                          {rx.doctor_name || '—'}
+                          {(rx.is_consultation || rx.doctor_role === 'Consultant') && (
+                            <ConsultantTag departmentName={rx.department_name} />
+                          )}
+                        </span>
+                      </td>
                       <td className="px-5 py-3"><span className={`px-2 py-0.5 rounded-lg text-xs font-medium ${rx.status === 'dispensed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{rx.status}</span></td>
                       <td className="px-5 py-3 text-xs text-slate-400">{new Date(rx.created_at).toLocaleString()}</td>
                     </tr>
@@ -1089,7 +1145,13 @@ export default function PatientChart() {
                 </div>
                 <div className="px-5 py-3">
                   <div className="flex items-center gap-2 sm:gap-3 text-xs text-slate-500 flex-wrap">
-                    {lab.doctor_name && <span>Ordered by: <strong>{lab.doctor_name}</strong></span>}
+                    {lab.doctor_name && (
+                      <span className="inline-flex items-center gap-1.5">Ordered by: <strong>{lab.doctor_name}</strong>
+                        {(lab.is_consultation || lab.doctor_role === 'Consultant') && (
+                          <ConsultantTag departmentName={lab.department_name} />
+                        )}
+                      </span>
+                    )}
                     {lab.lab_number && <span className="font-mono">#{lab.lab_number}</span>}
                   </div>
                   {lab.doctor_comment && <DoctorComment comment={lab.doctor_comment} />}
@@ -1317,7 +1379,13 @@ export default function PatientChart() {
                       <span className={`px-2.5 py-0.5 rounded-lg text-xs font-medium flex-shrink-0 ${rad.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : rad.status === 'review' ? 'bg-purple-100 text-purple-700' : 'bg-amber-100 text-amber-700'}`}>{rad.status === 'review' ? 'In Review' : rad.status === 'rejected' ? 'In Review' : rad.status === 'completed' ? 'Completed' : rad.status?.charAt(0).toUpperCase() + rad.status?.slice(1)}</span>
                     </div>
                     <div className="flex items-center gap-2 sm:gap-3 text-[11px] text-slate-500 flex-wrap">
-                      {rad.doctor_name && <span>Ordered by: <strong>{rad.doctor_name}</strong></span>}
+                      {rad.doctor_name && (
+                        <span className="inline-flex items-center gap-1.5">Ordered by: <strong>{rad.doctor_name}</strong>
+                          {(rad.is_consultation || rad.doctor_role === 'Consultant') && (
+                            <ConsultantTag departmentName={rad.department_name} />
+                          )}
+                        </span>
+                      )}
                       <span>{new Date(rad.created_at).toLocaleString()}</span>
                     </div>
                     {rad.doctor_comment && <DoctorComment comment={rad.doctor_comment} />}
@@ -1438,6 +1506,15 @@ export default function PatientChart() {
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div><span className="text-slate-500">Type:</span> <span className="font-medium text-slate-700 capitalize">{modalEnc.encounter_type}</span></div>
                 <div><span className="text-slate-500">Doctor:</span> <span className="font-medium text-slate-700">{modalEncData?.doctorName || '—'}</span></div>
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-500">Department:</span>
+                  <span className="font-medium text-slate-700">{modalEnc.department_name || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {modalEnc.is_consultation && (
+                    <ConsultantTag departmentName={modalEnc.department_name} />
+                  )}
+                </div>
                 <div><span className="text-slate-500">Created:</span> <span className="font-medium text-slate-700">{new Date(modalEnc.created_at).toLocaleString()}</span></div>
                 {modalEnc.updated_at !== modalEnc.created_at && (
                   <div><span className="text-slate-500">Updated:</span> <span className="font-medium text-slate-700">{new Date(modalEnc.updated_at).toLocaleString()}</span></div>
@@ -1464,18 +1541,45 @@ export default function PatientChart() {
               )}
               {(() => {
                 const soap = modalEnc.soap_notes ? (typeof modalEnc.soap_notes === 'string' ? JSON.parse(modalEnc.soap_notes) : modalEnc.soap_notes) : null
-                if (!soap) return null
-                const fields = ['subjective', 'objective', 'assessment', 'plan'] as const
+                const notesArr = Array.isArray(modalEnc.notes) ? modalEnc.notes : []
+                const fields = ['subjective', 'objective', 'assessment', 'plan', 'notes'] as const
+                if (notesArr.length === 0 && !soap) return null
                 return (
                   <div>
-                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">SOAP Notes</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      {fields.map((f) => soap[f] ? (
-                        <div key={f} className="bg-slate-50 rounded-xl p-3">
-                          <p className="text-xs font-medium text-primary capitalize mb-0.5">{f}</p>
-                          <p className="text-sm text-slate-700 break-words">{soap[f]}</p>
-                        </div>
-                      ) : null)}
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                      SOAP Notes {notesArr.length > 1 ? `(${notesArr.length})` : ''}
+                    </p>
+                    <div className="space-y-3">
+                      {(notesArr.length > 0 ? notesArr : [soap]).map((note: any, ni: number) => {
+                        const nSoap = typeof note.soap_notes === 'string' ? JSON.parse(note.soap_notes) : (note.soap_notes || note)
+                        return (
+                          <div key={ni} className="border border-slate-200 rounded-xl p-3">
+                            {(notesArr.length > 1 || note.created_at) && (
+                              <p className="text-[10px] text-slate-400 mb-1.5">
+                                {notesArr.length > 1 ? `Note ${ni + 1}` : 'Note'} · {note.staff_name || '—'}
+                                {note.created_at ? ` · ${new Date(note.created_at).toLocaleString()}` : ''}
+                              </p>
+                            )}
+                            <div className="grid grid-cols-2 gap-2">
+                              {fields.map((f) => (nSoap && nSoap[f]) ? (
+                                <div key={f} className="bg-slate-50 rounded-xl p-2.5">
+                                  <p className="text-xs font-medium text-primary capitalize mb-0.5">{f}</p>
+                                  <p className="text-[15px] leading-relaxed text-slate-800 break-words whitespace-pre-wrap">{nSoap[f]}</p>
+                                </div>
+                              ) : null)}
+                            </div>
+                            {Array.isArray(note.diagnoses) && note.diagnoses.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mt-2">
+                                {note.diagnoses.map((d: any, di: number) => (
+                                  <span key={di} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px]">
+                                    <span className="font-mono">{d.code}</span> {d.label}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
                 )
@@ -1557,12 +1661,14 @@ export default function PatientChart() {
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <Hint text={`Total vital signs records: ${vitalsList.length}.`}><p className="text-sm text-slate-500">{vitalsList.length} record{vitalsList.length !== 1 ? 's' : ''}</p></Hint>
-            <Hint text="Record a new set of vital signs for the patient.">
-            <button onClick={() => setShowVitalsForm(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform">
-              <Activity size={14} /> Record Vitals
-            </button>
-            </Hint>
+            {!hideBack && (isNurse || isDoctor || role === 'Admin') && (
+              <Hint text="Record a new set of vital signs for the patient.">
+              <button onClick={() => setShowVitalsForm(true)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform">
+                <Activity size={14} /> Record Vitals
+              </button>
+              </Hint>
+            )}
           </div>
           {vitalsList.length === 0 ? (
             <Hint text="No vital signs have been recorded for this patient yet."><div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center text-sm text-slate-400">No vitals recorded</div></Hint>
@@ -1783,7 +1889,7 @@ export default function PatientChart() {
                             {['subjective', 'objective', 'assessment', 'plan', 'notes'].filter((f) => soap[f]).map((f) => (
                               <div key={f} className="bg-white rounded-lg p-2.5 border border-slate-100">
                                 <p className="text-[10px] font-medium text-primary capitalize mb-0.5">{f === 'notes' ? 'Notes' : f}</p>
-                                <p className="text-sm text-slate-600">{soap[f]}</p>
+                                <p className="text-[15px] leading-relaxed text-slate-800 whitespace-pre-wrap break-words">{soap[f]}</p>
                               </div>
                             ))}
                           </div>
@@ -2943,6 +3049,77 @@ export default function PatientChart() {
         </div>
       )}
 
+      {/* Referrals Tab */}
+      {activeSection === 'referrals' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+            <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2"><Building2 size={18} className="text-indigo-500" /> Referral History</h3>
+              {canConsultPatient && (
+                <button
+                  onClick={() => setShowReferralModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-500 text-white text-xs font-semibold hover:bg-indigo-600 transition-colors"
+                >
+                  <Send size={13} /> Refer Patient
+                </button>
+              )}
+            </div>
+
+            {referrals.length === 0 ? (
+              <p className="text-sm text-slate-400 text-center py-8">No referrals recorded for this patient</p>
+            ) : (
+              <div className="space-y-3">
+                {referrals.map((r: any) => (
+                  <div key={r.id} className="border border-slate-200 rounded-xl p-4 space-y-2 hover:border-indigo-200 transition-colors">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs font-semibold text-slate-700">{r.referral_number}</span>
+                      {r.priority === 'emergency' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold"><Zap size={10} /> EMERGENCY</span>}
+                      {r.priority === 'urgent' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold"><Zap size={10} /> URGENT</span>}
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
+                        r.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                        r.status === 'rejected' ? 'bg-rose-100 text-rose-700' :
+                        r.status === 'cancelled' ? 'bg-slate-100 text-slate-500' :
+                        r.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
+                        r.status === 'in_consultation' ? 'bg-violet-100 text-violet-700' :
+                        'bg-amber-100 text-amber-700'
+                      }`}>{r.status.replace('_', ' ')}</span>
+                      <span className="text-xs text-slate-400">{new Date(r.created_at).toLocaleString()}</span>
+                    </div>
+                    {r.to_department_name && (
+                      <p className="text-xs text-slate-600 flex items-center gap-1.5 flex-wrap">
+                        <Building2 size={12} className="text-indigo-500 flex-shrink-0" />
+                        To: <strong>{r.to_department_name}</strong>
+                        {r.to_consultant_name && <span>— {r.to_consultant_name}</span>}
+                      </p>
+                    )}
+                    {r.from_department_name && <p className="text-xs text-slate-500">From: {r.from_department_name}</p>}
+                    {r.reason && (
+                      <div className="bg-slate-50 rounded-lg px-3 py-2">
+                        <CollapsibleReason text={r.reason} />
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 flex-wrap text-[11px] text-slate-400">
+                      {r.referred_by_name && <span>Referred by {r.referred_by_name}</span>}
+                      {r.accepted_by_name && <span className="text-emerald-600">· Accepted by {r.accepted_by_name}{r.accepted_at ? ` on ${new Date(r.accepted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}</span>}
+                      {r.completed_by_name && <span className="text-slate-500">· Completed by {r.completed_by_name}</span>}
+                      {r.referral_notes && <span className="text-slate-500">· {r.referral_notes}</span>}
+                    </div>
+                    {r.status === 'completed' && (
+                      <button
+                        onClick={() => setReportReferralId(r.id)}
+                        className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-semibold hover:bg-indigo-100 transition-colors"
+                      >
+                        <FileText size={13} /> View Report
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Insurance Tab */}
       {activeSection === 'insurance' && (
         <div className="max-w-3xl mx-auto space-y-4">
@@ -2974,10 +3151,12 @@ export default function PatientChart() {
                     <p className="text-xs text-slate-400">No policies on file.</p>
                   )}
                 </div>
-                <a href={`/insurance/patients/${patientId}`}
-                  className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 transition-all">
-                  <Shield className="w-4 h-4" /> View Full Insurance Details
-                </a>
+                {role === 'Admin' && (
+                  <a href={`/insurance/patients/${patientId}`}
+                    className="flex items-center justify-center gap-2 w-full px-4 py-2.5 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 transition-all">
+                    <Shield className="w-4 h-4" /> View Full Insurance Details
+                  </a>
+                )}
               </div>
             ) : (
               <div className="text-center py-6 text-slate-400">
@@ -2998,7 +3177,7 @@ export default function PatientChart() {
                 <div className="flex items-center justify-between">
                   <h3 className="font-semibold text-slate-800 flex items-center gap-2"><Baby size={18} className="text-pink-500" /> Pregnancy Profile</h3>
                   <div className="flex gap-2">
-                    {isDoctor && (
+                    {isDoctor && isAssignedToMe && (
                       <button onClick={() => navigate(`/consultation/${patientId}?type=maternity`)}
                         className="flex items-center gap-1 text-xs bg-purple-500 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-purple-600">Consult</button>
                     )}
@@ -4632,6 +4811,21 @@ export default function PatientChart() {
             </div>
           </div>
         </div>
+      )}
+
+      {showReferralModal && (
+        <ReferralModal
+          patientId={patientId || ''}
+          patientName={patient?.full_name}
+          onClose={() => setShowReferralModal(false)}
+          onSuccess={() => {
+            api.get(`/referrals?patient_id=${patientId}`).then((r) => setReferrals(r.data || [])).catch(() => {})
+          }}
+        />
+      )}
+
+      {reportReferralId && (
+        <ConsultationReport referralId={reportReferralId} onClose={() => setReportReferralId(null)} />
       )}
     </div>
   )

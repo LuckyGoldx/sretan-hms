@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Heart, Activity, Thermometer, Weight, Droplets, FileText, Users, AlertTriangle, CheckCircle, Clock, Search, Loader2, Stethoscope, Mic, Shield } from 'lucide-react'
 import api from '../hooks/useAxios'
 import type { Patient } from '../types/index'
+import ActivePatients from './ActivePatients'
 
 interface VitalsForm {
   systolic_bp: string
@@ -39,6 +40,12 @@ const priorityColors: Record<string, string> = {
   red: 'bg-red-500 text-white',
   yellow: 'bg-yellow-500 text-white',
   green: 'bg-green-500 text-white',
+}
+
+function formatTime(ts?: string): string {
+  try {
+    return new Date(ts || '').toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  } catch { return '' }
 }
 
 function VoiceInput({ value, onChange }: { value: string; onChange: (val: string) => void }) {
@@ -80,7 +87,7 @@ export default function TriageStation() {
   const [form, setForm] = useState<VitalsForm>(emptyForm)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
-  const [tab, setTab] = useState<'queue' | 'triage' | 'history'>('queue')
+  const [tab, setTab] = useState<'queue' | 'triage' | 'history' | 'active'>('queue')
   const [search, setSearch] = useState('')
   const [successMsg, setSuccessMsg] = useState('')
   const [hasMaternityRecord, setHasMaternityRecord] = useState(false)
@@ -195,6 +202,7 @@ export default function TriageStation() {
           { id: 'queue', label: `Waiting (${queue.length})`, icon: Users },
           { id: 'triage', label: selectedPatient ? 'Vitals Entry' : 'Select Patient', icon: Activity },
           { id: 'history', label: `Triaged (${triaged.length})`, icon: Clock },
+          { id: 'active', label: 'Active Patients', icon: Heart },
         ].map((t) => {
           const Icon = t.icon
           return (
@@ -237,6 +245,18 @@ export default function TriageStation() {
                     </div>
                   </div>
                   <p className="text-xs text-slate-400 mb-3">{patient.phone || '—'}</p>
+                  <div className="flex items-center gap-2 flex-wrap mb-2">
+                    {(patient as any).last_consultation_at && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-50 border border-indigo-100 text-indigo-700 text-[10px] font-medium">
+                        <Stethoscope size={10} /> Consulted {formatTime((patient as any).last_consultation_at)}{(patient as any).last_consultation_by ? ` by ${(patient as any).last_consultation_by}` : ''}
+                      </span>
+                    )}
+                    {(patient as any).last_vitals_at && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-50 border border-teal-100 text-teal-700 text-[10px] font-medium">
+                        <Activity size={10} /> Vitals {formatTime((patient as any).last_vitals_at)}{(patient as any).last_vitals_by ? ` by ${(patient as any).last_vitals_by}` : ''}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                     <span className="px-2.5 py-0.5 rounded-lg bg-blue-100 text-blue-700 text-[10px] font-medium">Checked In</span>
                     <button onClick={() => selectForTriage(patient)}
@@ -372,6 +392,10 @@ export default function TriageStation() {
             ))
           )}
         </div>
+      )}
+
+      {tab === 'active' && (
+        <ActivePatients />
       )}
     </div>
   )

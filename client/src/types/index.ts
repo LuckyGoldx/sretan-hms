@@ -34,6 +34,12 @@ export interface Patient {
   insurance_type?: string
   insurance_sub_type?: string
   primary_provider?: string
+  assigned_doctor_id?: string
+  assigned_doctor_name?: string
+  primary_doctor_id?: string
+  department_id?: string
+  department_name?: string
+  has_paid_consultation?: boolean
   blood_type?: string
   status: string
   folder_activated?: boolean

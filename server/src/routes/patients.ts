@@ -76,18 +76,31 @@ router.get('/api/patients', async (req: Request, res: Response) => {
     let query = `SELECT DISTINCT p.*,
                         (SELECT pr.name FROM patient_insurance_policies pp JOIN insurance_providers pr ON pp.provider_id = pr.id
                          WHERE pp.patient_id = p.id AND pp.is_active = true AND pp.coverage_type = 'primary'
-                           AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider
+                           AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider,
+                        (SELECT v.created_at FROM vitals v JOIN encounters ev ON ev.id = v.encounter_id
+                         WHERE ev.patient_id = p.id AND ev.tenant_id = $1 ORDER BY v.created_at DESC LIMIT 1) as last_vitals_at,
+                        (SELECT s.name FROM vitals v JOIN encounters ev ON ev.id = v.encounter_id JOIN staff_users s ON s.id = v.recorded_by
+                         WHERE ev.patient_id = p.id AND ev.tenant_id = $1 ORDER BY v.created_at DESC LIMIT 1) as last_vitals_by,
+                        (SELECT e.created_at FROM encounters e JOIN staff_users es ON es.id = e.staff_id
+                         WHERE e.patient_id = p.id AND e.tenant_id = $1 AND es.role IN ('Doctor','Consultant') ORDER BY e.created_at DESC LIMIT 1) as last_consultation_at,
+                        (SELECT s.name FROM encounters e JOIN staff_users s ON s.id = e.staff_id
+                         WHERE e.patient_id = p.id AND e.tenant_id = $1 AND s.role IN ('Doctor','Consultant') ORDER BY e.created_at DESC LIMIT 1) as last_consultation_by,
+                        (SELECT s.name FROM staff_users s WHERE s.id = p.assigned_doctor_id) as assigned_doctor_name,
+                        (SELECT d.name FROM departments d WHERE d.id = p.department_id) as department_name,
+                        (SELECT EXISTS(SELECT 1 FROM visits v
+                                       WHERE v.patient_id = p.id AND v.assigned_doctor_id IS NULL
+                                         AND v.status = 'waiting' AND v.consultation_status IN ('paid','insurance_authorized'))) as has_paid_consultation
                  FROM patients p`;
     const params: any[] = [tenantId];
     let paramIndex = 2;
 
+    query += ' WHERE p.tenant_id = $1';
+
     if (doctor_id) {
-      query += ` JOIN encounters e ON e.patient_id = p.id AND e.staff_id = $${paramIndex}`;
+      query += ` AND (p.assigned_doctor_id = $${paramIndex} OR p.primary_doctor_id = $${paramIndex})`;
       params.push(doctor_id);
       paramIndex++;
     }
-
-    query += ' WHERE p.tenant_id = $1';
 
     if (status) {
       query += ` AND p.status = $${paramIndex}`;
@@ -118,6 +131,143 @@ router.get('/api/patients', async (req: Request, res: Response) => {
   }
   });
 
+// GET /api/patients/active -- live activity board for doctors/nurses
+router.get('/api/patients/active', async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    const { since, segment, search, dept } = req.query;
+
+    let sinceFilter = '';
+    const params: any[] = [tenantId];
+    if (since === '1h') { sinceFilter = ` AND GREATEST(
+        COALESCE((SELECT MAX(v.created_at) FROM vitals v JOIN encounters ev ON ev.id = v.encounter_id WHERE ev.patient_id = p.id), '2000-01-01'::timestamptz),
+        COALESCE((SELECT MAX(e.created_at) FROM encounters e WHERE e.patient_id = p.id), '2000-01-01'::timestamptz)
+      ) >= NOW() - INTERVAL '1 hour'`; }
+    else if (since === '24h') { sinceFilter = ` AND GREATEST(
+        COALESCE((SELECT MAX(v.created_at) FROM vitals v JOIN encounters ev ON ev.id = v.encounter_id WHERE ev.patient_id = p.id), '2000-01-01'::timestamptz),
+        COALESCE((SELECT MAX(e.created_at) FROM encounters e WHERE e.patient_id = p.id), '2000-01-01'::timestamptz)
+      ) >= NOW() - INTERVAL '24 hours'`; }
+    else if (since === '3d') { sinceFilter = ` AND GREATEST(
+        COALESCE((SELECT MAX(v.created_at) FROM vitals v JOIN encounters ev ON ev.id = v.encounter_id WHERE ev.patient_id = p.id), '2000-01-01'::timestamptz),
+        COALESCE((SELECT MAX(e.created_at) FROM encounters e WHERE e.patient_id = p.id), '2000-01-01'::timestamptz)
+      ) >= NOW() - INTERVAL '3 days'`; }
+
+    let query = `SELECT p.id, p.full_name, p.hospital_number, p.sex, p.dob, p.phone, p.status, p.blood_type, p.created_at,
+        (SELECT pr.name FROM patient_insurance_policies pp JOIN insurance_providers pr ON pp.provider_id = pr.id
+         WHERE pp.patient_id = p.id AND pp.is_active = true AND pp.coverage_type = 'primary'
+           AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider,
+        (SELECT v.created_at FROM vitals v JOIN encounters ev ON ev.id = v.encounter_id
+         WHERE ev.patient_id = p.id AND ev.tenant_id = $1 ORDER BY v.created_at DESC LIMIT 1) as last_vitals_at,
+        (SELECT s.name FROM vitals v JOIN encounters ev ON ev.id = v.encounter_id JOIN staff_users s ON s.id = v.recorded_by
+         WHERE ev.patient_id = p.id AND ev.tenant_id = $1 ORDER BY v.created_at DESC LIMIT 1) as last_vitals_by,
+        (SELECT e.created_at FROM encounters e JOIN staff_users es ON es.id = e.staff_id
+         WHERE e.patient_id = p.id AND e.tenant_id = $1 AND es.role IN ('Doctor','Consultant')
+         ORDER BY e.created_at DESC LIMIT 1) as last_consultation_at,
+        (SELECT s.name FROM encounters e JOIN staff_users s ON s.id = e.staff_id
+         WHERE e.patient_id = p.id AND e.tenant_id = $1 AND s.role IN ('Doctor','Consultant')
+         ORDER BY e.created_at DESC LIMIT 1) as last_consultation_by,
+        a.id as admission_id, a.ward_id, a.bed_number, w.name as ward_name, a.admitted_at, a.admitted_by,
+        ab.name as admitted_by_name,
+        GREATEST(
+          COALESCE((SELECT MAX(v.created_at) FROM vitals v JOIN encounters ev ON ev.id = v.encounter_id WHERE ev.patient_id = p.id), '2000-01-01'::timestamptz),
+          COALESCE((SELECT MAX(e.created_at) FROM encounters e WHERE e.patient_id = p.id), '2000-01-01'::timestamptz)
+        ) as last_activity_at
+      FROM patients p
+      LEFT JOIN LATERAL (
+        SELECT a.id, a.ward_id, a.bed_number, a.admitted_at, a.admitted_by, a.status
+        FROM admissions a WHERE a.patient_id = p.id AND a.tenant_id = $1 AND a.status = 'active'
+        ORDER BY a.admitted_at DESC LIMIT 1
+      ) a ON true
+      LEFT JOIN wards w ON w.id = a.ward_id
+      LEFT JOIN staff_users ab ON ab.id = a.admitted_by
+      WHERE p.tenant_id = $1 AND p.folder_activated IS DISTINCT FROM false`;
+
+    let idx = 2;
+    if (search) {
+      query += ` AND (p.full_name ILIKE $${idx} OR p.hospital_number::text ILIKE $${idx})`;
+      params.push(`%${search}%`);
+      idx++;
+    }
+    if (dept) {
+      query += ` AND EXISTS (
+        SELECT 1 FROM encounters e2 WHERE e2.patient_id = p.id AND e2.department_id = $${idx}
+      )`;
+      params.push(dept);
+      idx++;
+    }
+    query += sinceFilter;
+    // Base "active" restriction only applies to status/admission-based views.
+    // Activity-based segments (vitals_today, consulted) return ANY patient with
+    // today's activity regardless of current status.
+    if (segment === 'vitals_today' || segment === 'consulted') {
+      query += ' AND p.status IN (\'checked_in\',\'in_triage\',\'waiting\',\'with_doctor\',\'discharged\')';
+    } else {
+      query += ' AND (p.status IN (\'checked_in\',\'in_triage\',\'waiting\',\'with_doctor\') OR a.id IS NOT NULL)';
+    }
+    if (segment === 'admitted') {
+      query += ' AND a.id IS NOT NULL';
+    } else if (segment === 'vitals_today') {
+      query += ` AND EXISTS (
+        SELECT 1 FROM vitals v JOIN encounters ev ON ev.id = v.encounter_id
+        WHERE ev.patient_id = p.id AND v.created_at >= CURRENT_DATE
+      )`;
+    } else if (segment === 'consulted') {
+      query += ` AND EXISTS (
+        SELECT 1 FROM encounters e JOIN staff_users es ON es.id = e.staff_id
+        WHERE e.patient_id = p.id AND es.role IN ('Doctor','Consultant') AND e.created_at >= CURRENT_DATE
+      )`;
+    } else if (segment === 'with_doctor') {
+      query += ` AND p.status = 'with_doctor'`;
+    } else if (segment === 'waiting') {
+      query += ` AND p.status = 'waiting'`;
+    } else if (segment === 'in_triage') {
+      query += ` AND p.status = 'in_triage'`;
+    }
+
+    query += ` ORDER BY last_activity_at DESC NULLS LAST, p.created_at DESC`;
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// GET /api/patients/active/counts -- authoritative per-segment counts for the Active Patients board
+router.get('/api/patients/active/counts', async (_req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    const result = await pool.query(
+      `SELECT
+        (SELECT COUNT(*)::int FROM patients p
+         WHERE p.tenant_id = $1 AND p.folder_activated IS DISTINCT FROM false
+           AND (p.status IN ('checked_in','in_triage','waiting','with_doctor')
+                OR EXISTS (SELECT 1 FROM admissions a WHERE a.patient_id = p.id AND a.tenant_id = $1 AND a.status = 'active'))) as all_active,
+        (SELECT COUNT(*)::int FROM patients p
+         WHERE p.tenant_id = $1 AND p.folder_activated IS DISTINCT FROM false
+           AND EXISTS (SELECT 1 FROM admissions a WHERE a.patient_id = p.id AND a.tenant_id = $1 AND a.status = 'active')) as admitted,
+        (SELECT COUNT(*)::int FROM patients p
+         WHERE p.tenant_id = $1 AND p.folder_activated IS DISTINCT FROM false AND p.status = 'with_doctor') as with_doctor,
+        (SELECT COUNT(*)::int FROM patients p
+         WHERE p.tenant_id = $1 AND p.folder_activated IS DISTINCT FROM false AND p.status = 'waiting') as waiting,
+        (SELECT COUNT(*)::int FROM patients p
+         WHERE p.tenant_id = $1 AND p.folder_activated IS DISTINCT FROM false AND p.status = 'in_triage') as in_triage,
+        (SELECT COUNT(*)::int FROM patients p
+         WHERE p.tenant_id = $1 AND p.folder_activated IS DISTINCT FROM false
+           AND EXISTS (SELECT 1 FROM vitals v JOIN encounters ev ON ev.id = v.encounter_id
+                       WHERE ev.patient_id = p.id AND v.created_at >= CURRENT_DATE)) as vitals_today,
+        (SELECT COUNT(*)::int FROM patients p
+         WHERE p.tenant_id = $1 AND p.folder_activated IS DISTINCT FROM false
+           AND EXISTS (SELECT 1 FROM encounters e JOIN staff_users es ON es.id = e.staff_id
+                       WHERE e.patient_id = p.id AND es.role IN ('Doctor','Consultant') AND e.created_at >= CURRENT_DATE)) as consulted
+      `,
+      [tenantId]
+    );
+    res.json(result.rows[0]);
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
 router.get('/api/patients/search', async (req: Request, res: Response) => {
   try {
     const { q } = req.query;
@@ -134,7 +284,9 @@ router.get('/api/patients/search', async (req: Request, res: Response) => {
       [searchTerm]
     );
     res.json(result.rows);
-  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
 });
 
 router.get('/api/patients/:id', async (req: Request, res: Response) => {
@@ -146,7 +298,12 @@ router.get('/api/patients/:id', async (req: Request, res: Response) => {
       `SELECT p.*,
               (SELECT pr.name FROM patient_insurance_policies pp JOIN insurance_providers pr ON pp.provider_id = pr.id
                WHERE pp.patient_id = p.id AND pp.is_active = true AND pp.coverage_type = 'primary'
-                 AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider
+                 AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider,
+              (SELECT s.name FROM staff_users s WHERE s.id = p.assigned_doctor_id) as assigned_doctor_name,
+              (SELECT d.name FROM departments d WHERE d.id = p.department_id) as department_name,
+              (SELECT EXISTS(SELECT 1 FROM visits v
+                             WHERE v.patient_id = p.id AND v.assigned_doctor_id IS NULL
+                               AND v.status = 'waiting' AND v.consultation_status IN ('paid','insurance_authorized'))) as has_paid_consultation
        FROM patients p WHERE p.id = $1 AND p.tenant_id = $2`,
       [id, tenantId]
     );
@@ -157,13 +314,39 @@ router.get('/api/patients/:id', async (req: Request, res: Response) => {
     }
 
     const encountersResult = await pool.query(
-      'SELECT * FROM encounters WHERE patient_id = $1 AND tenant_id = $2 ORDER BY created_at DESC',
+      `SELECT e.*, d.name as department_name, s.name as staff_name, s.role as staff_role
+       FROM encounters e
+       LEFT JOIN departments d ON d.id = e.department_id
+       LEFT JOIN staff_users s ON s.id = e.staff_id
+       WHERE e.patient_id = $1 AND e.tenant_id = $2 ORDER BY e.created_at DESC`,
       [id, tenantId]
     );
 
+    // Attach SOAP notes to each encounter (multiple notes per encounter possible)
+    const encIds = encountersResult.rows.map((e: any) => e.id);
+    const notesByEnc: Record<string, any[]> = {};
+    if (encIds.length > 0) {
+      const notesResult = await pool.query(
+        `SELECT n.*, s.name as staff_name, s.role as staff_role
+         FROM encounter_notes n
+         LEFT JOIN staff_users s ON s.id = n.staff_id
+         WHERE n.tenant_id = $1 AND n.encounter_id = ANY($2::uuid[])
+         ORDER BY n.created_at ASC`,
+        [tenantId, encIds]
+      );
+      for (const n of notesResult.rows) {
+        if (!notesByEnc[n.encounter_id]) notesByEnc[n.encounter_id] = [];
+        notesByEnc[n.encounter_id].push(n);
+      }
+    }
+    const encountersWithNotes = encountersResult.rows.map((e: any) => ({
+      ...e,
+      notes: notesByEnc[e.id] || [],
+    }));
+
     res.json({
       ...patientResult.rows[0],
-      encounters: encountersResult.rows,
+      encounters: encountersWithNotes,
     });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });

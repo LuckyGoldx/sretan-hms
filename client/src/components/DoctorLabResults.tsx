@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import ConsultantTag from './ConsultantTag'
 import {
   FlaskConical, Search, Loader2, CheckCircle, Clock, FileText, X, AlertTriangle, ArrowLeft
 } from 'lucide-react'
@@ -178,6 +179,9 @@ export default function DoctorLabResults() {
                     <FlaskConical size={15} className="text-purple-500" />
                     {isUnread(o) && <span className="w-2 h-2 rounded-full bg-blue-500 flex-shrink-0" />}
                     <span className={`text-sm font-semibold ${isUnread(o) ? 'text-slate-900' : 'text-slate-800'}`}>{o.test_name}</span>
+                    {(o.is_consultation || o.doctor_role === 'Consultant') && (
+                      <ConsultantTag departmentName={o.department_name} />
+                    )}
                     <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${statusStyles[o.status] || 'bg-slate-100 text-slate-600'}`}>
                       {o.status === 'processing' ? 'Processing' : o.status.charAt(0).toUpperCase() + o.status.slice(1)}
                     </span>

@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Baby, ArrowLeft, Loader2, Activity, Calendar, Stethoscope, Heart, FileText, X, CheckCircle, Plus, PenLine, FlaskConical, ScanLine, Pill, Search, Clock, ChevronDown, ClipboardList, HeartPulse } from 'lucide-react'
+import { Baby, ArrowLeft, Loader2, Activity, Calendar, Stethoscope, Heart, FileText, X, CheckCircle, Plus, PenLine, FlaskConical, ScanLine, Pill, Search, Clock, ChevronDown, ClipboardList, HeartPulse, Send } from 'lucide-react'
 import { ICD11_CODES, Icd11Code } from '../data/icd11Codes'
+import ReferralModal from './ReferralModal'
 const icd11Codes = ICD11_CODES
 
-export default function MaternityPatientDetail() {
-  const { id } = useParams()
+export default function MaternityPatientDetail({ id: idProp, hideBack }: { id?: string; hideBack?: boolean } = {}) {
+  const { id: routeId } = useParams()
+  const id = idProp || routeId
   const navigate = useNavigate()
   const [record, setRecord] = useState<any>(null)
   const [visits, setVisits] = useState<any[]>([])
@@ -23,7 +25,10 @@ export default function MaternityPatientDetail() {
 
   // Consultation state
   const [maternityEncounters, setMaternityEncounters] = useState<any[]>([])
+  const [maternityEncVisibleCount, setMaternityEncVisibleCount] = useState(15)
   const [soap, setSoap] = useState({ subjective: '', objective: '', assessment: '', plan: '', notes: '' })
+  const emptySoap = { subjective: '', objective: '', assessment: '', plan: '', notes: '' }
+  const draftLoadedRef = useRef(false)
   const [labForm, setLabForm] = useState({ test_name: '', doctor_comment: '' })
   const [radiologyForm, setRadiologyForm] = useState({ imaging_type: '', doctor_comment: '' })
   const [rxForm, setRxForm] = useState({ drug_name: '', dosage: '', quantity: '', instructions: '' })
@@ -51,6 +56,8 @@ export default function MaternityPatientDetail() {
   const [icdConfirmModal, setIcdConfirmModal] = useState<{ code: string; label: string; chapter: string } | null>(null)
 
   const [showANCModal, setShowANCModal] = useState(false)
+  const [showReferralModal, setShowReferralModal] = useState(false)
+  const [isReferredToMe, setIsReferredToMe] = useState(false)
   const [ancForm, setAncForm] = useState<any>({})
   const [ancSubmitting, setAncSubmitting] = useState(false)
   const [showAdmitModal, setShowAdmitModal] = useState(false)
@@ -63,6 +70,89 @@ export default function MaternityPatientDetail() {
       if (u) { const p = JSON.parse(u); setRole(p.role || ''); setStaffId(p.id || ''); setStaffName(p.name || '') }
     } catch {}
   }, [])
+
+  // A consultant may consult only patients actively referred to their department
+  useEffect(() => {
+    const checkReferral = async () => {
+      try {
+        const u = localStorage.getItem('sretan_user')
+        if (!u) return
+        const p = JSON.parse(u)
+        const dept = p.department_id
+        if (p.role !== 'Consultant' || !dept || !record?.patient_id) { setIsReferredToMe(false); return }
+        const refRes = await fetch(`/api/referrals?patient_id=${record.patient_id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+        const refs = await refRes.json()
+        const active = (Array.isArray(refs) ? refs : []).some((r: any) =>
+          r.to_department_id === dept && ['pending', 'accepted', 'in_consultation'].includes(r.status)
+        )
+        setIsReferredToMe(active)
+      } catch { setIsReferredToMe(false) }
+    }
+    checkReferral()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record?.patient_id])
+
+  // ── Draft auto-save for the maternity SOAP form (persists until submit) ──
+  const draftBase = `sretan_maternity_draft_${staffId || 'anon'}_${id || 'nopatient'}`
+  const soapDraftKey = (f: string) => `${draftBase}_${f}`
+
+  function saveSoapDraft(field?: string, value?: string) {
+    try {
+      if (field && value !== undefined) {
+        if (value.trim()) localStorage.setItem(soapDraftKey(field), value)
+        else localStorage.removeItem(soapDraftKey(field))
+      } else {
+        for (const f of ['subjective', 'objective', 'assessment', 'plan', 'notes'] as const) {
+          if (soap[f]?.trim()) localStorage.setItem(soapDraftKey(f), soap[f])
+        }
+      }
+      if (pendingDiagnoses.length > 0) {
+        localStorage.setItem(`${draftBase}_diagnoses`, JSON.stringify(pendingDiagnoses))
+      }
+    } catch {}
+  }
+
+  function loadSoapDraft() {
+    try {
+      const restored: any = {}
+      for (const f of ['subjective', 'objective', 'assessment', 'plan', 'notes'] as const) {
+        const v = localStorage.getItem(soapDraftKey(f))
+        if (v) restored[f] = v
+      }
+      if (Object.keys(restored).length > 0) setSoap((p) => ({ ...p, ...restored }))
+      try {
+        const diags = localStorage.getItem(`${draftBase}_diagnoses`)
+        if (diags) { const parsed = JSON.parse(diags); if (Array.isArray(parsed) && parsed.length > 0) setPendingDiagnoses(parsed) }
+      } catch {}
+    } catch {}
+  }
+
+  function clearSoapDraft() {
+    try {
+      for (const f of ['subjective', 'objective', 'assessment', 'plan', 'notes'] as const) localStorage.removeItem(soapDraftKey(f))
+      localStorage.removeItem(`${draftBase}_diagnoses`)
+    } catch {}
+  }
+
+  useEffect(() => {
+    if (!id) return
+    draftLoadedRef.current = false
+    const t = setTimeout(() => {
+      loadSoapDraft()
+      draftLoadedRef.current = true
+    }, 300)
+    return () => { clearTimeout(t); draftLoadedRef.current = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, staffId])
+
+  useEffect(() => {
+    if (!id || !draftLoadedRef.current) return
+    try {
+      if (pendingDiagnoses.length > 0) localStorage.setItem(`${draftBase}_diagnoses`, JSON.stringify(pendingDiagnoses))
+      else localStorage.removeItem(`${draftBase}_diagnoses`)
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingDiagnoses])
 
   async function loadData() {
     if (!id) return
@@ -113,9 +203,9 @@ export default function MaternityPatientDetail() {
     }
   }, [record])
 
-  const canEdit = role === 'Doctor' || role === 'Nurse' || role === 'Admin'
+  const canEdit = role === 'Doctor' || role === 'Consultant' || role === 'Nurse' || role === 'Admin'
   const isRecords = role === 'Records'
-  const isDoctor = role === 'Doctor'
+  const isDoctor = role === 'Doctor' || role === 'Consultant'
 
   // Load catalog data for consultation
   useEffect(() => {
@@ -131,7 +221,7 @@ export default function MaternityPatientDetail() {
   async function ensureEncounter(): Promise<string | null> {
     if (activeEncounterRef.current) return activeEncounterRef.current
     if (!record?.patient_id) return null
-    const res = await fetch('/api/encounters', {
+    const res = await fetch('/api/encounters/ensure', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
       body: JSON.stringify({ patient_id: record.patient_id, encounter_type: 'maternity', staff_id: staffId, maternity_patient_id: id }),
@@ -157,10 +247,13 @@ export default function MaternityPatientDetail() {
       const encId = await ensureEncounter()
       if (!encId) { setConsultSubmitting(false); return }
       const allDiagnoses = pendingDiagnoses.map((d) => ({ code: d.code, label: d.label, diagnosed_at: new Date().toISOString() }))
-      await fetch(`/api/encounters/${encId}`, {
-        method: 'PUT',
+      // Append a new note under the encounter (never overwrites prior notes)
+      await fetch('/api/encounter-notes', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
         body: JSON.stringify({
+          encounter_id: encId,
+          staff_id: staffId,
           chief_complaint: soap.subjective.slice(0, 200),
           soap_notes: soap,
           diagnoses: allDiagnoses.length > 0 ? allDiagnoses : undefined,
@@ -169,7 +262,8 @@ export default function MaternityPatientDetail() {
       maybePromptAnc(encId)
       fetch(`/api/encounters?patient_id=${record.patient_id}&encounter_type=maternity`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
         .then((r) => r.json()).then((encs) => setMaternityEncounters(Array.isArray(encs) ? encs : [])).catch(() => {})
-      setSoap({ subjective: '', objective: '', assessment: '', plan: '', notes: '' })
+      clearSoapDraft()
+      setSoap(emptySoap)
       setPendingDiagnoses([])
     } catch {} finally { setConsultSubmitting(false) }
   }
@@ -257,7 +351,7 @@ export default function MaternityPatientDetail() {
   const tabs = [
     { id: 'profile', label: 'Profile', icon: Baby },
     { id: 'visits', label: `${(comprehensiveVisits.length || visits.length) > 1 ? `ANC Visits (${comprehensiveVisits.length || visits.length})` : 'ANC Visit'}`, icon: Calendar },
-    { id: 'consultation', label: `Consultation`, icon: PenLine },
+    ...(hideBack ? [] : [{ id: 'consultation', label: `Consultation`, icon: PenLine }]),
     { id: 'encounters', label: maternityEncounters.length > 1 ? `Encounters (${maternityEncounters.length})` : 'Encounters', icon: ClipboardList },
     { id: 'delivery', label: delivery ? 'Delivery' : 'Delivery', icon: Stethoscope },
     { id: 'postnatal', label: postnatalVisits.length > 1 ? `Postnatal (${postnatalVisits.length})` : 'Postnatal', icon: Heart },
@@ -266,32 +360,42 @@ export default function MaternityPatientDetail() {
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-start gap-3 flex-wrap">
-        <button onClick={() => navigate('/maternity/patients')} className="p-2 rounded-xl hover:bg-slate-100 mt-0.5"><ArrowLeft size={20} className="text-slate-500" /></button>
+        {!hideBack && (
+          <button onClick={() => navigate('/maternity/patients')} className="p-2 rounded-xl hover:bg-slate-100 mt-0.5"><ArrowLeft size={20} className="text-slate-500" /></button>
+        )}
         <div className="w-10 h-10 rounded-xl bg-pink-100 flex items-center justify-center mt-0.5"><Baby size={22} className="text-pink-600" /></div>
         <div className="min-w-0 flex-1">
           <h1 className="text-xl font-semibold text-slate-800 truncate">{record.full_name}</h1>
           <p className="text-sm text-slate-400 truncate">{record.hospital_number} &middot; DOB: {record.dob?.slice(0, 10)}</p>
         </div>
-        <div className="flex gap-2">
-          {isDoctor && (
-            <button onClick={() => setActiveTab('consultation')}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium">
-              <PenLine size={15} /> Consult
-            </button>
-          )}
-          {role === 'Nurse' && (
-            <button onClick={() => { setActiveTab('visits'); setShowANCModal(true) }}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-pink-500 text-white text-sm font-medium">
-              <HeartPulse size={15} /> Record ANC Vitals
-            </button>
-          )}
-          {record.status === 'active' && canEdit && (
-            <button onClick={() => setShowAdmitModal(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium">
-              <Stethoscope size={15} /> Admit for Labour
-            </button>
-          )}
-        </div>
+        {!hideBack && (
+          <div className="flex gap-2 flex-wrap">
+            {(role === 'Doctor' || (role === 'Consultant' && isReferredToMe)) && (
+              <button onClick={() => setActiveTab('consultation')}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium">
+                <PenLine size={15} /> Consult
+              </button>
+            )}
+            {(isDoctor || role === 'Consultant') && (
+              <button onClick={() => setShowReferralModal(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 text-white text-sm font-medium">
+                <Send size={15} /> Refer / Transfer
+              </button>
+            )}
+            {role === 'Nurse' && (
+              <button onClick={() => { setActiveTab('visits'); setShowANCModal(true) }}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-pink-500 text-white text-sm font-medium">
+                <HeartPulse size={15} /> Record ANC Vitals
+              </button>
+            )}
+            {record.status === 'active' && canEdit && (
+              <button onClick={() => setShowAdmitModal(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500 text-white text-sm font-medium">
+                <Stethoscope size={15} /> Admit for Labour
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex flex-wrap gap-1.5">
@@ -460,7 +564,7 @@ export default function MaternityPatientDetail() {
               {/* Encounters / Consultations */}
               {selectedVisitDay.encounters?.filter((enc: any) => {
                 const sn = typeof enc.soap_notes === 'string' ? (() => { try { return JSON.parse(enc.soap_notes) } catch { return null } })() : enc.soap_notes
-                return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan)
+                return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan || sn.notes)
               }).map((enc: any) => (
                 <div key={enc.id} className="bg-blue-50 rounded-xl p-4 border border-blue-100">
                   <p className="text-xs font-semibold text-blue-700 mb-2 flex items-center gap-2">
@@ -469,12 +573,13 @@ export default function MaternityPatientDetail() {
                   </p>
                   {(() => {
                     const sn = typeof enc.soap_notes === 'string' ? (() => { try { return JSON.parse(enc.soap_notes) } catch { return null } })() : enc.soap_notes
-                    return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan) ? (
-                      <div className="space-y-1 text-xs mt-1">
+                    return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan || sn.notes) ? (
+                      <div className="space-y-1 text-[15px] leading-relaxed text-slate-800 mt-1 whitespace-pre-wrap break-words">
                         {sn.subjective && <p><span className="text-slate-400 font-medium">S:</span> {sn.subjective}</p>}
                         {sn.objective && <p><span className="text-slate-400 font-medium">O:</span> {sn.objective}</p>}
                         {sn.assessment && <p><span className="text-slate-400 font-medium">A:</span> {sn.assessment}</p>}
                         {sn.plan && <p><span className="text-slate-400 font-medium">P:</span> {sn.plan}</p>}
+                        {sn.notes && <p><span className="text-slate-400 font-medium">N:</span> {sn.notes}</p>}
                       </div>
                     ) : null
                   })()}
@@ -591,7 +696,7 @@ export default function MaternityPatientDetail() {
                 {(['subjective', 'objective', 'assessment', 'plan'] as const).map((f) => (
                   <div key={f}>
                     <label className="block text-xs font-medium text-slate-500 mb-1.5 capitalize flex items-center gap-1">{f}</label>
-                    <textarea rows={3} value={soap[f]} onChange={(e) => setSoap((p) => ({ ...p, [f]: e.target.value }))}
+                    <textarea rows={3} value={soap[f]} onChange={(e) => { setSoap((p) => ({ ...p, [f]: e.target.value })); saveSoapDraft(f, e.target.value) }}
                       placeholder={f === 'subjective' ? "Patient's reported symptoms, history..." : f === 'objective' ? "Exam findings, vitals..." : f === 'assessment' ? "Diagnosis, clinical reasoning..." : "Treatment plan, follow-up..."}
                       className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary transition-shadow resize-none" />
                   </div>
@@ -599,7 +704,7 @@ export default function MaternityPatientDetail() {
               </div>
               <div className="mt-4">
                 <label className="block text-xs font-medium text-slate-500 mb-1.5">Notes</label>
-                <textarea rows={2} value={soap.notes} onChange={(e) => setSoap((p) => ({ ...p, notes: e.target.value }))}
+                <textarea rows={2} value={soap.notes} onChange={(e) => { setSoap((p) => ({ ...p, notes: e.target.value })); saveSoapDraft('notes', e.target.value) }}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary transition-shadow resize-none" />
               </div>
               {/* Inline ICD-11 Search (same dropdown as ICD-11 tab) */}
@@ -663,7 +768,7 @@ export default function MaternityPatientDetail() {
                   </div>
                 </div>
               )}
-              <button onClick={handleSOAPSubmit} disabled={consultSubmitting || (!soap.subjective && !soap.objective && !soap.assessment && !soap.plan && pendingDiagnoses.length === 0)}
+              <button onClick={handleSOAPSubmit} disabled={consultSubmitting || (!soap.subjective && !soap.objective && !soap.assessment && !soap.plan && !soap.notes && pendingDiagnoses.length === 0)}
                 className="mt-4 w-full flex items-center justify-center gap-2 bg-primary text-white font-semibold py-2.5 px-6 rounded-xl shadow-sm hover:scale-[1.01] transition-all disabled:opacity-50">
                 {consultSubmitting ? <><Loader2 size={15} className="animate-spin" /> Saving...</> : <><PenLine size={15} /> Save SOAP Note{pendingDiagnoses.length > 0 ? ` + ${pendingDiagnoses.length} Diagnosis` : ''}</>}
               </button>
@@ -841,6 +946,7 @@ export default function MaternityPatientDetail() {
                 const soapNotes = typeof selectedEncounter.soap_notes === 'string' ? (() => { try { return JSON.parse(selectedEncounter.soap_notes) } catch { return null } })() : selectedEncounter.soap_notes
                 const hasDiagnoses = Array.isArray(diagnoses) && diagnoses.length > 0
                 const hasSOAP = soapNotes && (soapNotes.subjective || soapNotes.objective || soapNotes.assessment || soapNotes.plan)
+                const notesArr = Array.isArray(selectedEncounter.notes) ? selectedEncounter.notes : []
 
                 return (
                   <>
@@ -859,26 +965,37 @@ export default function MaternityPatientDetail() {
                       </div>
                     )}
 
-                    {/* SOAP Notes */}
-                    {hasSOAP && (
-                      <div className="space-y-2">
-                        {(['subjective', 'objective', 'assessment', 'plan'] as const).map((f) => (
-                          soapNotes[f] ? (
-                            <div key={f}>
-                              <p className="text-xs font-semibold text-slate-500 uppercase">{f}</p>
-                              <p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-2.5 mt-0.5">{soapNotes[f]}</p>
+                    {/* SOAP Notes (all notes for this encounter) */}
+                    {(notesArr.length > 0 || hasSOAP) && (
+                      <div className="space-y-3">
+                        <p className="text-xs font-semibold text-slate-500 uppercase">SOAP Notes {notesArr.length > 1 ? `(${notesArr.length})` : ''}</p>
+                        {(notesArr.length > 0 ? notesArr : [soapNotes]).map((note: any, ni: number) => {
+                          const nSoap = typeof note.soap_notes === 'string' ? (() => { try { return JSON.parse(note.soap_notes) } catch { return note } })() : (note.soap_notes || note)
+                          return (
+                            <div key={ni} className="border border-slate-200 rounded-xl p-3">
+                              {(notesArr.length > 1 || note.created_at) && (
+                                <p className="text-[10px] text-slate-400 mb-1.5">
+                                  {notesArr.length > 1 ? `Note ${ni + 1}` : 'Note'} · {note.staff_name || '—'}
+                                  {note.created_at ? ` · ${new Date(note.created_at).toLocaleString()}` : ''}
+                                </p>
+                              )}
+                              <div className="space-y-2">
+                                {(['subjective', 'objective', 'assessment', 'plan', 'notes'] as const).map((f) => (
+                                  nSoap && nSoap[f] ? (
+                                    <div key={f}>
+                                      <p className="text-xs font-semibold text-slate-500 uppercase">{f}</p>
+                                      <p className="text-[15px] leading-relaxed text-slate-800 bg-slate-50 rounded-xl p-2.5 mt-0.5 whitespace-pre-wrap break-words">{nSoap[f]}</p>
+                                    </div>
+                                  ) : null
+                                ))}
+                              </div>
                             </div>
-                          ) : null
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
 
-                    {selectedEncounter.notes && (
-                      <div className="mt-2"><p className="text-xs font-semibold text-slate-500 uppercase">Notes</p><p className="text-sm text-slate-700 bg-slate-50 rounded-xl p-2.5 mt-0.5">{selectedEncounter.notes}</p></div>
-                    )}
-
-                    {/* No content fallback */}
-                    {!hasDiagnoses && !hasSOAP && !selectedEncounter.notes && (
+                    {!hasDiagnoses && notesArr.length === 0 && !hasSOAP && (
                       <p className="text-sm text-slate-400 text-center py-4">No SOAP notes or diagnoses recorded for this encounter.</p>
                     )}
                   </>
@@ -1073,8 +1190,9 @@ export default function MaternityPatientDetail() {
           {maternityEncounters.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-6">No maternity encounters recorded yet</p>
           ) : (
+            <>
             <div className="space-y-3 max-h-[500px] overflow-y-auto">
-              {maternityEncounters.map((enc) => {
+              {maternityEncounters.slice(0, maternityEncVisibleCount).map((enc) => {
                 const diagnoses = typeof enc.diagnoses === 'string' ? (() => { try { return JSON.parse(enc.diagnoses) } catch { return [] } })() : enc.diagnoses
                 const soapNotes = typeof enc.soap_notes === 'string' ? (() => { try { return JSON.parse(enc.soap_notes) } catch { return null } })() : enc.soap_notes
                 return (
@@ -1086,11 +1204,12 @@ export default function MaternityPatientDetail() {
                       {enc.staff_name && <span className="text-[10px] text-slate-400">by {enc.staff_name}</span>}
                     </div>
                     {soapNotes && (
-                      <div className="text-xs text-slate-600 space-y-1 mb-2">
+                      <div className="text-[15px] leading-relaxed text-slate-800 space-y-1 mb-2 whitespace-pre-wrap break-words">
                         {soapNotes.subjective && <p><span className="text-slate-400 font-medium">S:</span> {soapNotes.subjective}</p>}
                         {soapNotes.objective && <p><span className="text-slate-400 font-medium">O:</span> {soapNotes.objective}</p>}
                         {soapNotes.assessment && <p><span className="text-slate-400 font-medium">A:</span> {soapNotes.assessment}</p>}
                         {soapNotes.plan && <p><span className="text-slate-400 font-medium">P:</span> {soapNotes.plan}</p>}
+                        {soapNotes.notes && <p><span className="text-slate-400 font-medium">N:</span> {soapNotes.notes}</p>}
                       </div>
                     )}
                     {Array.isArray(diagnoses) && diagnoses.length > 0 && (
@@ -1126,6 +1245,15 @@ export default function MaternityPatientDetail() {
                 )
               })}
             </div>
+            {maternityEncounters.length > maternityEncVisibleCount && (
+              <div className="pt-2">
+                <button onClick={() => setMaternityEncVisibleCount((c) => c + 15)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-dashed border-slate-300 text-sm font-medium text-primary hover:bg-primary/5 hover:border-primary transition-colors">
+                  <ChevronDown className="w-4 h-4" /> Show more ({Math.min(15, maternityEncounters.length - maternityEncVisibleCount)} more of {maternityEncounters.length})
+                </button>
+              </div>
+            )}
+            </>
           )}
         </div>
       )}
@@ -1431,6 +1559,14 @@ export default function MaternityPatientDetail() {
             </div>
           </div>
         </div>
+      )}
+
+      {showReferralModal && (
+        <ReferralModal
+          patientId={record?.patient_id || ''}
+          patientName={record?.full_name}
+          onClose={() => setShowReferralModal(false)}
+        />
       )}
     </div>
   )

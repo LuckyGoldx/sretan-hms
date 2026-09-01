@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import api from '../hooks/useAxios'
+import ConsultantTag from './ConsultantTag'
 import {
   ClipboardList, Loader2, Search, ArrowLeft, Pill, Clock, Filter
 } from 'lucide-react'
@@ -15,6 +16,10 @@ interface DispensedRx {
   status: string
   created_at: string
   patient_name?: string
+  is_consultation?: boolean
+  doctor_role?: string
+  department_name?: string | null
+  doctor_name?: string | null
 }
 
 export default function DispensingHistory() {
@@ -95,7 +100,14 @@ export default function DispensingHistory() {
               <tbody className="divide-y divide-slate-50">
                 {filtered.map((rx) => (
                   <tr key={rx.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-3.5 font-medium text-slate-800">{rx.drug_name}</td>
+                    <td className="px-5 py-3.5 font-medium text-slate-800">
+                      <span className="inline-flex items-center gap-2">
+                        {rx.drug_name}
+                        {(rx.is_consultation || rx.doctor_role === 'Consultant') && (
+                          <ConsultantTag departmentName={rx.department_name} />
+                        )}
+                      </span>
+                    </td>
                     <td className="px-5 py-3.5 text-slate-600">{rx.dosage || '—'}</td>
                     <td className="px-5 py-3.5">{rx.quantity}</td>
                     <td className="px-5 py-3.5 text-slate-600">{rx.patient_name || 'Unknown'}</td>

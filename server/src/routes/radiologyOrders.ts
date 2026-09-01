@@ -20,10 +20,14 @@ router.get('/api/radiology-orders', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const { status, encounter_id, doctor_id, is_paid, imaging_type, encounter_type } = req.query;
-    let query = `SELECT r.*, enc.patient_id, pat.hospital_number, s.name as reported_by_name, sr.name as approved_by_name
+    let query = `SELECT r.*, enc.patient_id, pat.hospital_number, s.name as reported_by_name, sr.name as approved_by_name,
+                  doc.name AS doctor_name, doc.role AS doctor_role,
+                  enc.is_consultation, enc.department_id, dept.name AS department_name
                  FROM radiology_orders r
                  LEFT JOIN encounters enc ON enc.id = r.encounter_id
                  LEFT JOIN patients pat ON pat.id = enc.patient_id
+                 LEFT JOIN staff_users doc ON doc.id = enc.staff_id
+                 LEFT JOIN departments dept ON dept.id = enc.department_id
                  LEFT JOIN staff_users s ON s.id = r.reported_by
                  LEFT JOIN staff_users sr ON sr.id = r.approved_by
                  WHERE r.tenant_id = $1`;

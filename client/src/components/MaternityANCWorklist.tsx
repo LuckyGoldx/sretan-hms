@@ -298,7 +298,7 @@ export default function MaternityANCWorklist() {
                         {/* Encounter Cards */}
                         {group.encounters?.filter((enc: any) => {
                           const sn = typeof enc.soap_notes === 'string' ? (() => { try { return JSON.parse(enc.soap_notes) } catch { return null } })() : enc.soap_notes
-                          return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan)
+                          return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan || sn.notes)
                         }).map((enc: any, idx: number) => (
                           <div key={enc.id || idx} className="bg-blue-50 rounded-xl p-4 space-y-2 border border-blue-100">
                             <div className="flex items-center justify-between">
@@ -310,12 +310,13 @@ export default function MaternityANCWorklist() {
                             </div>
                             {(() => {
                               const sn = typeof enc.soap_notes === 'string' ? (() => { try { return JSON.parse(enc.soap_notes) } catch { return null } })() : enc.soap_notes
-                              return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan) ? (
-                                <div className="space-y-1 text-xs">
+                              return sn && (sn.subjective || sn.objective || sn.assessment || sn.plan || sn.notes) ? (
+                                <div className="space-y-1 text-[15px] leading-relaxed text-slate-800 whitespace-pre-wrap break-words">
                                   {sn.subjective && <p><span className="text-slate-400 font-medium">S:</span> {sn.subjective}</p>}
                                   {sn.objective && <p><span className="text-slate-400 font-medium">O:</span> {sn.objective}</p>}
                                   {sn.assessment && <p><span className="text-slate-400 font-medium">A:</span> {sn.assessment}</p>}
                                   {sn.plan && <p><span className="text-slate-400 font-medium">P:</span> {sn.plan}</p>}
+                                  {sn.notes && <p><span className="text-slate-400 font-medium">N:</span> {sn.notes}</p>}
                                 </div>
                               ) : null
                             })()}

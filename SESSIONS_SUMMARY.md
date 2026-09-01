@@ -1790,3 +1790,71 @@ client/src/components/DoctorConsultation.tsx — maternity info banner
 ---
 
 *End of Session Summary — August 26, 2026*
+
+---
+
+## Session 2026-08-26 (cont.) — Consultant & Referral Module (Full Implementation)
+
+**Session Date:** August 26, 2026
+**Plan:** `CONSULTANT_MODULE_PLAN.md`
+
+### 1. Consultant Role & Departments
+
+- **New role `Consultant`** added to `VALID_ROLES` in `server/src/routes/staff.ts`; staff create/edit accepts `department_id` (required when role is Consultant).
+- **New `departments` table** (migration `045`): name, code, description, `modules JSONB` (e.g. O&G → `["maternity"]`), status. 12 departments seeded for every tenant.
+- **`staff_users.department_id`** added (migration `046`); `GET /api/staff` joins `department_name`; `auth.ts` login returns `department_id`, `department_name`, `department_modules`.
+- **Departments CRUD** (`/api/departments`): list w/ consultant counts, create, update, soft-deactivate — all audited via `audit_logs`.
+
+### 2. Referrals (GP → Department / Consultant)
+
+- **New `referrals` table** (migration `047`): referral_number (REF-YYYY-XXXXX), patient, referred_by, from/to department, optional direct consultant, reason, priority (routine/urgent/emergency), status lifecycle `pending → accepted → in_consultation → completed` (+ rejected/cancelled), accepted/completed audit columns.
+- **Referral endpoints** in `server/src/routes/consultants.ts`:
+  - `GET /api/referrals` (filters), `GET /api/referrals/:id`, `POST /api/referrals`, `PUT /api/referrals/:id` (pending-only edit)
+  - `PUT /api/referrals/:id/accept|complete|reject|cancel` — server-validated transitions + `audit_logs`
+- **Duplicate-active-referral guard**: 409 when a patient already has a pending/accepted/in_consultation referral to the same department.
+- **`to_consultant_id` validation**: must be an active Consultant in the target department.
+
+### 3. Consultant Queue & Dashboard
+
+- `GET /api/consultants/referred-patients?staff_id=X` — only patients referred to the logged-in consultant's department, priority-ordered, folder-activated only.
+- `GET /api/consultants/stats` — pending/accepted/in_consultation/completed/total.
+- `GET /api/consultants/encounters` — consultant's own consultation history.
+- `GET /api/consultants/result-notifications` — unread completed lab results for consultant encounters.
+- **`ConsultantDashboard.tsx`** (`/consultant/dashboard` + `/consultant/patients`): stats cards, searchable/filterable referred-patient queue with Accept/Complete/Reject/Consult actions, priority + status badges.
+- **`ConsultantConsultations.tsx`** (`/consultant/my-consultations`): encounter history table.
+- **`ConsultantConsultation.tsx`** (`/consultant/consultation/:patientId?consultant=1&referral_id=…`): referral banner + auto-accept, wraps `DoctorConsultation`; encounters created with `is_consultation=true`, `referral_id`, `department_id`.
+
+### 4. Consultant Tag on Patient Chart
+
+- **Migrations `048`**: `encounters.is_consultation`, `referral_id`, `department_id`.
+- Encounters GET joins `department_name`; POST/PUT accept consultant fields.
+- **PatientChart**: encounters list shows `CONSULTANT · {department}` indigo badge; new **Referrals tab** with full referral history + "Refer Patient" button; `ReferralModal` reused.
+
+### 5. Referral Modal (GP Transfer)
+
+- **`ReferralModal.tsx`**: searchable departments-with-consultants list (`GET /api/departments/with-consultants`), **quick-pick chips** (recently used via localStorage), priority pills (Routine/Urgent/Emergency), optional direct consultant dropdown, reason + notes.
+- Wired into **DoctorConsultation** ("Refer / Transfer" header button) and **PatientChart**.
+
+### 6. Seed Data
+
+- Migration `049` + `scripts/seed_users.cjs|.mjs`: **`consultant` / `consultant@sretan.com` / `consultant`**, role Consultant, attached to **Gynae & Obstetrics** (maternity module access).
+- Self-healing idempotent seed: correct bcrypt hash, ensures primary tenant keeps username `consultant`.
+
+### 7. UI / RBAC
+
+- Sidebar: new **Consultant** category (Dashboard, Referred Patients, My Consultations); **Departments** under Administration (Admin-only `DepartmentsAdmin.tsx`).
+- Consultant role granted: Patients, Patient Chart, Prescriptions, Results, Appointments, and **Maternity (gated by department `modules`)**.
+- `DashboardRouter` sends Consultants to `ConsultantDashboard`.
+- **StaffManagement**: Consultant role + required Department dropdown + Department column in staff table.
+
+### 8. Migration files (045–049)
+
+| File | Purpose |
+|------|---------|
+| `045_departments.sql` | Departments table + 12 seeded departments (+ O&G maternity module) |
+| `046_staff_department.sql` | `staff_users.department_id` FK + index |
+| `047_referrals.sql` | Referrals table + status/priority + indexes |
+| `048_consultant_encounters.sql` | `encounters.is_consultation/referral_id/department_id` |
+| `049_seed_consultant.sql` | Default consultant account (self-healing) |
+
+*End of Session Summary — August 26, 2026 (Consultant & Referral Module)*

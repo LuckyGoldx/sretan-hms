@@ -14,11 +14,13 @@ router.get('/api/prescriptions', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const { encounter_id, status, doctor_id, encounter_type } = req.query;
-    let query = `SELECT p.*, s.name as doctor_name,
+    let query = `SELECT p.*, s.name as doctor_name, s.role as doctor_role,
+                  e.is_consultation, e.department_id, dept.name AS department_name,
                   (EXISTS(SELECT 1 FROM insurance_case_services ics WHERE ics.source_id = p.id AND ics.tenant_id = p.tenant_id)) as billed_to_insurance
                   FROM prescriptions p
                   LEFT JOIN encounters e ON e.id = p.encounter_id
                   LEFT JOIN staff_users s ON s.id = e.staff_id
+                  LEFT JOIN departments dept ON dept.id = e.department_id
                   WHERE p.tenant_id = $1`;
     const params: any[] = [tenantId];
     let paramIndex = 2;
@@ -57,12 +59,14 @@ router.get('/api/prescriptions/unpaid', async (req: Request, res: Response) => {
       `SELECT pr.id, pr.drug_name, pr.dosage, pr.quantity, pr.instructions, pr.status,
               COALESCE(pr.is_paid, false) as is_paid, pr.created_at,
               enc.patient_id, p.full_name, p.hospital_number, p.phone,
-              s.name as doctor_name,
+              s.name as doctor_name, s.role as doctor_role,
+              enc.is_consultation, enc.department_id, dept.name AS department_name,
               (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE pr.drug_name AND ii.category = 'pharmacy' AND ii.is_active = true) as unit_price
        FROM prescriptions pr
        JOIN encounters enc ON enc.id = pr.encounter_id
        JOIN patients p ON p.id = enc.patient_id
        LEFT JOIN staff_users s ON s.id = enc.staff_id
+       LEFT JOIN departments dept ON dept.id = enc.department_id
        WHERE pr.tenant_id = $1 AND pr.status = 'pending' AND COALESCE(pr.is_paid, false) = false
        ORDER BY pr.created_at DESC`,
       [tenantId]
