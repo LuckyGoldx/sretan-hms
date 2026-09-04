@@ -47,6 +47,7 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function ConsultantDashboard() {
   const navigate = useNavigate()
+  const [queueAll, setQueueAll] = useState<ReferredPatient[]>([])
   const [recent, setRecent] = useState<ReferredPatient[]>([])
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState<Stats>({ pending: 0, accepted: 0, in_consultation: 0, completed: 0, total: 0 })
@@ -62,9 +63,12 @@ export default function ConsultantDashboard() {
         api.get('/consultants/stats', { params: { staff_id: currentStaffId } }).catch(() => ({ data: { pending: 0, accepted: 0, in_consultation: 0, completed: 0, total: 0 } })),
         api.get('/referrals/dashboard', { params: { referred_by: currentStaffId || '' } }).catch(() => ({ data: [] })),
       ])
-      setRecent((queueRes.data || []).slice(0, 5))
+      const queueList = (queueRes.data || []).slice().sort((a: ReferredPatient, b: ReferredPatient) => new Date(b.referred_at || 0).getTime() - new Date(a.referred_at || 0).getTime())
+      const sentList = (sentRes.data || []).slice().sort((a: any, b: any) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+      setQueueAll(queueList)
+      setRecent(queueList.slice(0, 5))
       setStats(statsRes.data || { pending: 0, accepted: 0, in_consultation: 0, completed: 0, total: 0 })
-      setMySent(sentRes.data || [])
+      setMySent(sentList)
     } catch {} finally { setLoading(false) }
   }, [currentStaffId])
 
@@ -72,7 +76,7 @@ export default function ConsultantDashboard() {
 
   if (loading) return <div className="flex items-center justify-center min-h-[60vh]"><Loader2 size={32} className="animate-spin text-primary" /></div>
 
-  const emergencyPending = recent.filter((p) => p.priority === 'emergency' && p.referral_status === 'pending')
+  const emergencyPending = queueAll.filter((p) => p.priority === 'emergency' && p.referral_status === 'pending')
 
   const statCards = [
     { label: 'Pending', value: stats.pending, icon: Clock, color: 'text-amber-600', bg: 'bg-amber-100' },

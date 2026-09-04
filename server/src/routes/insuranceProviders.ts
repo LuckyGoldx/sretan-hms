@@ -16,21 +16,34 @@ function isAdmin(req: Request): boolean {
 router.get('/api/insurance/providers', async (req: Request, res: Response) => {
   try {
     const insuranceUser = getInsuranceUser(req);
-    let query = `SELECT id, name, code, category, contact_person, contact_phone, contact_email, address, is_active, created_at FROM insurance_providers`;
+    const withPatients = req.query.with_patients === 'true';
+    let query = `SELECT pr.id, pr.name, pr.code, pr.category, pr.contact_person, pr.contact_phone, pr.contact_email, pr.address, pr.is_active, pr.created_at,
+                        (SELECT COUNT(DISTINCT t.patient_id)::int FROM (
+                          SELECT patient_id FROM insurance_cases icp WHERE icp.provider_id = pr.id
+                          UNION
+                          SELECT patient_id FROM patient_insurance_policies plp WHERE plp.provider_id = pr.id AND plp.is_active = true
+                        ) t) as patient_count
+                 FROM insurance_providers pr`;
     const params: any[] = [];
     const conds: string[] = [];
 
     // Editor/viewer insurance staff only see their own provider
     if (insuranceUser && insuranceUser.providerId && insuranceUser.role !== 'admin') {
-      conds.push(`id = $${params.length + 1}`);
+      conds.push(`pr.id = $${params.length + 1}`);
       params.push(insuranceUser.providerId);
     } else {
-      conds.push(`tenant_id = $${params.length + 1}`);
+      conds.push(`pr.tenant_id = $${params.length + 1}`);
       params.push(getTenantId());
     }
 
+    // ?with_patients=true restricts the list to providers linked to at least one patient
+    if (withPatients) {
+      conds.push(`(EXISTS (SELECT 1 FROM insurance_cases icp2 WHERE icp2.provider_id = pr.id)
+        OR EXISTS (SELECT 1 FROM patient_insurance_policies plp2 WHERE plp2.provider_id = pr.id AND plp2.is_active = true))`);
+    }
+
     if (conds.length) query += ' WHERE ' + conds.join(' AND ');
-    query += ' ORDER BY name';
+    query += ' ORDER BY pr.name';
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err: any) {

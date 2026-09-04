@@ -766,35 +766,78 @@ router.get('/api/insurance/patient-coverage/:patientId', async (req: Request, re
 router.get('/api/insurance/patients', async (req: Request, res: Response) => {
   try {
     const insuranceUser = getInsuranceUser(req);
-    const { search } = req.query;
+    const { search, provider_id, date_from, date_to } = req.query;
+    const limit = Math.min(parseInt(String(req.query.limit || '200'), 10) || 200, 500);
 
-    let scopeClause = '';
-    const scopeParams: any[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    const conds: string[] = [];
+
+    // A patient is an insurance patient if they have an insurance case (scoped to the
+    // insurance staff's own provider when applicable) or an active policy.
+    let membership = `(EXISTS (SELECT 1 FROM insurance_cases c WHERE c.patient_id = p.id`;
     if (insuranceUser && insuranceUser.providerId) {
-      scopeClause = ' AND c.provider_id = $1';
-      scopeParams.push(insuranceUser.providerId);
+      membership += ` AND c.provider_id = $${idx}`;
+      params.push(insuranceUser.providerId);
+      idx++;
+    }
+    membership += `) OR EXISTS (SELECT 1 FROM patient_insurance_policies pp WHERE pp.patient_id = p.id AND pp.is_active = true))`;
+    conds.push(membership);
+
+    // Provider filter: patient is linked to the selected provider through a case or an active policy.
+    if (provider_id) {
+      conds.push(`(EXISTS (SELECT 1 FROM insurance_cases c2 WHERE c2.patient_id = p.id AND c2.provider_id = $${idx})
+        OR EXISTS (SELECT 1 FROM patient_insurance_policies pp2 WHERE pp2.patient_id = p.id AND pp2.provider_id = $${idx} AND pp2.is_active = true))`);
+      params.push(provider_id);
+      idx++;
     }
 
-    let query = `SELECT p.id, p.full_name, p.hospital_number, p.sex, p.dob, p.phone, p.insurance, p.insurance_type,
-                        (SELECT COUNT(*) FROM insurance_cases WHERE patient_id = p.id)::int as total_cases,
-                        (SELECT COUNT(*) FROM insurance_cases WHERE patient_id = p.id AND status = 'active')::int as active_cases,
-                        (SELECT pr.name FROM patient_insurance_policies pp JOIN insurance_providers pr ON pp.provider_id = pr.id WHERE pp.patient_id = p.id AND pp.is_active = true AND pp.coverage_type = 'primary' AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider,
-                        (SELECT pp.coverage_type FROM patient_insurance_policies pp WHERE pp.patient_id = p.id AND pp.is_active = true AND pp.coverage_type = 'primary' AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as coverage_tag
-                 FROM patients p
-                 WHERE (EXISTS (SELECT 1 FROM insurance_cases c WHERE c.patient_id = p.id${scopeClause})`;
-    const params: any[] = [...scopeParams];
-    let idx = scopeParams.length + 1;
-
-    query += ` OR EXISTS (SELECT 1 FROM patient_insurance_policies pp WHERE pp.patient_id = p.id AND pp.is_active = true))`;
+    // Date filter on the patient's latest insurance activity (most recent case or policy created).
+    if (date_from) {
+      conds.push(`act.last_activity >= ($${idx}::date)::timestamptz`);
+      params.push(date_from);
+      idx++;
+    }
+    if (date_to) {
+      conds.push(`act.last_activity < ((($${idx}::date) + 1)::timestamptz)`);
+      params.push(date_to);
+      idx++;
+    }
 
     if (search) {
-      query += ` AND (p.full_name ILIKE $${idx} OR p.hospital_number ILIKE $${idx})`;
+      conds.push(`(p.full_name ILIKE $${idx} OR p.hospital_number ILIKE $${idx})`);
       params.push(`%${search}%`);
       idx++;
     }
 
-    query += ' ORDER BY p.full_name LIMIT 50';
-    const result = await pool.query(query, params);
+    const result = await pool.query(
+      `SELECT p.id, p.full_name, p.hospital_number, p.sex, p.dob, p.phone, p.insurance, p.insurance_type,
+              (SELECT COUNT(*) FROM insurance_cases WHERE patient_id = p.id)::int as total_cases,
+              (SELECT COUNT(*) FROM insurance_cases WHERE patient_id = p.id AND status = 'active')::int as active_cases,
+              (SELECT pr.name FROM patient_insurance_policies pp
+                 JOIN insurance_providers pr ON pp.provider_id = pr.id
+                WHERE pp.patient_id = p.id AND pp.is_active = true AND pp.coverage_type = 'primary'
+                  AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE)
+                LIMIT 1) as primary_provider,
+              (SELECT pp.coverage_type FROM patient_insurance_policies pp
+                WHERE pp.patient_id = p.id AND pp.is_active = true AND pp.coverage_type = 'primary'
+                  AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE)
+                LIMIT 1) as coverage_tag,
+              act.last_activity as last_insurance_activity
+       FROM patients p
+       CROSS JOIN LATERAL (
+         SELECT MAX(t.dt)::timestamptz as last_activity
+         FROM (
+           SELECT ic.created_at AS dt FROM insurance_cases ic WHERE ic.patient_id = p.id
+           UNION ALL
+           SELECT pl.created_at FROM patient_insurance_policies pl WHERE pl.patient_id = p.id
+         ) t
+       ) act
+       WHERE ${conds.join(' AND ')}
+       ORDER BY p.full_name
+       LIMIT $${idx}`,
+      [...params, limit]
+    );
     res.json(result.rows);
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });

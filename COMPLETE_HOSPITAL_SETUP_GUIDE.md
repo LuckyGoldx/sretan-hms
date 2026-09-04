@@ -382,7 +382,154 @@ netsh advfirewall firewall add rule name="Sretan EMR API" dir=in action=allow pr
 **Make the WiFi router let computers talk to each other:** log into the router and look for
 **"AP isolation"**, **"Client isolation"**, or **"Guest network"** — turn isolation **OFF**. Many
 routers ship with it ON, which secretly blocks the clinic computers from reaching the server even
-though they show WiFi bars.
+though they show WiFi bars. (If the router looks unfamiliar, Section 9A below explains the router
+pages step by step.)
+
+---
+
+## 9A. The router and the hospital network — explained step by step
+
+Think of your hospital network like one house:
+
+- **The router** is the front door: it brings the internet in, gives every device its address, and makes
+  the WiFi.
+- **The switch** is a plug board: it lets many cables talk to each other. It has no brain of its own —
+  the router is still the boss.
+- **The server and all clinic computers** are the people in the house. They all live on the SAME
+  network, so they can all reach each other.
+
+### 9A.1 How to wire it (hospital has a LAN cable network AND a switch)
+
+1. Take a network cable from one of the router's **LAN sockets** (the numbered ones) into the switch.
+   (If you only have a few computers, you can plug them straight into the router's LAN sockets and skip
+   the switch.)
+2. Plug the **server** into the switch (or into the router) with a cable.
+3. Plug every **clinic desktop** into the switch with a cable — or connect them to the router's WiFi.
+4. Switch everything on. Wait one minute.
+
+Picture:
+
+```
+        Internet
+           │
+        [Router]  ← gives addresses + WiFi
+           │ cable
+        [Switch]  ← the plug board
+        ╱     │     ╲
+   [Server] [Desktop 1] [Desktop 2]
+   (192.168.1.200)   ... more desktops ...
+```
+
+**The one rule that keeps it working:** let only ONE router hand out addresses (the hospital router).
+Do not plug a second router into the network to "extend" it — plug in a switch instead. Two routers
+would create two different houses, and the computers would not find each other.
+
+**How to check everything is in the same house:** on each computer, run `ipconfig` (Section 3.8). The
+IP numbers must all start the same, e.g. `192.168.1.xxx`. If a computer shows something like
+`169.254.xxx.xxx`, its cable or switch port is bad. If it shows a completely different range
+(`10.x.x.x` or `192.168.8.x`), it is plugged into a different router — fix the wiring.
+
+### 9A.2 How to factory-reset a router (Airtel or any brand)
+
+You might need this if the router was used before, has a forgotten password, or someone changed
+settings and you want a clean start.
+
+1. Find the **small reset button** on the router. It is usually a tiny hole on the back or bottom,
+   sometimes labelled **RESET**. You need a pin or a toothpick to press it.
+2. With the router ON and powered, press and **hold the reset button for 10–30 seconds** (keep holding
+   even when the lights go off). Let go only when the lights blink together. The router restarts.
+3. Wait 2 minutes. The router is now back to **factory settings** — every old setting is erased
+   (including the old WiFi password and any old AP-isolation setting, which is exactly why a reset can
+   fix "computers can't talk" problems).
+4. Connect a computer to the router with a cable. Open a browser.
+5. Find the router's page address: open **cmd** → type `ipconfig` → look at **Default Gateway** (often
+   `192.168.1.1` or `192.168.0.1`). Type that into the browser address bar, e.g. `http://192.168.1.1`.
+6. Log in. The username/password is printed on a **sticker on the router** (often `admin` /
+   `admin`, or `admin` / `password`). If you changed it before and forgot it, you must reset again.
+7. Set up your hospital WiFi: give it a **name (SSID)** and a **strong password**, choose
+   **WPA2 or WPA3** security, and save. Write the name and password down.
+
+Every brand's page looks a little different, but the job is the same. On an **Airtel** router look for
+tabs like **Wireless / WLAN / WiFi Settings / Advanced**; on others it may be **TP-Link**, **Huawei**,
+**ZTE**, or **Tenda** — the words are similar. When you cannot find a setting, look for a **search
+box** in the router page and type the setting name.
+
+### 9A.3 How to turn OFF "isolation" (so computers can find each other)
+
+"AP isolation / client isolation" is a setting that makes WiFi computers see the internet but NOT each
+other. If it is ON, the clinic desktops cannot reach the server even though they have full WiFi — this
+is the most common reason "nothing loads".
+
+1. Log into the router page (Section 9A.2, step 5–6).
+2. Go to the **WiFi / Wireless settings** page.
+3. Look for one of these names and turn it **OFF** (untick / set to Disabled / slide it off):
+   - **AP Isolation**
+   - **Client Isolation**
+   - **Wireless Isolation**
+   - **Access Point Isolation**
+   - **Station Isolation**
+4. If the router has more than one WiFi (2.4 GHz and 5 GHz), switch isolation **off for each one**.
+5. If the router has a **Guest network**, either turn the guest network OFF, or inside the guest
+   settings turn ON "allow access to the local network". Guest networks are isolated by design.
+6. Click **Save / Apply** and wait one minute. Then test from a clinic desktop: `ping HOST-IP`
+   (Section 3.8) should now get an answer.
+
+If you cannot find any "isolation" name, look in the router's **Advanced / Advanced Wireless / Device
+Management** pages, or type "isolation" into the router's search box. After a factory reset
+(Section 9A.2), isolation is usually OFF by default.
+
+### 9A.4 How to make the clinic desktops load the server over the LAN
+
+Everything below needs two things already done: (1) the server is wired into the same router/switch as
+the desktops, and (2) the server has a **fixed address** (Section 9 — DHCP reservation or static IP).
+Then each clinic desktop opens the EMR in its browser (Section 12).
+
+### 9A.5 Using a readable link instead of the IP (e.g. `http://emr-server:3000`)
+
+Typing `http://192.168.1.200:3000` works, but a name is easier for staff: `http://emr-server:3000`.
+A name is like saving a phone contact — instead of dialling the number every time, you save the name.
+
+**Step 1 — give the server a friendly name (do ONCE on the server):**
+
+1. On the server: Windows key → type **"Rename your PC"** → press Enter.
+2. Click **Rename**, type a short name with no spaces, e.g. **emr-server**, and click **Next**.
+3. Click **Restart Now**. (The server comes back by itself — services auto-start, Section 8.)
+4. Confirm the address is still the fixed one: run `ipconfig` and check the IP matches Section 3.8.
+
+**Step 2 — make each clinic computer understand the name (2 minutes per computer).**
+
+Two ways. Try **Option A** first; if a computer can't find the name, use **Option B** for that computer.
+
+**Option A — automatic (Windows looks up the name by itself):**
+On each clinic computer, make sure **Network discovery** is on: Settings → Network & Internet →
+Advanced network settings → Advanced sharing settings → turn ON **Network discovery** and **File and
+printer sharing** for "Private". Then open `http://emr-server:3000`. If it loads, you are done with
+that computer.
+
+**Option B — the hosts file (reliable, always works):**
+This file is a little phone book that Windows reads before anything else. Add one line that says
+"when someone says emr-server, go to 192.168.1.200".
+
+1. On the clinic computer, press the Windows key, type **Notepad**.
+2. Right-click Notepad → **Run as administrator** → click **Yes**.
+3. In Notepad: File → Open. In the "File name" box type exactly:
+   `C:\Windows\System32\drivers\etc\hosts` and press Enter.
+4. At the very bottom of the file, add ONE new line (use your real server IP from Section 3.8, then a
+   space or tab, then the name):
+   ```
+   192.168.1.200  emr-server
+   ```
+5. File → Save. (If Windows says it can't save, you did not open Notepad as administrator — do step 2
+   again.)
+6. Close Notepad. Now open `http://emr-server:3000` in the browser — it should load.
+
+**Step 3 — bookmark it.** On every clinic desktop, open `http://emr-server:3000`, log in, and press
+**Ctrl + D** to bookmark. Staff only ever click the bookmark.
+
+**Important:** the readable name only works AFTER the server's IP is fixed (Section 9). If you later
+change the server's IP, update the hosts line on every computer (or better, keep the fixed IP from
+Section 9 so you never need to). Always keep `http://<HOST-IP>:3000` as the fallback address — if a
+name stops working one day, the IP address still opens the system.
 
 ---
 
