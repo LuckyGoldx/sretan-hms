@@ -8,6 +8,7 @@ import { errorHandler } from './middleware/errorHandler';
 import { ensureSchema } from './db/init';
 import { startSyncDaemon } from './sync/syncDaemon';
 import { detectSchemaChanges } from './utils/schemaVersion';
+import { startUpdateDaemon } from './utils/updateDaemon';
 import pool from './db/pool';
 import healthRouter from './routes/health';
 import patientsRouter from './routes/patients';
@@ -126,6 +127,25 @@ app.post('/api/upload', upload.single('file'), async (req: any, res: any) => {
   }
 });
 
+// Serve the built React web app from the same port (single-port production
+// deployment: http://<host-ip>:3000 serves both the app and the /api routes).
+// The Vite build output lives at <install_root>/client/dist. API/upload/asset
+// requests are never swallowed by the SPA fallback.
+const distDir = path.resolve(__dirname, '..', '..', 'client', 'dist');
+const indexPath = path.join(distDir, 'index.html');
+app.use(express.static(distDir));
+app.get('*', (req: any, res: any) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/assets')) {
+    res.status(404).json({ error: true, message: 'Not found' });
+    return;
+  }
+  if (!fs.existsSync(indexPath)) {
+    res.status(404).send('Web client is not built. Run `npm run build` in the client folder first.');
+    return;
+  }
+  res.sendFile(indexPath);
+});
+
 async function start(): Promise<void> {
   try {
     ['C:/hms/logs', 'C:/hms/assets'].forEach((dir) => {
@@ -144,6 +164,9 @@ async function start(): Promise<void> {
       // Detect schema changes (new migration files) and reset sync flags so all
       // rows (including old data) re-push to the cloud after a schema update.
       await detectSchemaChanges(pool);
+      // Remote code deployment: auto-pulls new code from the central git repo
+      // when auto-update is enabled on this machine (offline-first).
+      startUpdateDaemon();
     } catch (dbErr) {
       console.warn('Database initialization failed (server will run without DB):', (dbErr as Error).message);
     }

@@ -3,6 +3,7 @@ import { readClinicProfile } from '../config/reader';
 import { upwardSync } from './upwardSync';
 import { downwardSync } from './downwardSync';
 import { migrationListener } from './migrationListener';
+import { checkUpdateSignal } from '../utils/updateDaemon';
 
 export function startSyncDaemon(pool: Pool): void {
   const loop = async () => {
@@ -23,6 +24,9 @@ export function startSyncDaemon(pool: Pool): void {
       if (updatedProfile !== profile) {
         console.log('Configuration updated via migration listener.');
       }
+
+      // React to published software releases immediately (pull latest code).
+      await checkUpdateSignal();
     } catch (err: any) {
       console.error('Sync daemon error:', err.message);
     }

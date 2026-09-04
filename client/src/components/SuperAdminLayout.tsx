@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Navigate, NavLink, useNavigate } from 'react-router-dom'
 import {
   Shield, LayoutDashboard, Building2, Users, Settings, Database,
-  ScrollText, Gauge, LogOut, Menu, X as XIcon, ArrowLeft, Cloud
+  ScrollText, Gauge, LogOut, Menu, X as XIcon, ArrowLeft, Cloud, RadioTower, Eraser
 } from 'lucide-react'
 
 const NAV_ITEMS = [
@@ -11,7 +11,9 @@ const NAV_ITEMS = [
   { to: '/superadmin/staff', label: 'Staff', icon: Users },
   { to: '/superadmin/setup', label: 'Setup Hospital', icon: Settings },
   { to: '/superadmin/backup', label: 'Backup & Restore', icon: Database },
+  { to: '/superadmin/clear', label: 'Clear Data', icon: Eraser },
   { to: '/superadmin/cloud', label: 'Cloud & Sync', icon: Cloud },
+  { to: '/superadmin/fleet', label: 'Fleet Monitor', icon: RadioTower },
   { to: '/superadmin/audit', label: 'Audit Logs', icon: ScrollText },
   { to: '/superadmin/health', label: 'System Health', icon: Gauge },
 ]

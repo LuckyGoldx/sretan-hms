@@ -86,6 +86,8 @@ const SuperAdminBackup = lazy(() => import('./components/SuperAdminBackup'))
 const SuperAdminCloud = lazy(() => import('./components/SuperAdminCloud'))
 const SuperAdminAudit = lazy(() => import('./components/SuperAdminAudit'))
 const SuperAdminHealth = lazy(() => import('./components/SuperAdminHealth'))
+const SuperAdminFleet = lazy(() => import('./components/SuperAdminFleet'))
+const SuperAdminClear = lazy(() => import('./components/SuperAdminClear'))
 const SetupConsole = lazy(() => import('./components/SetupConsole'))
 const FinanceDashboard = lazy(() => import('./components/FinanceDashboard'))
 const LabExpiry = lazy(() => import('./components/LabExpiry'))
@@ -1203,6 +1205,8 @@ export default function App() {
           <Route path="/superadmin/cloud" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminCloud /></SuperAdminLayout></Suspense>} />
           <Route path="/superadmin/audit" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminAudit /></SuperAdminLayout></Suspense>} />
           <Route path="/superadmin/health" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminHealth /></SuperAdminLayout></Suspense>} />
+          <Route path="/superadmin/fleet" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminFleet /></SuperAdminLayout></Suspense>} />
+          <Route path="/superadmin/clear" element={<Suspense fallback={<LoadingFallback />}><SuperAdminLayout><SuperAdminClear /></SuperAdminLayout></Suspense>} />
           {/* Admin Insurance Routes (within clinical Layout) */}
           <Route path="/admin/insurance/dashboard" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceDashboard /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/admin/insurance/cases" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><InsuranceCases /></Suspense></ProtectedRoute></Layout>} />

@@ -10,6 +10,17 @@ import { readClinicProfile, writeProfile } from '../config/reader';
 import { ensureSchema } from '../db/init';
 import { superadminAuth, SUPERADMIN_TOKEN } from '../middleware/superadminAuth';
 import { getSchemaStatus, ackCloudSchema } from '../utils/schemaVersion';
+import {
+  getCachedUpdateStatus,
+  refreshUpdateCache,
+  pullUpdate,
+  persistUpdateReport,
+  getUpdateReportRow,
+  sanitizeRepoUrl,
+  urlHasEmbeddedCredentials,
+} from '../utils/updateDaemon';
+import { resolveCloudCredentials } from '../sync/cloudCredentials';
+import axios from 'axios';
 
 const router = Router();
 
@@ -712,6 +723,9 @@ router.put('/api/superadmin/tenants/:id', async (req: Request, res: Response) =>
       const ten = await pool.query(`SELECT * FROM tenants WHERE id = $1`, [id]);
       const cfg = await pool.query(`SELECT * FROM tenant_configurations WHERE tenant_id = $1`, [id]);
       if (ten.rows[0]) applyTenantToProfile(ten.rows[0], cfg.rows[0] || {});
+      // The report stores the active hospital's deployment mode — refresh it now
+      // so the Fleet Monitor tag updates immediately after a settings change.
+      await persistUpdateReport(true).catch(() => {});
     }
 
     await auditLog(id, 'UPDATE', 'tenants', id, actingUser(req), { hospital_name: oldTenant.hospital_name }, body);
@@ -741,6 +755,9 @@ router.post('/api/superadmin/tenants/:id/activate', async (req: Request, res: Re
     }
     const cfg = cfgRes.rows[0];
     applyTenantToProfile(tenantRes.rows[0], cfg);
+    // Refresh the machine update report immediately so the Fleet Monitor tag
+    // shows this hospital's new deployment mode right away.
+    await persistUpdateReport(true).catch(() => {});
     await auditLog(id, 'ACTIVATE', 'tenants', id, actingUser(req), null, { hospital_name: tenantRes.rows[0].hospital_name });
     res.json({ success: true, message: `Activated ${tenantRes.rows[0].hospital_name}`, profile: readClinicProfile() });
   } catch (err: any) {
@@ -1468,20 +1485,611 @@ router.post('/api/superadmin/schema-ack', async (_req: Request, res: Response) =
 // Remote software update — pull the latest code from the central git repository
 // (offline-first: the machine must be online for a moment; then restart the
 // server to apply). Data is never touched — only code files change.
+//
+// Security: the deployed repository must use a READ-ONLY credential (a
+// read-only fine-grained PAT or deploy key, configured with
+// scripts/hospital_git_setup.ps1). URLs containing an embedded password are
+// rejected here and flagged by /git-config — credentials must never live in
+// .git/config or in settings.
 // ---------------------------------------------------------------------------
 
 router.post('/api/superadmin/git-update', async (_req: Request, res: Response) => {
   try {
-    const repoRoot = path.resolve(__dirname, '..', '..', '..');
-    const branch = (await runCmd('git', ['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot)).stdout.trim() || 'main';
-    const remotes = (await runCmd('git', ['remote'], repoRoot)).stdout.trim().split(/\r?\n/).filter(Boolean);
-    const remote = remotes[0] || 'origin';
-    const { stdout, stderr } = await runCmd('git', ['pull', '--ff-only', remote, branch], repoRoot);
-    const output = (stdout + stderr).trim();
-    await auditLog(null, 'UPDATE', 'software_update', null, actingUser(_req), null, { result: output.slice(0, 2000) });
+    const out = pullUpdate();
+    const status = await refreshUpdateCache();
+    await persistUpdateReport(true);
+    const output = (out || '').trim();
+    await auditLog(null, 'UPDATE', 'software_update', null, actingUser(_req), null, { result: output.slice(0, 2000), commit: status.local_sha });
     res.json({ success: true, message: 'Repository updated. Restart the server to apply the new code.', output });
   } catch (err: any) {
+    await refreshUpdateCache().catch(() => {});
+    await persistUpdateReport(true).catch(() => {});
+    await auditLog(null, 'UPDATE', 'software_update', null, actingUser(_req), null, { result: (err.message || '').slice(0, 2000) });
     res.status(500).json({ error: true, message: err.message, output: err.message });
+  }
+});
+
+// Software update status — reads the daemon's cached status (no git subprocess)
+// plus the persisted per-machine report (applied commit, last pull, phone home).
+router.get('/api/superadmin/update-status', async (_req: Request, res: Response) => {
+  try {
+    const status = getCachedUpdateStatus();
+    const report = await getUpdateReportRow();
+    res.json({ ...status, report });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// Force a live git check (cheap ls-remote), update the cache, and persist +
+// phone home the latest state immediately.
+router.post('/api/superadmin/update-check', async (_req: Request, res: Response) => {
+  try {
+    const status = await refreshUpdateCache();
+    await persistUpdateReport(true);
+    const report = await getUpdateReportRow();
+    res.json({ ...status, report });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// Git remote configuration (read-only discipline):
+// GET returns the sanitized repo/branch/credential state; PUT stores the repo
+// URL + branch to follow and applies `git remote set-url origin` locally.
+// URLs with embedded credentials are rejected — use the setup script instead.
+router.get('/api/superadmin/git-config', async (_req: Request, res: Response) => {
+  try {
+    const repoRoot = path.resolve(__dirname, '..', '..', '..');
+    let originUrl = '';
+    let isGit = true;
+    try {
+      const remotes = (await runCmd('git', ['remote'], repoRoot)).stdout.trim().split(/\r?\n/).filter(Boolean);
+      const remote = remotes[0] || 'origin';
+      originUrl = (await runCmd('git', ['remote', 'get-url', remote], repoRoot)).stdout.trim();
+    } catch {
+      isGit = false;
+    }
+    const clean = sanitizeRepoUrl(originUrl || null);
+    const result = await pool.query(
+      `SELECT setting_key, setting_value FROM superadmin_settings
+       WHERE setting_key IN ('git_remote_url', 'git_branch')`
+    );
+    const settings: Record<string, string> = {};
+    for (const r of result.rows) settings[r.setting_key] = r.setting_value || '';
+    res.json({
+      repo_root: repoRoot,
+      is_git: isGit,
+      origin_url: clean,
+      has_embedded_credentials: urlHasEmbeddedCredentials(originUrl || null),
+      remote_url_setting: sanitizeRepoUrl(settings.git_remote_url || null),
+      branch_setting: settings.git_branch || '',
+      branch_override_enabled: !!settings.git_branch,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+router.put('/api/superadmin/git-config', async (req: Request, res: Response) => {
+  try {
+    const remoteUrl = (req.body?.remote_url || '').trim().replace(/\/+$/, '');
+    const branch = (req.body?.branch || '').trim();
+    if (remoteUrl && urlHasEmbeddedCredentials(remoteUrl)) {
+      res.status(400).json({
+        error: true,
+        message: 'Refusing to store a URL that contains a password/token. Configure the read-only credential with scripts/hospital_git_setup.ps1 instead, and store only the plain https URL here.',
+      });
+      return;
+    }
+
+    // Store the URL/branch to follow in settings (used by the daemon + UI).
+    const keys: string[] = [];
+    const vals: any[] = [];
+    if (remoteUrl) {
+      keys.push('git_remote_url');
+      vals.push(remoteUrl);
+    }
+    if (branch) {
+      keys.push('git_branch');
+      vals.push(branch);
+    }
+    if (!keys.length) {
+      res.status(400).json({ error: true, message: 'Provide a remote_url and/or branch' });
+      return;
+    }
+    for (let i = 0; i < keys.length; i++) {
+      await pool.query(
+        `INSERT INTO superadmin_settings (setting_key, setting_value, updated_by, updated_at)
+         VALUES ($1, $2, $3, NOW())
+         ON CONFLICT (setting_key) DO UPDATE
+           SET setting_value = EXCLUDED.setting_value, updated_by = EXCLUDED.updated_by, updated_at = NOW()`,
+        [keys[i], vals[i], actingUser(req)]
+      );
+    }
+
+    // Apply to the actual git repository (credentials are NOT part of this URL).
+    if (remoteUrl) {
+      const repoRoot = path.resolve(__dirname, '..', '..', '..');
+      const remotes = (await runCmd('git', ['remote'], repoRoot)).stdout.trim().split(/\r?\n/).filter(Boolean);
+      const remote = remotes[0] || 'origin';
+      if (!remotes.length) {
+        await runCmd('git', ['remote', 'add', remote, remoteUrl], repoRoot);
+      } else {
+        await runCmd('git', ['remote', 'set-url', remote, remoteUrl], repoRoot);
+      }
+    }
+
+    await refreshUpdateCache();
+    await persistUpdateReport(true);
+    await auditLog(null, 'UPDATE', 'superadmin_settings', null, actingUser(req), null, {
+      git_remote_url: sanitizeRepoUrl(remoteUrl || null),
+      git_branch: branch,
+    });
+    res.json({ success: true, message: 'Git remote saved. Credentials stay in the OS credential store (see hospital_git_setup.ps1).' });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// Verify the configured remote is reachable with the stored read-only
+// credential (a cheap `git ls-remote`). Reports whether the credential was
+// found and whether the URL accidentally embeds one.
+router.post('/api/superadmin/git-verify', async (_req: Request, res: Response) => {
+  try {
+    const repoRoot = path.resolve(__dirname, '..', '..', '..');
+    let remoteName = 'origin';
+    try {
+      const remotes = (await runCmd('git', ['remote'], repoRoot)).stdout.trim().split(/\r?\n/).filter(Boolean);
+      remoteName = remotes[0] || 'origin';
+    } catch {}
+    let branch = 'master';
+    try { branch = (await runCmd('git', ['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot)).stdout.trim() || 'master'; } catch {}
+    const branchSetting = await pool.query(
+      `SELECT setting_value FROM superadmin_settings WHERE setting_key = 'git_branch'`
+    );
+    if (branchSetting.rows[0]?.setting_value) branch = branchSetting.rows[0].setting_value;
+
+    let rawUrl = '';
+    let helper = '';
+    let embedded = false;
+    try {
+      rawUrl = (await runCmd('git', ['remote', 'get-url', remoteName], repoRoot)).stdout.trim();
+      embedded = urlHasEmbeddedCredentials(rawUrl);
+    } catch {}
+    try {
+      helper = (await runCmd('git', ['config', '--get', 'credential.helper'], repoRoot)).stdout.trim();
+    } catch {}
+
+    const { stdout, stderr } = await runCmd('git', ['ls-remote', remoteName, branch], repoRoot);
+    const remoteSha = (stdout.split(/\t/)[0] || '').trim();
+    const ok = !!remoteSha;
+    const credentialFound = !!(await checkCredentialHelper(remoteName, rawUrl));
+    res.json({
+      success: ok,
+      reachable: ok,
+      remote_sha: remoteSha || null,
+      branch,
+      remote_name: remoteName,
+      remote_url_clean: sanitizeRepoUrl(rawUrl || null),
+      has_embedded_credentials: embedded,
+      credential_helper: helper || 'none',
+      credential_found: credentialFound,
+      message: ok
+        ? embedded
+          ? 'Remote reachable, but the git URL embeds a secret — remove it and use the OS credential store.'
+          : 'Remote reachable with the stored read-only credential.'
+        : 'Remote not reachable (offline, wrong credential, or repository missing). Output: ' + (stderr || stdout).slice(0, 300),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message, reachable: false });
+  }
+});
+
+// Best-effort detection that a credential provider exists for the remote host
+// (git-credential-manager / manager-core / wincred are all acceptable; we only
+// require that credentials are NOT embedded in the URL).
+async function checkCredentialHelper(_remote: string, rawUrl: string): Promise<string | null> {
+  if (!rawUrl || /^(file|ssh):/i.test(rawUrl)) return 'none-needed';
+  try {
+    const repoRoot = path.resolve(__dirname, '..', '..', '..');
+    const helper = (await runCmd('git', ['config', '--get', 'credential.helper'], repoRoot)).stdout.trim();
+    return helper || null;
+  } catch {
+    return null;
+  }
+}
+
+// Publish a release signal to the cloud so hospitals pull the latest code
+// within seconds (event-driven, no polling waits).
+//   - No tenant_id  → GLOBAL release: every online hospital reacts.
+//   - With tenant_id → TARGETED release: only that hospital (tenant) pulls.
+// Targeted releases use the tenant_software_releases map in superadmin_settings
+// (the same no-RLS channel as software_version), so they work on Cloud SaaS and
+// Private Cloud alike. Works for Cloud SaaS (shared project); Private Cloud
+// hospitals also react via the cheap git SHA check.
+router.post('/api/superadmin/publish-update', async (req: Request, res: Response) => {
+  try {
+    const profile = readClinicProfile();
+    const creds = await resolveCloudCredentials(profile);
+    if (!creds) {
+      res.status(400).json({
+        error: true,
+        message: 'No cloud project configured for the active hospital. Push to GitHub instead — hospitals with auto-update enabled will pull it via git.',
+      });
+      return;
+    }
+    const supabaseUrl = creds.url.replace(/\/$/, '');
+    const headers = {
+      apikey: creds.anonKey,
+      Authorization: `Bearer ${creds.anonKey}`,
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    };
+    const version = new Date().toISOString();
+    const tenantId = (req.body?.tenant_id || '').trim();
+
+    if (tenantId) {
+      // Targeted roll-out: merge this tenant into the release map so only its
+      // host machine reacts. Machines that were offline apply it on reconnect.
+      let map: Record<string, string> = {};
+      try {
+        const existing = await axios.get(`${supabaseUrl}/rest/v1/superadmin_settings`, {
+          headers: { apikey: creds.anonKey, Authorization: `Bearer ${creds.anonKey}` },
+          params: { setting_key: 'eq.tenant_software_releases', select: 'setting_value', limit: '1' },
+        });
+        const raw = existing.data?.[0]?.setting_value;
+        if (raw) map = JSON.parse(raw);
+      } catch {}
+      map[tenantId] = version;
+      await axios.post(
+        `${supabaseUrl}/rest/v1/superadmin_settings`,
+        [{ setting_key: 'tenant_software_releases', setting_value: JSON.stringify(map) }],
+        { headers }
+      );
+      await auditLog(null, 'PUBLISH', 'software_update', tenantId, actingUser(req), null, { version, target: tenantId });
+      res.json({
+        success: true,
+        targeted: true,
+        tenant_id: tenantId,
+        message: `Release signal published for hospital ${tenantId}. Its host pulls the latest code within seconds (when online).`,
+        version,
+      });
+      return;
+    }
+
+    await axios.post(
+      `${supabaseUrl}/rest/v1/superadmin_settings`,
+      [{ setting_key: 'software_version', setting_value: version }],
+      { headers }
+    );
+    await auditLog(null, 'PUBLISH', 'software_update', null, actingUser(req), null, { version });
+    res.json({
+      success: true,
+      targeted: false,
+      message: 'Release signal published. Every online hospital will pull the latest code within seconds.',
+      version,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// Fleet roll-out view — reads every hospital host's latest update report from
+// the shared Cloud SaaS project (rows are scoped per tenant). When the console
+// machine runs in Cloud SaaS mode the whole platform is visible in one list.
+router.get('/api/superadmin/fleet-status', async (_req: Request, res: Response) => {
+  try {
+    const profile = readClinicProfile();
+    const creds = await resolveCloudCredentials(profile);
+    if (!creds) {
+      res.status(400).json({ error: true, message: 'No cloud project configured for the active hospital. Fleet status is available on a Cloud SaaS console.' });
+      return;
+    }
+    const url = creds.url.replace(/\/$/, '');
+    const response = await axios.get(`${url}/rest/v1/machine_update_reports`, {
+      headers: { apikey: creds.anonKey, Authorization: `Bearer ${creds.anonKey}` },
+      params: { select: '*', order: 'updated_at.desc', limit: '1000' },
+    });
+    res.json({ rows: response.data || [], mode: profile.deployment_mode });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// Comprehensive fleet monitor for the Software Update / Deployments page.
+// Aggregates every hospital host's update report (commit SHA, last pull,
+// phone-home state) and computes roll-out summary metrics so a central console
+// can see at a glance which hospitals are on the latest code.
+router.get('/api/superadmin/fleet', async (req: Request, res: Response) => {
+  try {
+    const profile = readClinicProfile();
+    const localTenantId = profile.GLOBAL_SAAS_TENANT_ID || null;
+    const localRows: any[] = await getLocalUpdateReports();
+
+    let cloudRows: any[] = [];
+    let source: 'cloud' | 'local' | 'none' = 'local';
+    let mode: string | null = profile.deployment_mode || null;
+    let error: string | null = null;
+
+    const creds = await resolveCloudCredentials(profile);
+    if (creds) {
+      try {
+        const url = creds.url.replace(/\/$/, '');
+        const response = await axios.get(`${url}/rest/v1/machine_update_reports`, {
+          headers: { apikey: creds.anonKey, Authorization: `Bearer ${creds.anonKey}` },
+          params: { select: '*', order: 'updated_at.desc', limit: '5000' },
+        });
+        cloudRows = response.data || [];
+        source = 'cloud';
+      } catch (err: any) {
+        error = err.response?.status === 404
+          ? 'machine_update_reports table missing in the cloud project — run the updated schema SQL (Cloud & Sync → Cloud Database Schema).'
+          : (err.message || 'Cloud read failed');
+        cloudRows = [];
+      }
+    } else if (localRows.length > 0) {
+      source = 'local';
+    } else {
+      source = 'none';
+    }
+
+    // Merge: cloud is the authoritative fleet view (all hospitals). Local rows
+    // are a fallback for Offline Standalone consoles and fill gaps for
+    // hospitals that have not phoned home yet.
+    const merged = mergeFleetRows(localRows, cloudRows);
+
+    const now = Date.now();
+    const DAY = 24 * 60 * 60 * 1000;
+    const fmt = (v: any): string | null => (v ? String(v) : null);
+
+    const rows = merged.map((r) => ({
+      tenant_id: fmt(r.tenant_id),
+      machine_id: fmt(r.machine_id),
+      hospital_name: fmt(r.hospital_name) || 'Unknown hospital',
+      deployment_mode: fmt(r.deployment_mode) || 'OFFLINE_STANDALONE',
+      branch: fmt(r.branch) || '—',
+      local_sha: fmt(r.local_sha),
+      remote_sha: fmt(r.remote_sha),
+      last_commit: fmt(r.last_commit),
+      update_available: !!r.update_available,
+      auto_update_enabled: !!r.auto_update_enabled,
+      interval_minutes: r.interval_minutes ?? null,
+      cloud_version: fmt(r.cloud_version),
+      local_signal_version: fmt(r.local_signal_version),
+      repo_url_clean: fmt(r.repo_url_clean),
+      last_check_at: fmt(r.last_check_at),
+      last_pull_at: fmt(r.last_pull_at),
+      last_pull_ok: r.last_pull_ok === true ? true : (r.last_pull_ok === false ? false : null),
+      last_pull_error: fmt(r.last_pull_error),
+      last_pull_output: fmt(r.last_pull_output),
+      last_phone_at: fmt(r.last_phone_at),
+      last_phone_ok: r.last_phone_ok === true ? true : (r.last_phone_ok === false ? false : null),
+      last_phone_error: fmt(r.last_phone_error),
+      updated_at: fmt(r.updated_at),
+      source: r.__source,
+    }));
+
+    const staleAfterMs = Math.max(parseInt(req.query.stale_hours as string, 10) || 24, 1) * 60 * 60 * 1000;
+    const upToDate = rows.filter((r) => !r.update_available);
+    const summary = {
+      total: rows.length,
+      distinct_hospitals: new Set(rows.map((r) => r.tenant_id).filter(Boolean)).size,
+      up_to_date: upToDate.length,
+      update_pending: rows.filter((r) => r.update_available).length,
+      pull_failed: rows.filter((r) => r.last_pull_ok === false).length,
+      stale: rows.filter((r) => r.updated_at && now - new Date(r.updated_at).getTime() > staleAfterMs).length,
+      auto_update_off: rows.filter((r) => !r.auto_update_enabled).length,
+      never_pulled: rows.filter((r) => !r.last_pull_at && !!r.local_sha).length,
+      never_reported: rows.filter((r) => !r.last_phone_at).length,
+      source,
+    };
+
+    const sortRank = (r: any) =>
+      (r.last_pull_ok === false ? 0 : r.update_available ? 1 : r.last_phone_ok === false ? 2 : 3);
+    rows.sort((a, b) => sortRank(a) - sortRank(b) || (a.hospital_name || '').localeCompare(b.hospital_name || ''));
+
+    res.json({
+      source,
+      mode,
+      local_tenant: localTenantId,
+      error,
+      generated_at: new Date().toISOString(),
+      summary,
+      rows,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+async function getLocalUpdateReports(): Promise<any[]> {
+  try {
+    const res = await pool.query(
+      `SELECT * FROM machine_update_reports ORDER BY updated_at DESC`
+    );
+    return res.rows;
+  } catch {
+    return [];
+  }
+}
+
+// Combine local + cloud report rows. When both exist for the same
+// (tenant, machine) the CLOUD copy is authoritative: a machine phones home
+// AFTER every local write, so the cloud row reflects the latest state and must
+// surface as a cloud row (otherwise the Roll out button would never appear).
+function mergeFleetRows(localRows: any[], cloudRows: any[]): any[] {
+  const byKey = new Map<string, any>();
+  for (const r of localRows) {
+    const key = `${r.tenant_id || ''}|${r.machine_id || ''}`;
+    byKey.set(key, { ...r, __source: 'local' });
+  }
+  for (const r of cloudRows) {
+    const key = `${r.tenant_id || ''}|${r.machine_id || ''}`;
+    byKey.set(key, { ...r, __source: 'cloud' }); // cloud row always wins
+  }
+  return Array.from(byKey.values());
+}
+
+// ---------------------------------------------------------------------------
+// Clear data screen support — empty the clinical/operational DATA of one
+// tenant (hospital) or ALL tenants while NEVER deleting the schema, the
+// tenant/hospital rows, hospital configurations, or superadmin accounts.
+// Only tenant-scoped tables can be cleared; protected tables are excluded
+// server-side. Requires the superadmin master code.
+// ---------------------------------------------------------------------------
+
+const CLEAR_LOCKED_TABLES = ['tenants', 'tenant_configurations'];
+// Never offered at all — global system tables.
+const CLEAR_GLOBAL_PROTECTED = ['super_admin_users', 'superadmin_settings'];
+// Checked-off by default in the UI (users/operational records), but selectable.
+const CLEAR_KEEP_BY_DEFAULT = [
+  'staff_users', 'departments', 'audit_logs', 'machine_update_reports',
+];
+
+async function listTenantScopedTables(client: any): Promise<string[]> {
+  const res = await client.query(
+    `SELECT DISTINCT table_name
+     FROM information_schema.columns
+     WHERE table_schema = 'public' AND column_name = 'tenant_id'
+     ORDER BY table_name`
+  );
+  return res.rows.map((r: any) => r.table_name);
+}
+
+async function listTenants(): Promise<Array<{ id: string; hospital_name: string }>> {
+  const res = await pool.query(
+    `SELECT id, hospital_name FROM tenants ORDER BY hospital_name`
+  );
+  return res.rows.map((r: any) => ({ id: r.id, hospital_name: r.hospital_name }));
+}
+
+router.get('/api/superadmin/clear-catalog', async (_req: Request, res: Response) => {
+  try {
+    const tenants = await listTenants();
+    const tableNames = await listTenantScopedTables(pool);
+    const tables = [];
+    for (const name of tableNames) {
+      const cnt = await pool.query(
+        `SELECT count(*)::int AS c FROM ${quoteIdent(name)}`
+      );
+      tables.push({
+        name,
+        approx_rows: cnt.rows[0]?.c ?? 0,
+        is_locked: CLEAR_LOCKED_TABLES.includes(name),
+        selected_by_default: !CLEAR_KEEP_BY_DEFAULT.includes(name),
+      });
+    }
+    res.json({
+      tenants,
+      tables,
+      locked: CLEAR_LOCKED_TABLES,
+      global_protected: CLEAR_GLOBAL_PROTECTED,
+      keep_by_default: CLEAR_KEEP_BY_DEFAULT,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// Clear data rows.
+// body: { tenant_id?: string | null (omit/"all" => every tenant), tables: string[], master_code: string }
+router.post('/api/superadmin/clear-data', async (req: Request, res: Response) => {
+  try {
+    const codeRes = await pool.query(
+      `SELECT setting_value FROM superadmin_settings WHERE setting_key = 'master_code'`
+    );
+    const expected = codeRes.rows[0]?.setting_value || '5788';
+    if (String((req.body?.master_code || '')).trim() !== String(expected)) {
+      res.status(403).json({ error: true, message: 'Incorrect master code' });
+      return;
+    }
+
+    const requested: string[] = Array.isArray(req.body?.tables)
+      ? (req.body.tables as string[]).map((t) => String(t)).filter(Boolean)
+      : [];
+    const tenantRaw = String(req.body?.tenant_id || '').trim();
+    const allTenants = !tenantRaw || tenantRaw.toLowerCase() === 'all';
+
+    if (requested.length === 0) {
+      res.status(400).json({ error: true, message: 'Select at least one table to clear' });
+      return;
+    }
+
+    // Validate tenant (when a specific one is requested).
+    let tenantId: string | null = null;
+    if (!allTenants) {
+      const tRes = await pool.query(`SELECT id FROM tenants WHERE id = $1`, [tenantRaw]);
+      if (tRes.rows.length === 0) {
+        res.status(400).json({ error: true, message: 'Tenant not found' });
+        return;
+      }
+      tenantId = tRes.rows[0].id;
+    }
+
+    // Validate tables: must exist, be tenant-scoped, and not locked/protected.
+    const scoped = await listTenantScopedTables(pool);
+    const scopedSet = new Set(scoped);
+    const selected: string[] = [];
+    for (const name of requested) {
+      if (!scopedSet.has(name)) {
+        res.status(400).json({ error: true, message: `Table ${name} is not a tenant-scoped data table.` });
+        return;
+      }
+      if (CLEAR_LOCKED_TABLES.includes(name)) {
+        res.status(403).json({ error: true, message: `Table ${name} is locked — tenants are never deleted by this tool.` });
+        return;
+      }
+      if (CLEAR_GLOBAL_PROTECTED.includes(name)) {
+        res.status(403).json({ error: true, message: `Table ${name} is system-protected.` });
+        return;
+      }
+      if (!selected.includes(name)) selected.push(name);
+    }
+
+    const client = await pool.connect();
+    const cleared: Array<{ table: string; rows: number }> = [];
+    try {
+      await client.query('BEGIN');
+      // Suspend FK enforcement so deletion order never matters; the transaction
+      // restores the role automatically on COMMIT/ROLLBACK.
+      await client.query('SET LOCAL session_replication_role = replica');
+      for (const table of selected) {
+        const q = allTenants
+          ? `DELETE FROM ${quoteIdent(table)}`
+          : `DELETE FROM ${quoteIdent(table)} WHERE tenant_id = $1`;
+        const resQ = allTenants
+          ? await client.query(q)
+          : await client.query(q, [tenantId]);
+        cleared.push({ table, rows: resQ.rowCount || 0 });
+      }
+      await client.query('COMMIT');
+    } catch (err: any) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    const total = cleared.reduce((n, c) => n + c.rows, 0);
+    await auditLog(
+      tenantId,
+      'DELETE',
+      'data_clear',
+      tenantId || null,
+      actingUser(req),
+      null,
+      { scope: allTenants ? 'ALL_TENANTS' : tenantId, tables: cleared, total }
+    );
+    res.json({
+      success: true,
+      scope: allTenants ? 'all' : tenantId,
+      message: `Cleared ${total} row(s) from ${cleared.length} table(s). The schema and tenants were NOT touched.`,
+      tables: cleared,
+      total,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
   }
 });
 
