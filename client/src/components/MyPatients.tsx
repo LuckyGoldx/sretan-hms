@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Users, Clock, Activity, UserCheck, Stethoscope, LogOut, RefreshCw, FileText, Plus, X, Loader2, Bed, Home, Heart, ArrowLeft, Mic, CheckCircle, Shield, UserPlus, Building2 } from 'lucide-react'
+import { Search, Users, Clock, Activity, UserCheck, Stethoscope, LogOut, RefreshCw, FileText, X, Loader2, Bed, Home, Heart, ArrowLeft, Mic, CheckCircle, Shield, UserPlus, Building2 } from 'lucide-react'
 import api from '../hooks/useAxios'
 import type { Patient } from '../types/index'
 import ActivePatients from './ActivePatients'
 import Pagination from './Pagination'
 import AssignmentBoard from './AssignmentBoard'
 import SearchableDropdown from './SearchableDropdown'
+import AdmitToWardModal from './AdmitToWardModal'
+import DischargeModal from './DischargeModal'
 
 const statusOptions = [
   { value: '', label: 'All' },
@@ -123,10 +125,8 @@ export default function MyPatients() {
     return 'active'
   })
   const [admissionMap, setAdmissionMap] = useState<Record<string, { id: string; ward_name: string; admitted_at: string; admitted_by_name?: string; bed_number?: string }>>({})
-  const [wards, setWards] = useState<{ id: string; name: string }[]>([])
   const [admitModal, setAdmitModal] = useState<{ patientId: string; patientName: string } | null>(null)
-  const [selectedWard, setSelectedWard] = useState('')
-  const [admitting, setAdmitting] = useState(false)
+  const [dischargeAdmission, setDischargeAdmission] = useState<any | null>(null)
   const [vitalsPatient, setVitalsPatient] = useState<any | null>(null)
   const [hasMaternityRecord, setHasMaternityRecord] = useState(false)
   const [vitalsForm, setVitalsForm] = useState({ systolic_bp: '', diastolic_bp: '', pulse: '', temperature: '', respiration_rate: '', weight: '', spo2: '', height: '', fetal_heart_rate: '', fetal_heart_sound: '', fundal_height: '', fetal_presentation: '', urine_protein: '', urine_glucose: '', hemoglobin: '', pcv: '', gestational_age_weeks: '', tt_dose: '', triage_priority: 'green', nursing_notes: '' })
@@ -170,10 +170,6 @@ export default function MyPatients() {
       setLoading(false)
     }
   }, [tab, doctorId])
-
-  useEffect(() => {
-    api.get('/wards').then((r) => setWards(r.data || [])).catch(() => {})
-  }, [])
 
   useEffect(() => {
     api.get('/staff').then((r) => setDoctors((r.data || []).filter((s: any) => s.role === 'Doctor' || s.role === 'Consultant'))).catch(() => {})
@@ -273,23 +269,30 @@ export default function MyPatients() {
     setAssignModal(null); setAssignDoctorId(''); setAssignDepartmentId(''); setAssignVisitType('new'); setAssignFee('')
   }
 
-  async function handleAdmit() {
-    if (!admitModal || !selectedWard) return
-    setAdmitting(true)
-    try {
-      const res = await api.post('/admissions', { patient_id: admitModal.patientId, ward_id: selectedWard, admitted_by: doctorId })
-      setAdmissionMap((prev) => ({ ...prev, [admitModal.patientId]: { id: res.data.id, ward_name: res.data.ward_name, admitted_at: res.data.admitted_at } }))
-      setAdmitModal(null)
-      setSelectedWard('')
-    } catch { setError('Failed to admit patient.') } finally { setAdmitting(false) }
+  function openAdmitModal(patient: Patient) {
+    setAdmitModal({ patientId: patient.id, patientName: patient.full_name })
   }
 
-  async function handleDischarge(patientId: string, admissionId: string) {
-    setActionLoading(patientId)
-    try {
-      await api.put(`/admissions/${admissionId}/discharge`, { discharged_by: doctorId })
-      setAdmissionMap((prev) => { const n = { ...prev }; delete n[patientId]; return n })
-    } catch { setError('Failed to discharge patient.') } finally { setActionLoading(null) }
+  // Only Doctors and Admins may admit. A doctor can only admit a patient that is
+  // assigned to them or that they claimed (both set assigned_doctor_id = doctor).
+  function canAdmitPatient(patient: Patient): boolean {
+    if (currentRole === 'Admin') return true
+    if (currentRole === 'Doctor' && doctorId) return patient.assigned_doctor_id === doctorId
+    return false
+  }
+
+  function openDischargeModal(patient: Patient) {
+    const adm = admissionMap[patient.id]
+    if (!adm) return
+    setDischargeAdmission({
+      id: adm.id,
+      patient_id: patient.id,
+      patient_name: patient.full_name,
+      hospital_number: patient.hospital_number,
+      ward_name: adm.ward_name,
+      bed_number: adm.bed_number,
+      admitted_at: adm.admitted_at,
+    })
   }
 
   async function handleVitalsSubmit() {
@@ -569,13 +572,13 @@ export default function MyPatients() {
                   ) : null}
 
                   {!isNurse && admissionMap[patient.id] ? (
-                    <button onClick={() => handleDischarge(patient.id, admissionMap[patient.id].id)} disabled={actionLoading === patient.id}
-                      className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-700 text-xs font-semibold rounded-xl border border-rose-200 hover:bg-rose-100 transition-all duration-200 disabled:opacity-50">
-                      {actionLoading === patient.id ? <div className="w-3 h-3 border-2 border-rose-500 border-t-transparent rounded-full animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
+                    <button onClick={() => openDischargeModal(patient)}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-rose-50 text-rose-700 text-xs font-semibold rounded-xl border border-rose-200 hover:bg-rose-100 transition-all duration-200">
+                      <LogOut className="w-3.5 h-3.5" />
                       Discharge from Ward
                     </button>
-                  ) : !isNurse && patient.status !== 'discharged' ? (
-                    <button onClick={() => setAdmitModal({ patientId: patient.id, patientName: patient.full_name })}
+                  ) : canAdmitPatient(patient) && patient.status !== 'discharged' ? (
+                    <button onClick={() => openAdmitModal(patient)}
                       className="flex items-center gap-1.5 px-3 py-2 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-xl border border-indigo-200 hover:bg-indigo-100 transition-all duration-200">
                       <Home className="w-3.5 h-3.5" /> Admit to Ward
                     </button>
@@ -593,39 +596,26 @@ export default function MyPatients() {
 
       {/* Admit Modal */}
       {admitModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!admitting) setAdmitModal(null) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
-                <Home size={18} className="text-indigo-500" />
-                Admit Patient
-              </h2>
-              <button onClick={() => { setAdmitModal(null); setSelectedWard('') }} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div>
-                <p className="text-sm text-slate-600 mb-1">Patient: <strong>{admitModal.patientName}</strong></p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-600 mb-1.5">Select Ward</label>
-                <select value={selectedWard} onChange={(e) => setSelectedWard(e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
-                  <option value="">-- Choose ward --</option>
-                  {wards.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100">
-              <button onClick={() => { setAdmitModal(null); setSelectedWard('') }}
-                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-              <button onClick={handleAdmit} disabled={admitting || !selectedWard}
-                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-all disabled:opacity-50">
-                {admitting ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                Admit Patient
-              </button>
-            </div>
-          </div>
-        </div>
+        <AdmitToWardModal
+          patientId={admitModal.patientId}
+          patientName={admitModal.patientName}
+          onClose={() => setAdmitModal(null)}
+          onAdmitted={(admission) => {
+            setAdmissionMap((prev) => ({ ...prev, [admitModal.patientId]: { id: admission.id, ward_name: admission.ward_name, admitted_at: admission.admitted_at } }))
+          }}
+        />
+      )}
+
+      {/* Discharge Modal */}
+      {dischargeAdmission && (
+        <DischargeModal
+          admission={dischargeAdmission}
+          onClose={() => setDischargeAdmission(null)}
+          onDischarged={(admission) => {
+            setDischargeAdmission(null)
+            setAdmissionMap((prev) => { const n = { ...prev }; delete n[admission.patient_id || dischargeAdmission.patient_id]; return n })
+          }}
+        />
       )}
 
       {/* Assign Doctor Modal */}

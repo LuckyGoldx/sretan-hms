@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Search, Users, UserCheck, Stethoscope, RefreshCw, X, Loader2, CheckCircle, Shield, UserPlus,
-  ClipboardList, AlertTriangle, Activity,
+  ClipboardList, AlertTriangle, Activity, Home, LogOut,
 } from 'lucide-react'
 import api from '../hooks/useAxios'
 import SearchableDropdown from './SearchableDropdown'
+import AdmitToWardModal from './AdmitToWardModal'
+import DischargeModal from './DischargeModal'
 
 function statusBadge(status?: string): { label: string; cls: string } {
   switch (status) {
@@ -54,6 +56,9 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
   const [consultModal, setConsultModal] = useState<any | null>(null)
   const [consulting, setConsulting] = useState(false)
   const [consultBlock, setConsultBlock] = useState<any | null>(null)
+  const [admitPatient, setAdmitPatient] = useState<any | null>(null)
+  const [dischargePatient, setDischargePatient] = useState<any | null>(null)
+  const [admissionMap, setAdmissionMap] = useState<Record<string, any>>({})
   const [emergencyModal, setEmergencyModal] = useState<any | null>(null)
   const [emergencyType, setEmergencyType] = useState<'new' | 'follow_up'>('new')
   // Nurse vitals
@@ -112,6 +117,15 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
   }, [])
 
   // Doctor queue: my assigned + claimable (paid, or all triage when emergency is on).
+  const loadAdmissions = useCallback(async () => {
+    try {
+      const r = await api.get('/admissions/active')
+      const m: Record<string, any> = {}
+      ;(r.data || []).forEach((a: any) => { if (a.patient_id) m[a.patient_id] = a })
+      setAdmissionMap(m)
+    } catch {}
+  }, [])
+
   const fetchQueue = useCallback(async (silent = false) => {
     if (!doctorId) return
     if (!silent) setQueueLoading(true)
@@ -120,7 +134,8 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
       const res = await api.get(`/doctor-queue?staff_id=${doctorId}&include_unpaid=${includeUnpaid}`)
       setQueue(res.data || { assigned: [], claimable: [], counts: { assigned: 0, claimable: 0 } })
     } catch { setError('Failed to load queue') } finally { if (!silent) setQueueLoading(false) }
-  }, [doctorId, includeUnpaid])
+    loadAdmissions()
+  }, [doctorId, includeUnpaid, loadAdmissions])
 
   // Staff queue (Nurse/Records/Admin): all assigned patients + all unassigned,
   // then split unassigned into paid (ready) vs emergency (unpaid triage) client-side.
@@ -139,7 +154,8 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
         : allUnassigned.filter((p: any) => p.has_paid)
       setQueue({ assigned, claimable, counts: { assigned: assigned.length, claimable: claimable.length } })
     } catch { setError('Failed to load queue') } finally { if (!silent) setQueueLoading(false) }
-  }, [includeUnpaid])
+    loadAdmissions()
+  }, [includeUnpaid, loadAdmissions])
 
   useEffect(() => {
     if (role === null) return
@@ -443,6 +459,27 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
                       <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-violet-100 text-violet-700 text-xs font-semibold">
                         <Stethoscope size={13} /> In Consultation
                       </span>
+                    )}
+                    {(role === 'Doctor' || role === 'Admin') && p.visit_status === 'with_doctor' && (
+                      admissionMap[p.id] ? (
+                        <button onClick={() => setDischargePatient({
+                          id: admissionMap[p.id].id,
+                          patient_id: p.id,
+                          patient_name: p.full_name,
+                          hospital_number: p.hospital_number,
+                          ward_name: admissionMap[p.id].ward_name,
+                          bed_number: admissionMap[p.id].bed_number,
+                          admitted_at: admissionMap[p.id].admitted_at,
+                        })}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-medium hover:bg-rose-100 border border-rose-200">
+                          <LogOut size={13} /> Discharge from Ward
+                        </button>
+                      ) : (
+                        <button onClick={() => setAdmitPatient(p)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-medium hover:bg-indigo-100 border border-indigo-200">
+                          <Home size={13} /> Admit to Ward
+                        </button>
+                      )
                     )}
                     <button onClick={() => navigate(showProfile ? `/records/patients/${p.id}` : `/patient/${p.id}`)}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50">
@@ -906,6 +943,37 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
             </div>
           </div>
         </div>
+      )}
+
+      {/* Admit to Ward modal */}
+      {admitPatient && (
+        <AdmitToWardModal
+          patientId={admitPatient.id}
+          patientName={admitPatient.full_name}
+          onClose={() => setAdmitPatient(null)}
+          onAdmitted={(admission) => {
+            if (admission?.patient_id) setAdmissionMap((m) => ({ ...m, [admission.patient_id]: admission }))
+            setAdmitPatient(null)
+            refresh()
+          }}
+        />
+      )}
+
+      {/* Discharge from Ward modal */}
+      {dischargePatient && (
+        <DischargeModal
+          admission={dischargePatient}
+          onClose={() => setDischargePatient(null)}
+          onDischarged={(admission) => {
+            setAdmissionMap((m) => {
+              const n = { ...m }
+              delete n[admission?.patient_id || dischargePatient.patient_id]
+              return n
+            })
+            setDischargePatient(null)
+            refresh()
+          }}
+        />
       )}
     </div>
   )

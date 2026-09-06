@@ -43,6 +43,7 @@ import consultantsRouter from './routes/consultants';
 import notificationsRouter from './routes/notifications';
 import visitsRouter from './routes/visits';
 import superadminRouter from './routes/superadmin';
+import auditRouter from './routes/audit';
 
 declare global {
   var clockTampered: boolean | undefined;
@@ -88,6 +89,7 @@ app.use(consultantsRouter);
 app.use(notificationsRouter);
 app.use(visitsRouter);
 app.use(superadminRouter);
+app.use(auditRouter);
 
 app.use(errorHandler);
 

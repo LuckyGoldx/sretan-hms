@@ -23,6 +23,7 @@ interface Sale {
   quantity: number
   unit_price: number
   total_amount: number
+  cost_price?: number
   customer_name?: string
   payment_method: string
   notes?: string
@@ -134,6 +135,9 @@ export default function WalkInSales() {
 
   const todaySales = sales.filter((s) => isSameDay(s.sold_at))
   const tabSales = salesTab === 'today' ? todaySales : sales
+  const tabSalesRevenue = tabSales.reduce((sum, s) => sum + Number(s.total_amount || 0), 0)
+  const tabSalesCost = tabSales.reduce((sum, s) => sum + (Number(s.cost_price || 0) * Number(s.quantity || 1)), 0)
+  const tabSalesProfit = tabSalesRevenue - tabSalesCost
 
   const cartSubtotal = cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)
   const discountApplied = showDiscount ? Math.min(Math.max(discountState || 0, 0), cartSubtotal) : 0
@@ -633,6 +637,23 @@ export default function WalkInSales() {
             </button>
           </div>
         </div>
+
+        {tabSales.length > 0 && (
+          <div className="px-5 pt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-2.5">
+              <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">{salesTab === 'today' ? 'Sales Today' : 'Total Sales'}</p>
+              <p className="text-lg font-bold text-slate-800">₦{tabSalesRevenue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-2.5">
+              <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold">Cost of Sales</p>
+              <p className="text-lg font-bold text-slate-600">₦{tabSalesCost.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-4 py-2.5">
+              <p className="text-[10px] uppercase tracking-wide text-emerald-600 font-semibold">Gross Profit</p>
+              <p className="text-lg font-bold text-emerald-700">₦{tabSalesProfit.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+            </div>
+          </div>
+        )}
         {tabSales.length === 0 ? (
           <div className="flex flex-col items-center py-12 text-slate-400">
             <ShoppingCart size={36} className="text-slate-300 mb-2" />

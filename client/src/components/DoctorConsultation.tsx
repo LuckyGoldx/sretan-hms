@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, ScrollText, ClipboardList, Pill, Microscope, Scan, Search, Clock, X, Plus,
   ChevronDown, CheckCircle, XCircle, AlertTriangle, Loader2, Syringe, FlaskConical, Activity, Mic, Baby,
-  FileText, FileImage, Shield, Building2, Zap, UserCheck, LogOut, Stethoscope, ChevronUp,
+  FileText, FileImage, Shield, Building2, Zap, UserCheck, LogOut, Stethoscope, ChevronUp, Home,
 } from 'lucide-react'
 import api from '../hooks/useAxios'
 import DoctorComment from './DoctorComment'
@@ -12,6 +12,8 @@ import ConsultantTag from './ConsultantTag'
 import CompleteConsultationModal from './CompleteConsultationModal'
 import CollapsibleReason from './CollapsibleReason'
 import ChartModal from './ChartModal'
+import AdmitToWardModal from './AdmitToWardModal'
+import DischargeModal from './DischargeModal'
 import type { Patient, Encounter } from '../types/index'
 
 interface SoapForm { subjective: string; objective: string; assessment: string; plan: string; notes: string }
@@ -165,6 +167,9 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
   const [showChartModal, setShowChartModal] = useState(false)
   const [visit, setVisit] = useState<any>(null)
   const [visitBusy, setVisitBusy] = useState(false)
+  const [activeAdmission, setActiveAdmission] = useState<any | null>(null)
+  const [showAdmitModal, setShowAdmitModal] = useState(false)
+  const [showDischargeModal, setShowDischargeModal] = useState(false)
   const [showStartConfirm, setShowStartConfirm] = useState(false)
   const [activeConsultBlock, setActiveConsultBlock] = useState<any | null>(null)
   const [todayVitals, setTodayVitals] = useState<any[]>([])
@@ -177,6 +182,14 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
     try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {}
     return null
   })()
+
+  const currentRole: string | null = (() => {
+    try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role } catch {}
+    return null
+  })()
+
+  const canAdmitConsult = currentRole === 'Admin' || (currentRole === 'Doctor' && !!currentStaffId && patient?.assigned_doctor_id === currentStaffId)
+  const canDischargeConsult = currentRole === 'Doctor' || currentRole === 'Admin'
 
   async function fetchStaffName(id: string): Promise<string> {
     if (staffCache[id]) return staffCache[id]
@@ -294,6 +307,12 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
           const vlist = vRes.data || []
           setVisit(vlist.length > 0 ? vlist[0] : null)
         } catch { setVisit(null) }
+        // Fetch active admission (ward status) so Admit to Ward reflects reality.
+        try {
+          const admRes = await api.get(`/admissions?status=active&patient_id=${patientId}`)
+          const adm = admRes.data || []
+          setActiveAdmission(adm.length > 0 ? adm[0] : null)
+        } catch { setActiveAdmission(null) }
         // Fetch today's vitals so the doctor can see whether nursing captured them.
         try {
           const vRes = await api.get(`/vitals/patient/${patientId}`)
@@ -616,6 +635,21 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
           >
             <FileText className="w-4 h-4" /> Chart
           </button>
+          {canDischargeConsult && activeAdmission ? (
+            <button
+              onClick={() => setShowDischargeModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-500 text-white text-sm font-semibold hover:bg-rose-600 transition-colors flex-shrink-0"
+            >
+              <LogOut className="w-4 h-4" /> Discharge from Ward
+            </button>
+          ) : canAdmitConsult && !activeAdmission ? (
+            <button
+              onClick={() => setShowAdmitModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-500 text-white text-sm font-semibold hover:bg-indigo-600 transition-colors flex-shrink-0"
+            >
+              <Home className="w-4 h-4" /> Admit to Ward
+            </button>
+          ) : null}
           <button
             onClick={() => setShowReferralModal(true)}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-500 text-white text-sm font-semibold hover:bg-indigo-600 transition-colors flex-shrink-0"
@@ -1928,6 +1962,31 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Admit to Ward modal */}
+      {showAdmitModal && patient && (
+        <AdmitToWardModal
+          patientId={patient.id}
+          patientName={patient.full_name}
+          onClose={() => setShowAdmitModal(false)}
+          onAdmitted={(admission) => {
+            setActiveAdmission(admission)
+            showToast(`Patient admitted to ${admission.ward_name || 'ward'}`, 'success')
+          }}
+        />
+      )}
+
+      {/* Discharge from Ward modal */}
+      {showDischargeModal && activeAdmission && patient && (
+        <DischargeModal
+          admission={activeAdmission}
+          onClose={() => setShowDischargeModal(false)}
+          onDischarged={() => {
+            setActiveAdmission(null)
+            showToast('Patient discharged from ward', 'success')
+          }}
+        />
       )}
     </div>
   )

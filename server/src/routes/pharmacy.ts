@@ -113,7 +113,25 @@ router.put('/api/inventory/:id', async (req: Request, res: Response) => {
        unit_price !== undefined ? unit_price : null, cost_price !== undefined ? cost_price : null, amount_type || null, is_active !== undefined ? is_active : null, id, tenantId]
     );
 
-    res.json(result.rows[0]);
+    const oldItem = existing.rows[0];
+    const newItem = result.rows[0];
+
+    // Audit price/cost changes (old -> new) so price history is visible even
+    // after later edits; billing itself uses immutable per-sale snapshots.
+    const priceChanged =
+      Number(oldItem.price || 0) !== Number(newItem.price || 0) ||
+      Number(oldItem.cost_price || 0) !== Number(newItem.cost_price || 0);
+    if (priceChanged) {
+      try {
+        await pool.query(
+          `INSERT INTO audit_logs (tenant_id, action, table_name, record_id, performed_by, old_data, new_data)
+           VALUES ($1, 'UPDATE', 'inventory_items', $2, $3, $4, $5)`,
+          [tenantId, id, req.body.performed_by || null, JSON.stringify(oldItem), JSON.stringify(newItem)]
+        );
+      } catch {}
+    }
+
+    res.json(newItem);
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }

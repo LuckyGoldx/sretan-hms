@@ -9,7 +9,7 @@ import {
 const PAGE_SIZE = 30
 
 const serviceIcons: Record<string, any> = {
-  folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home,
+  folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home, bed_day: Home,
 }
 
 export default function PaypointPatients() {

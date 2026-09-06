@@ -775,14 +775,13 @@ router.get('/api/insurance/patients', async (req: Request, res: Response) => {
 
     // A patient is an insurance patient if they have an insurance case (scoped to the
     // insurance staff's own provider when applicable) or an active policy.
-    let membership = `(EXISTS (SELECT 1 FROM insurance_cases c WHERE c.patient_id = p.id`;
+    let membership = `(EXISTS (SELECT 1 FROM insurance_cases c WHERE c.patient_id = m.id`;
     if (insuranceUser && insuranceUser.providerId) {
       membership += ` AND c.provider_id = $${idx}`;
       params.push(insuranceUser.providerId);
       idx++;
     }
-    membership += `) OR EXISTS (SELECT 1 FROM patient_insurance_policies pp WHERE pp.patient_id = p.id AND pp.is_active = true))`;
-    conds.push(membership);
+    membership += `) OR EXISTS (SELECT 1 FROM patient_insurance_policies pp WHERE pp.patient_id = m.id AND pp.is_active = true))`;
 
     // Provider filter: patient is linked to the selected provider through a case or an active policy.
     if (provider_id) {
@@ -792,7 +791,9 @@ router.get('/api/insurance/patients', async (req: Request, res: Response) => {
       idx++;
     }
 
-    // Date filter on the patient's latest insurance activity (most recent case or policy created).
+    // Date filter on the patient's latest activity across insurance and clinical records:
+    // insurance cases/policies, visits, consultations (encounters), vitals, prescriptions,
+    // lab orders, radiology orders, treatments, fluid balance, nurse notes and admissions.
     if (date_from) {
       conds.push(`act.last_activity >= ($${idx}::date)::timestamptz`);
       params.push(date_from);
@@ -825,15 +826,36 @@ router.get('/api/insurance/patients', async (req: Request, res: Response) => {
                 LIMIT 1) as coverage_tag,
               act.last_activity as last_insurance_activity
        FROM patients p
+       JOIN (SELECT DISTINCT m.id FROM patients m WHERE ${membership}) insured ON insured.id = p.id
        CROSS JOIN LATERAL (
          SELECT MAX(t.dt)::timestamptz as last_activity
          FROM (
            SELECT ic.created_at AS dt FROM insurance_cases ic WHERE ic.patient_id = p.id
            UNION ALL
            SELECT pl.created_at FROM patient_insurance_policies pl WHERE pl.patient_id = p.id
+           UNION ALL
+           SELECT v.created_at FROM visits v WHERE v.patient_id = p.id
+           UNION ALL
+           SELECT e.created_at FROM encounters e WHERE e.patient_id = p.id
+           UNION ALL
+           SELECT vt.created_at FROM vitals vt JOIN encounters ve ON ve.id = vt.encounter_id WHERE ve.patient_id = p.id
+           UNION ALL
+           SELECT px.created_at FROM prescriptions px JOIN encounters pe ON pe.id = px.encounter_id WHERE pe.patient_id = p.id
+           UNION ALL
+           SELECT lo.created_at FROM lab_orders lo JOIN encounters le ON le.id = lo.encounter_id WHERE le.patient_id = p.id
+           UNION ALL
+           SELECT ro.created_at FROM radiology_orders ro JOIN encounters re ON re.id = ro.encounter_id WHERE re.patient_id = p.id
+           UNION ALL
+           SELECT tr.created_at FROM treatments tr WHERE tr.patient_id = p.id
+           UNION ALL
+           SELECT fb.recorded_at FROM fluid_balance fb WHERE fb.patient_id = p.id
+           UNION ALL
+           SELECT nn.created_at FROM nurse_notes nn WHERE nn.patient_id = p.id
+           UNION ALL
+           SELECT ad.admitted_at FROM admissions ad WHERE ad.patient_id = p.id
          ) t
        ) act
-       WHERE ${conds.join(' AND ')}
+       ${conds.length ? `WHERE ${conds.join(' AND ')}` : ''}
        ORDER BY p.full_name
        LIMIT $${idx}`,
       [...params, limit]

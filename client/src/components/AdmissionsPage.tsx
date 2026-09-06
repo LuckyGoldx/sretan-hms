@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
-  ArrowLeft, Home, Loader2, Users, Clock, LogOut, Stethoscope, Search, X, CheckCircle, AlertTriangle, FileText, Bed,
-  ChevronUp, ChevronDown, Heart, Plus, Trash2, Activity
+  ArrowLeft, Home, Loader2, Users, Clock, LogOut, Stethoscope, Search, X, CheckCircle, FileText, Bed,
+  ChevronUp, ChevronDown, Heart, Plus, Trash2, Activity, ScrollText
 } from 'lucide-react'
+import DischargeModal from './DischargeModal'
+import DischargeSummaryModal from './DischargeSummaryModal'
 
 const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
 const currentRole: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role } catch {} return null })()
@@ -23,7 +25,7 @@ export default function AdmissionsPage() {
   const [search, setSearch] = useState('')
   const [historySearch, setHistorySearch] = useState('')
   const [dischargeModal, setDischargeModal] = useState<any | null>(null)
-  const [discharging, setDischarging] = useState(false)
+  const [summaryView, setSummaryView] = useState<any | null>(null)
   const [bedModal, setBedModal] = useState<any | null>(null)
   const [bedNumber, setBedNumber] = useState('')
   const [bedAssigning, setBedAssigning] = useState(false)
@@ -44,6 +46,12 @@ export default function AdmissionsPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [customDay, setCustomDay] = useState(new Date().toISOString().slice(0, 10))
+  const [newWardName, setNewWardName] = useState('')
+  const [newWardCode, setNewWardCode] = useState('')
+  const [newWardPrice, setNewWardPrice] = useState('')
+  const [wardDrafts, setWardDrafts] = useState<Record<string, string>>({})
+  const [wardBusyId, setWardBusyId] = useState<string | null>(null)
+  const [addingWard, setAddingWard] = useState(false)
 
   useEffect(() => {
     async function load() {
@@ -122,14 +130,36 @@ export default function AdmissionsPage() {
     })
   }
 
-  async function handleDischarge() {
-    if (!dischargeModal) return
-    setDischarging(true)
+  async function reloadHistory() {
     try {
-      await api.put(`/admissions/${dischargeModal.id}/discharge`, { discharged_by: currentUserId })
-      setActiveAdmissions((prev) => prev.filter((a) => a.id !== dischargeModal.id))
-      setDischargeModal(null)
-    } catch {} finally { setDischarging(false) }
+      const allRes = await api.get('/admissions').catch(() => ({ data: [] }))
+      setAllAdmissions(allRes.data || [])
+    } catch {}
+  }
+
+  async function saveWardRate(w: any) {
+    const raw = wardDrafts[w.id] !== undefined ? wardDrafts[w.id] : String(Number(w.bed_rate) || 0)
+    const val = parseFloat(raw)
+    if (isNaN(val) || val < 0) { alert('Enter a valid non-negative price per night.'); return }
+    setWardBusyId(w.id)
+    try {
+      const r = await api.put(`/wards/${w.id}`, { price: val, performed_by: currentUserId })
+      setWards((prev) => prev.map((x: any) => (x.id === w.id ? { ...x, bed_rate: r.data.bed_rate } : x)))
+      setWardDrafts((d) => { const n = { ...d }; delete n[w.id]; return n })
+    } catch { alert('Failed to save ward rate.') } finally { setWardBusyId(null) }
+  }
+
+  async function addWard() {
+    if (!newWardName.trim()) { alert('Ward name is required.'); return }
+    const price = parseFloat(newWardPrice)
+    if (isNaN(price) || price < 0) { alert('Enter a valid non-negative price per night.'); return }
+    setAddingWard(true)
+    try {
+      const r = await api.post('/wards', { name: newWardName.trim(), code: newWardCode.trim() || null, price, performed_by: currentUserId })
+      setWards((prev) => [...prev, { ...r.data.ward, bed_rate: price }])
+      setNewWardName(''); setNewWardCode(''); setNewWardPrice('')
+      await reloadHistory()
+    } catch (err: any) { alert(err?.response?.data?.message || 'Failed to create ward.') } finally { setAddingWard(false) }
   }
 
   const activeWardNames = [...new Set(activeAdmissions.map((a: any) => a.ward_name))]
@@ -202,6 +232,65 @@ export default function AdmissionsPage() {
           <p className="text-xs text-slate-500">Discharged</p>
         </div>
       </div>
+
+      {/* Wards & Bed Rates (Admin) */}
+      {isAdmin && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
+            <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2"><Bed size={15} className="text-emerald-600" /> Wards &amp; Bed Rates</h3>
+            <p className="text-[11px] text-slate-400">Each ward's price-per-night is stored as its linked inventory item — renaming is safe, billing follows the link.</p>
+          </div>
+          <div className="divide-y divide-slate-50">
+            {wards.map((w: any) => (
+              <div key={w.id} className="px-5 py-2.5 flex items-center gap-3 flex-wrap">
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-700">{w.name}</p>
+                  <p className="text-[10px] text-slate-400 font-mono uppercase">{w.code || '—'}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-slate-500">₦</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={wardDrafts[w.id] !== undefined ? wardDrafts[w.id] : String(Number(w.bed_rate) || 0)}
+                    onChange={(e) => setWardDrafts((d) => ({ ...d, [w.id]: e.target.value }))}
+                    className="w-32 rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                  <button
+                    onClick={() => saveWardRate(w)}
+                    disabled={wardBusyId === w.id}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-all"
+                  >
+                    {wardBusyId === w.id ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />} Save
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="px-5 py-4 border-t border-slate-100 flex items-end gap-3 flex-wrap">
+            <div className="flex-1 min-w-[150px]">
+              <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">New Ward Name</p>
+              <input type="text" value={newWardName} onChange={(e) => setNewWardName(e.target.value)}
+                placeholder="e.g. Renal Ward" className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
+            </div>
+            <div className="w-28">
+              <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">Code</p>
+              <input type="text" value={newWardCode} onChange={(e) => setNewWardCode(e.target.value)}
+                placeholder="RW" className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
+            </div>
+            <div className="w-32">
+              <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1">Price / Night (₦)</p>
+              <input type="number" min="0" step="0.01" value={newWardPrice} onChange={(e) => setNewWardPrice(e.target.value)}
+                placeholder="10000" className="w-full rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-emerald-500 outline-none" />
+            </div>
+            <button onClick={addWard} disabled={addingWard}
+              className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-all">
+              {addingWard ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Add Ward
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Ward Occupancy */}
       {tab === 'active' && (
@@ -373,8 +462,14 @@ export default function AdmissionsPage() {
                       <td className="px-5 py-3.5 text-xs text-slate-600">{a.admitted_by_name || '—'}</td>
                       <td className="px-5 py-3.5 text-xs text-slate-600">{a.discharged_by_name || '—'}</td>
                       <td className="px-5 py-3.5">
-                        <button onClick={() => navigate(`/patient/${a.patient_id}`)}
-                          className="px-3 py-1 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => navigate(`/patient/${a.patient_id}`)}
+                            className="px-3 py-1 rounded-lg bg-white text-slate-600 text-xs font-medium border border-slate-200 hover:bg-slate-50 transition-colors flex items-center gap-1"><FileText size={12} /> Chart</button>
+                          {(a.discharge_summary || a.discharge_instructions) && (
+                            <button onClick={() => setSummaryView(a)}
+                              className="px-3 py-1 rounded-lg bg-rose-50 text-rose-700 text-xs font-medium border border-rose-100 hover:bg-rose-100 transition-colors flex items-center gap-1"><ScrollText size={12} /> Discharge Summary</button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -673,31 +768,22 @@ export default function AdmissionsPage() {
         </div>
       )}
 
-      {/* Discharge Confirmation Modal */}
+      {/* Discharge Modal (with discharge summary) */}
       {dischargeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!discharging) setDischargeModal(null) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><LogOut size={18} className="text-rose-500" /> Discharge Patient</h2>
-              <button onClick={() => setDischargeModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
-            </div>
-            <div className="p-6">
-              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
-                <AlertTriangle size={18} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-amber-800">Discharge {dischargeModal.patient_name}?</p>
-                  <p className="text-xs text-amber-600 mt-1">From: <strong>{dischargeModal.ward_name}</strong> &middot; Admitted: {new Date(dischargeModal.admitted_at).toLocaleDateString()}</p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl">
-              <button onClick={() => setDischargeModal(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-              <button onClick={handleDischarge} disabled={discharging}
-                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-all disabled:opacity-50">
-                {discharging ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />} Confirm Discharge</button>
-            </div>
-          </div>
-        </div>
+        <DischargeModal
+          admission={dischargeModal}
+          onClose={() => setDischargeModal(null)}
+          onDischarged={(discharged) => {
+            setActiveAdmissions((prev) => prev.filter((a) => a.id !== discharged.id))
+            setDischargeModal(null)
+            reloadHistory()
+          }}
+        />
+      )}
+
+      {/* Discharge Summary Viewer (history) */}
+      {summaryView && (
+        <DischargeSummaryModal admission={summaryView} onClose={() => setSummaryView(null)} />
       )}
     </div>
   )

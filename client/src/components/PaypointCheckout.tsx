@@ -23,7 +23,7 @@ const CATEGORY_META: Record<string, { label: string; module?: string; icon: any 
 }
 
 const serviceIcons: Record<string, any> = {
-  folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home,
+  folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home, bed_day: Home,
 }
 
 const PAGE_SIZE = 25

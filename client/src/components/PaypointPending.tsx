@@ -9,7 +9,7 @@ import {
 const PAGE_SIZE = 30
 
 const serviceIcons: Record<string, any> = {
-  folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home,
+  folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home, bed_day: Home,
 }
 
 export default function PaypointPending() {
@@ -190,6 +190,7 @@ export default function PaypointPending() {
                               item.service_type === 'lab' ? 'bg-purple-100 text-purple-700' :
                               item.service_type === 'radiology' ? 'bg-indigo-100 text-indigo-700' :
                               item.service_type === 'admission' ? 'bg-blue-100 text-blue-700' :
+                              item.service_type === 'bed_day' ? 'bg-emerald-100 text-emerald-700' :
                               item.service_type === 'folder_activation' ? 'bg-sky-100 text-sky-700' :
                               'bg-slate-100 text-slate-700'
                             }`}>

@@ -30,7 +30,7 @@ import {
   FlaskConical,
   Building2,
   ChevronDown,
-  Baby, Heart, Shield, TrendingUp, Send, UserCheck,
+  Baby, Heart, Shield, TrendingUp, Send, UserCheck, ScrollText,
 } from 'lucide-react'
 
 const Login = lazy(() => import('./components/Login'))
@@ -127,6 +127,7 @@ const ConsultantConsultation = lazy(() => import('./components/ConsultantConsult
 const ConsultantConsultations = lazy(() => import('./components/ConsultantConsultations'))
 const ReferredPatients = lazy(() => import('./components/ReferredPatients'))
 const DepartmentsAdmin = lazy(() => import('./components/DepartmentsAdmin'))
+const AdminAuditLogs = lazy(() => import('./components/AdminAuditLogs'))
 const NotificationBell = lazy(() => import('./components/NotificationBell'))
 const ReferralManagement = lazy(() => import('./components/ReferralManagement'))
 
@@ -217,8 +218,9 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/admin/insurance/providers', label: 'Providers', icon: Building2, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
   { to: '/admin/insurance/staff', label: 'Staff', icon: Users, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
   // ── Administration ──
-  { to: '/services-inventory', label: 'Services Inventory', icon: Building2, roles: ['Admin'], category: 'Administration' },
-  { to: '/departments', label: 'Departments', icon: Building2, roles: ['Admin'], category: 'Administration' },
+{ to: '/services-inventory', label: 'Services Inventory', icon: Building2, roles: ['Admin'], category: 'Administration' },
+{ to: '/departments', label: 'Departments', icon: Building2, roles: ['Admin'], category: 'Administration' },
+{ to: '/audit-logs', label: 'Audit Logs', icon: ScrollText, roles: ['Admin'], category: 'Administration' },
   { to: '/staff', label: 'Staff Management', icon: Users, roles: ['Admin'], category: 'Administration' },
   { to: '/setup', label: 'Setup', icon: Settings, roles: ['Admin'], category: 'Administration' },
 ]
@@ -835,6 +837,18 @@ export default function App() {
                 <ProtectedRoute roles={['Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <DepartmentsAdmin />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/audit-logs"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <AdminAuditLogs />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>

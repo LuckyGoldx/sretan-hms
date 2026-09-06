@@ -43,10 +43,23 @@ router.post('/api/otc-sales', async (req: Request, res: Response) => {
     const id = uuidv4();
     const totalAmount = (unit_price || 0) * quantity;
 
+    // Snapshot the drug's CURRENT cost price at the moment of sale so true
+    // profit stays calculable even after inventory cost/price changes.
+    let costPrice = 0;
+    try {
+      const inv = await pool.query(
+        `SELECT cost_price FROM inventory_items
+         WHERE tenant_id = $1 AND category = 'pharmacy' AND is_active = true AND drug_name ILIKE $2
+         ORDER BY created_at DESC LIMIT 1`,
+        [tenantId, `%${drug_name}%`]
+      );
+      if (inv.rows.length > 0) costPrice = parseFloat(inv.rows[0].cost_price) || 0;
+    } catch {}
+
     const result = await pool.query(
-      `INSERT INTO otc_sales (id, tenant_id, drug_name, quantity, unit_price, total_amount, customer_name, payment_method, notes, sold_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-      [id, tenantId, drug_name, quantity, unit_price || 0, totalAmount, customer_name || null, payment_method || 'cash', notes || null, sold_by || null]
+      `INSERT INTO otc_sales (id, tenant_id, drug_name, quantity, unit_price, total_amount, cost_price, customer_name, payment_method, notes, sold_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [id, tenantId, drug_name, quantity, unit_price || 0, totalAmount, costPrice, customer_name || null, payment_method || 'cash', notes || null, sold_by || null]
     );
 
     await pool.query(

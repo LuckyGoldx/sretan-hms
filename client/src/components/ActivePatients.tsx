@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import api from '../hooks/useAxios'
 import Pagination from './Pagination'
+import DischargeModal from './DischargeModal'
 
 const PER_PAGE = 30
 
@@ -121,10 +122,9 @@ export default function ActivePatients() {
   const totalPages = Math.max(1, Math.ceil(patients.length / PER_PAGE))
   const pageRows = patients.slice((page - 1) * PER_PAGE, page * PER_PAGE)
 
-  const [dischargingId, setDischargingId] = useState<string | null>(null)
-
   const [vitalsModal, setVitalsModal] = useState<VitalsModalState | null>(null)
   const [vitalsSaving, setVitalsSaving] = useState(false)
+  const [dischargeItem, setDischargeItem] = useState<ActivePatient | null>(null)
 
   async function submitVitals() {
     if (!vitalsModal) return
@@ -159,15 +159,7 @@ export default function ActivePatients() {
 
   async function dischargePatient(p: ActivePatient) {
     if (!p.admission_id) return
-    if (!window.confirm(`Discharge ${p.full_name} from ward?`)) return
-    setDischargingId(p.id)
-    try {
-      await api.put(`/admissions/${p.admission_id}/discharge`, { discharged_by: currentUser?.id || null })
-      // Remove from the list (no longer active admission)
-      setPatients((prev) => prev.filter((x) => x.id !== p.id))
-    } catch (err: any) {
-      window.alert(err?.response?.data?.message || 'Failed to discharge patient')
-    } finally { setDischargingId(null) }
+    setDischargeItem(p)
   }
 
   return (
@@ -309,10 +301,9 @@ export default function ActivePatients() {
                   {isAdmitted && (role === 'Doctor' || role === 'Admin') && (
                     <button
                       onClick={() => dischargePatient(p)}
-                      disabled={dischargingId === p.id}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100 disabled:opacity-50"
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-medium hover:bg-rose-100"
                     >
-                      {dischargingId === p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <FileText className="w-3 h-3" />}
+                      <FileText className="w-3 h-3" />
                       Discharge from Ward
                     </button>
                   )}
@@ -408,6 +399,28 @@ export default function ActivePatients() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Discharge from Ward modal */}
+      {dischargeItem && dischargeItem.admission_id && (
+        <DischargeModal
+          admission={{
+            id: dischargeItem.admission_id,
+            patient_id: dischargeItem.id,
+            patient_name: dischargeItem.full_name,
+            hospital_number: dischargeItem.hospital_number,
+            ward_name: dischargeItem.ward_name,
+            bed_number: dischargeItem.bed_number,
+            admitted_at: dischargeItem.admitted_at,
+            admitted_by_name: dischargeItem.admitted_by_name,
+          }}
+          onClose={() => setDischargeItem(null)}
+          onDischarged={() => {
+            setDischargeItem(null)
+            setPatients((prev) => prev.filter((x) => x.id !== dischargeItem.id))
+            loadCounts()
+          }}
+        />
       )}
     </div>
   )
