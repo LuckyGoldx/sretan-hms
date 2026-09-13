@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import { printRadiologyReport } from '../utils/print'
 import DoctorComment from './DoctorComment'
@@ -389,10 +389,16 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
   const [fluidPage, setFluidPage] = useState(1)
   const [admPage, setAdmPage] = useState(1)
   const [loading, setLoading] = useState(true)
+  const location = useLocation()
   const [activeSection, setActiveSection] = useState<string>(() => {
     if (initialSection) return initialSection
     return new URLSearchParams(window.location.search).get('tab') || 'summary'
   })
+  // Support deep links like ?tab=fhp even when the chart is already mounted.
+  useEffect(() => {
+    const tab = new URLSearchParams(location.search).get('tab')
+    if (tab) setActiveSection(tab)
+  }, [location.search])
   const [modalRx, setModalRx] = useState<any | null>(null)
   const [modalEnc, setModalEnc] = useState<any | null>(null)
   const [modalEncData, setModalEncData] = useState<{ prescriptions: any[]; labOrders: any[]; labResultsMap: Record<string, any[]>; radiologyOrders: any[]; doctorName: string } | null>(null)

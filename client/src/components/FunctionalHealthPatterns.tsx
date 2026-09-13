@@ -62,21 +62,29 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
       const history: any[] = Array.isArray(listRes.data) ? listRes.data : []
       setPatterns(list)
       setAssessments(history)
+      if (list.length === 0) {
+        setError('The assessment template could not be loaded. Please refresh, or contact an administrator.')
+        return
+      }
       const latest = history[0]
       if (latest && latest.status === 'draft') {
+        // Resume the open draft so it can be finished.
         applyAssessment(list, latest)
       } else if (latest) {
-        // Show the last completed assessment read-only; a fresh one starts on demand.
+        // Show the last completed assessment read-only; a reassessment starts on demand.
         applyAssessment(list, latest)
         setReadOnly(true)
       } else {
+        // First assessment for this admission: open an editable baseline right
+        // away (cards expanded) so the nurse can start recording immediately.
         const blank: Record<string, FindingState> = {}
         for (const p of list) blank[p.code] = emptyFinding()
         setFindings(blank)
         setAssessmentId(null)
         setAssessmentType('baseline')
         setSummary('')
-        setReadOnly(true)
+        setReadOnly(false)
+        setExpanded(Object.fromEntries(list.map((p) => [p.code, true])))
       }
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to load the assessment template.')
@@ -97,7 +105,8 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
     for (const p of patterns) blank[p.code] = emptyFinding()
     setFindings(blank); setAssessmentId(null); setAssessmentType(type)
     setSummary(''); setReadOnly(false); setError(''); setNotice('')
-    setExpanded(type === 'baseline' ? Object.fromEntries(patterns.map((p) => [p.code, true])) : {})
+    // Expand every pattern so the findings are immediately visible/clickable.
+    setExpanded(Object.fromEntries(patterns.map((p) => [p.code, true])))
   }
 
   function setPatternStatus(code: string, status: string) {
@@ -159,7 +168,7 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center"><Activity size={20} className="text-indigo-600" /></div>
           <div>
-            <h3 className="text-sm font-semibold text-slate-800">Functional Health Patterns {assessmentId ? `· ${TYPE_LABEL[assessmentType] || assessmentType}` : ''}</h3>
+            <h3 className="text-sm font-semibold text-slate-800">Functional Health Patterns · {TYPE_LABEL[assessmentType] || assessmentType}{!assessmentId && !readOnly ? ' (unsaved)' : ''}</h3>
             <p className="text-xs text-slate-500">
               {openCount}/{patterns.length} patterns assessed
               {flaggedCount > 0 && <span className="text-rose-600 font-medium"> · {flaggedCount} flagged</span>}
@@ -185,6 +194,11 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
 
       {notice && <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700"><CheckCircle size={15} /> {notice}</div>}
       {error && <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-700"><AlertTriangle size={15} /> {error}</div>}
+      {!readOnly && !assessmentId && (
+        <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-sm text-indigo-700">
+          <AlertTriangle size={15} /> Recording a new {TYPE_LABEL[assessmentType] || assessmentType} assessment — tick the relevant findings and save when done.
+        </div>
+      )}
 
       {showHistory && assessments.length > 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-50">
