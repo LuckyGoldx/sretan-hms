@@ -4,30 +4,46 @@ import pool from '../db/pool';
  * Look up coverage percentage for a service under a given provider.
  *
  * Priority:
- * 1. Individual-item override (provider_id, service_type, matching inventory item by name)
- * 2. Category-level rule (provider_id, service_type, inventory_item_id IS NULL)
- * 3. Provider default (insurance_providers.default_coverage_pct)
- * 4. Assume 100% covered if nothing set
+ * 1. Item override by inventory_item_id (preferred, stable across renames)
+ * 2. Item override by item name (legacy fallback)
+ * 3. Category-level rule (provider_id, service_type, inventory_item_id IS NULL)
+ * 4. Provider default (insurance_providers.default_coverage_pct)
+ * 5. Fail closed: 0% covered. The payer is never assumed to cover an
+ *    unconfigured service, so nothing is billed to an insurer by accident.
  */
 export async function getCoverageForService(
   providerId: string,
   serviceType: string,
-  itemName: string
+  itemName?: string,
+  inventoryItemId?: string | null
 ): Promise<number> {
-  // 1. Check individual-item override (match by inventory_items.drug_name)
-  const itemOverride = await pool.query(
-    `SELECT cr.coverage_percentage
-     FROM insurance_provider_coverage_rules cr
-     JOIN inventory_items inv ON cr.inventory_item_id = inv.id
-     WHERE cr.provider_id = $1 AND cr.service_type = $2 AND inv.drug_name ILIKE $3
-     LIMIT 1`,
-    [providerId, serviceType, itemName]
-  );
-  if (itemOverride.rows.length > 0) {
-    return parseFloat(itemOverride.rows[0].coverage_percentage);
+  // 1. Exact item override by id
+  if (inventoryItemId) {
+    const byId = await pool.query(
+      `SELECT coverage_percentage FROM insurance_provider_coverage_rules
+        WHERE provider_id = $1 AND service_type = $2 AND inventory_item_id = $3
+        LIMIT 1`,
+      [providerId, serviceType, inventoryItemId]
+    );
+    if (byId.rows.length > 0) return parseFloat(byId.rows[0].coverage_percentage);
   }
 
-  // 2. Check category-level rule
+  // 2. Item override by name (legacy: matches the linked inventory item's name)
+  if (itemName) {
+    const itemOverride = await pool.query(
+      `SELECT cr.coverage_percentage
+       FROM insurance_provider_coverage_rules cr
+       JOIN inventory_items inv ON cr.inventory_item_id = inv.id
+       WHERE cr.provider_id = $1 AND cr.service_type = $2 AND inv.drug_name ILIKE $3
+       LIMIT 1`,
+      [providerId, serviceType, itemName]
+    );
+    if (itemOverride.rows.length > 0) {
+      return parseFloat(itemOverride.rows[0].coverage_percentage);
+    }
+  }
+
+  // 3. Check category-level rule
   const catRule = await pool.query(
     `SELECT coverage_percentage FROM insurance_provider_coverage_rules
      WHERE provider_id = $1 AND service_type = $2 AND inventory_item_id IS NULL
@@ -38,7 +54,7 @@ export async function getCoverageForService(
     return parseFloat(catRule.rows[0].coverage_percentage);
   }
 
-  // 3. Provider default
+  // 4. Provider default
   const provDefault = await pool.query(
     'SELECT default_coverage_pct FROM insurance_providers WHERE id = $1',
     [providerId]
@@ -47,8 +63,27 @@ export async function getCoverageForService(
     return parseFloat(provDefault.rows[0].default_coverage_pct);
   }
 
-  // 4. Assume fully covered
-  return 100;
+  // 5. Fail closed — nothing configured means the patient pays.
+  return 0;
+}
+
+/**
+ * Whether an insurance case is inside its coverage window right now. A case
+ * with no dates is treated as open-ended.
+ */
+export function isCaseInCoverageWindow(caseRow: any): boolean {
+  if (!caseRow) return false;
+  const today = new Date();
+  const start = caseRow.coverage_start_date ? new Date(caseRow.coverage_start_date) : null;
+  const end = caseRow.coverage_end_date ? new Date(caseRow.coverage_end_date) : null;
+  if (start && today < start) return false;
+  if (end) {
+    // inclusive of the end date
+    const endOfDay = new Date(end);
+    endOfDay.setHours(23, 59, 59, 999);
+    if (today > endOfDay) return false;
+  }
+  return true;
 }
 
 /**

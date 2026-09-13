@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import { printPaymentReceipt } from '../utils/print'
 import {
-  Search, Loader2, Plus, X, CheckCircle, Trash2, Banknote, CreditCard, Landmark, Smartphone, ArrowLeft, User, Receipt, Building2, Pill, FlaskConical, Scan, ShoppingCart, Printer, ChevronLeft, ChevronRight,
+  Search, Loader2, Plus, X, CheckCircle, Trash2, Banknote, CreditCard, Landmark, Smartphone, ArrowLeft, User, Receipt, Building2, Pill, FlaskConical, Scan, ShoppingCart, Printer, ChevronLeft, ChevronRight, Shield,
 } from 'lucide-react'
 
 const PAGE_SIZE = 30
@@ -25,6 +25,12 @@ export default function BillingPage() {
   const [showReceipt, setShowReceipt] = useState(false)
   const [catSearch, setCatSearch] = useState('')
   const [showCart, setShowCart] = useState(false)
+  // Insurance: only offered when the patient has an ACTIVE case.
+  const [insuranceCase, setInsuranceCase] = useState<any>(null)
+  const [insuranceLoading, setInsuranceLoading] = useState(false)
+  const [billToInsurance, setBillToInsurance] = useState(false)
+  const [quote, setQuote] = useState<any>(null)
+  const [quoteLoading, setQuoteLoading] = useState(false)
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
@@ -69,6 +75,32 @@ export default function BillingPage() {
     try { const r = await api.get('/patients'); setPatients(r.data || []) } catch {} finally { setLoading(false) }
   }
 
+  // Select a patient, reset the bill, and check for an active insurance case.
+  function choosePatient(p: any) {
+    setSelectedPatient(p)
+    setCart([]); setBillToInsurance(false); setQuote(null); setInsuranceCase(null)
+    if (!p?.id) return
+    setInsuranceLoading(true)
+    api.get(`/insurance/active-case/${p.id}`)
+      .then((r) => setInsuranceCase(r.data?.hasActiveCase ? r.data.case : null))
+      .catch(() => setInsuranceCase(null))
+      .finally(() => setInsuranceLoading(false))
+  }
+
+  // When billing to insurance, quote the per-line insurer/patient split so the
+  // co-pay is explicit before submitting.
+  useEffect(() => {
+    if (!billToInsurance || !selectedPatient || cart.length === 0) { setQuote(null); return }
+    let cancelled = false
+    setQuoteLoading(true)
+    const items = cart.map((c: any) => ({ service_type: c.service_type || 'billing', service_id: c.service_id || null, description: c.description, quantity: c.quantity, unit_price: c.unit_price }))
+    api.get('/insurance/coverage-quote', { params: { patientId: selectedPatient.id, items: JSON.stringify(items) } })
+      .then((r) => { if (!cancelled) setQuote(r.data) })
+      .catch(() => { if (!cancelled) setQuote(null) })
+      .finally(() => { if (!cancelled) setQuoteLoading(false) })
+    return () => { cancelled = true }
+  }, [billToInsurance, cart, selectedPatient])
+
   const filtered = patients.filter((p: any) => {
     if (!search) return true
     var q = search.toLowerCase()
@@ -99,11 +131,93 @@ export default function BillingPage() {
   function removeFromCart(i: number) { setCart((p) => p.filter((_, idx) => idx !== i)) }
   function updateQty(i: number, q: number) { setCart((p) => p.map((c, idx) => idx === i ? { ...c, quantity: Math.max(1, q) } : c)) }
   const total = cart.reduce((s, c) => s + c.unit_price * c.quantity, 0)
+  const insuranceReady = !billToInsurance || (!!quote?.hasActiveCase && quote.in_window !== false && !quoteLoading)
+  const billAmount = Number(quote?.insurer?.covered ?? total)
+  const coPayAmount = Number(quote?.patient?.co_pay ?? 0)
+
+  function renderInsurance() {
+    return (
+      <div className="space-y-2">
+        {insuranceLoading ? (
+          <div className="flex items-center justify-center gap-2 py-1 text-xs text-slate-400"><Loader2 size={12} className="animate-spin" /> Checking insurance...</div>
+        ) : insuranceCase ? (
+          <button type="button" onClick={() => setBillToInsurance((v) => !v)}
+            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors ${billToInsurance ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}>
+            <Shield size={14} /> {billToInsurance ? `Billing to ${insuranceCase.provider_name}` : `Bill to Insurance (${insuranceCase.provider_name})`}
+          </button>
+        ) : null}
+        {billToInsurance && quoteLoading && (
+          <div className="flex items-center justify-center gap-2 py-1 text-xs text-slate-400"><Loader2 size={12} className="animate-spin" /> Calculating coverage...</div>
+        )}
+        {billToInsurance && !quoteLoading && quote && !quote.hasActiveCase && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+            No active insurance case for this patient's primary provider. Route to the insurance desk.
+          </div>
+        )}
+        {billToInsurance && quote?.hasActiveCase && (
+          <div className={`rounded-xl border p-3 text-xs space-y-1 ${quote.in_window === false ? 'bg-rose-50 border-rose-200 text-rose-700' : 'bg-slate-50 border-slate-200'}`}>
+            {quote.in_window === false && <p className="font-semibold">Today is outside this case's coverage window — the insurer cannot be billed.</p>}
+            <div className="flex justify-between"><span className="text-slate-500">Insurer covers</span><span className="font-semibold text-emerald-700">₦{billAmount.toLocaleString()}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Patient co-pay</span><span className="font-semibold text-amber-700">₦{coPayAmount.toLocaleString()}</span></div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   async function handlePayment() {
     if (cart.length === 0 || !selectedPatient) return
     setSubmitting(true)
     try {
+      if (billToInsurance && insuranceCase) {
+        const items = cart.map((c: any, i: number) => {
+          const lineInsurer = quote?.items?.[i]?.insurer_amount
+          return {
+            service_type: c.service_type || 'billing',
+            service_id: c.service_id || null,
+            description: c.description,
+            quantity: c.quantity,
+            unit_price: c.unit_price,
+            // Bill only the insurer share to the case; the rest is the patient co-pay.
+            insurer_amount: lineInsurer !== undefined && lineInsurer !== null ? lineInsurer : c.quantity * c.unit_price,
+          }
+        })
+        await api.post('/insurance/bill-to-insurance', {
+          patientId: selectedPatient.id,
+          caseId: insuranceCase.id,
+          items,
+          source: 'paypoint',
+          created_by: currentUser?.id,
+        })
+
+        // Collect the patient's co-pay now (standard point-of-service co-pay).
+        const coPay = Number(quote?.patient?.co_pay || 0)
+        if (coPay > 0) {
+          await api.post('/insurance/co-pay/pay', {
+            patientId: selectedPatient.id,
+            caseId: insuranceCase.id,
+            amount: coPay,
+            paymentMethod,
+          })
+        }
+
+        setReceipt({
+          receipt_number: `INS-${insuranceCase.case_number}`,
+          patient_name: selectedPatient.full_name,
+          hospital_number: selectedPatient.hospital_number || null,
+          total_amount: Number(quote?.insurer?.covered ?? total),
+          items: cart.map((c: any, i: number) => ({
+            description: c.description,
+            total_price: quote?.items?.[i]?.insurer_amount ?? (c.quantity * c.unit_price),
+          })),
+          payment_method: `Insurance: ${insuranceCase.provider_name}` +
+            (coPay > 0 ? ` · Co-pay ₦${coPay.toLocaleString()} (${paymentMethod})` : ''),
+          created_at: new Date().toISOString(),
+        })
+        setShowReceipt(true); setCart([]); setBillToInsurance(false); setQuote(null)
+        return
+      }
+
       const res = await api.post('/payments', {
         patient_id: selectedPatient.id,
         items: cart.map((c) => ({ service_type: c.service_type || 'billing', service_id: c.service_id || null, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
@@ -149,7 +263,7 @@ export default function BillingPage() {
                 <>
                   <div className="divide-y divide-slate-50 max-h-[420px] overflow-y-auto">
                     {paged.map((p: any) => (
-                      <button key={p.id} onClick={() => setSelectedPatient(p)}
+                      <button key={p.id} onClick={() => choosePatient(p)}
                         className="w-full flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 text-left transition-colors">
                         <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0"><User size={15} className="text-primary" /></div>
                         <div className="min-w-0 flex-1">
@@ -184,7 +298,7 @@ export default function BillingPage() {
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden flex flex-col max-h-[500px]">
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center gap-3">
-                  <button onClick={() => { setSelectedPatient(null); setCart([]) }} className="p-1 rounded-lg hover:bg-slate-100"><ArrowLeft size={16} className="text-slate-500" /></button>
+                  <button onClick={() => { setSelectedPatient(null); setCart([]); setBillToInsurance(false); setQuote(null); setInsuranceCase(null) }} className="p-1 rounded-lg hover:bg-slate-100"><ArrowLeft size={16} className="text-slate-500" /></button>
                   <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center"><User size={16} className="text-primary" /></div>
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -279,6 +393,7 @@ export default function BillingPage() {
             )}
             {cart.length > 0 && selectedPatient && (
               <div className="border-t border-slate-100 pt-4 mt-4 space-y-3">
+                {renderInsurance()}
                 <div className="grid grid-cols-2 gap-2">
                   {paymentMethods.map((m) => {
                     const Icon = m.icon
@@ -294,10 +409,10 @@ export default function BillingPage() {
                   <span className="text-xs text-slate-400">{cart.length} item(s)</span>
                   <span className="text-lg font-bold text-slate-800">₦{total.toLocaleString()}</span>
                 </div>
-                <button onClick={handlePayment} disabled={submitting || cart.length === 0}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-all">
-                  {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-                  {submitting ? 'Processing...' : `Charge ₦${total.toLocaleString()}`}
+                <button onClick={handlePayment} disabled={submitting || cart.length === 0 || !insuranceReady}
+                  className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-semibold disabled:opacity-50 transition-all ${billToInsurance ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+                  {submitting ? <Loader2 size={16} className="animate-spin" /> : billToInsurance ? <Shield size={16} /> : <CheckCircle size={16} />}
+                  {submitting ? 'Processing...' : billToInsurance ? `Bill ₦${billAmount.toLocaleString()} to Insurance` : `Charge ₦${total.toLocaleString()}`}
                 </button>
               </div>
             )}
@@ -347,6 +462,7 @@ export default function BillingPage() {
             </div>
             {cart.length > 0 && selectedPatient && (
               <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex-shrink-0 space-y-3">
+                {renderInsurance()}
                 <div className="grid grid-cols-2 gap-2">
                   {paymentMethods.map((m) => {
                     const Icon = m.icon
@@ -359,9 +475,9 @@ export default function BillingPage() {
                   })}
                 </div>
                 <div className="flex items-center justify-between"><span className="text-xs text-slate-400">{cart.length} items</span><span className="text-lg font-bold">₦{total.toLocaleString()}</span></div>
-                <button onClick={() => { setShowCart(false); handlePayment() }} disabled={submitting}
-                  className="w-full py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50">
-                  {submitting ? 'Processing...' : `Charge ₦${total.toLocaleString()}`}
+                <button onClick={() => { setShowCart(false); handlePayment() }} disabled={submitting || !insuranceReady}
+                  className={`w-full py-3 rounded-xl text-white text-sm font-semibold disabled:opacity-50 ${billToInsurance ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+                  {submitting ? 'Processing...' : billToInsurance ? `Bill ₦${billAmount.toLocaleString()} to Insurance` : `Charge ₦${total.toLocaleString()}`}
                 </button>
               </div>
             )}
@@ -384,7 +500,7 @@ export default function BillingPage() {
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
               <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium"><Printer size={14} /> Print</button>
-              <button onClick={() => { setShowReceipt(false); setSelectedPatient(null); setCart([]) }} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
+              <button onClick={() => { setShowReceipt(false); setSelectedPatient(null); setCart([]); setBillToInsurance(false); setQuote(null); setInsuranceCase(null) }} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
             </div>
           </div>
         </div>

@@ -4,7 +4,7 @@ import { getInsuranceUser } from '../utils/insuranceAuth';
 import { autoSyncClinicalServices } from '../utils/autoSyncServices';
 import { readClinicProfile } from '../config/reader';
 import { generateNumber } from '../utils/numbering';
-import { getCoverageForService, getPatientPrimaryInsurance } from '../utils/coverageLookup';
+import { getCoverageForService, getPatientPrimaryInsurance, isCaseInCoverageWindow } from '../utils/coverageLookup';
 import { resolveMaternityUnlock, getPaidMaternityEntitlement, createMaternityEntitlement } from '../utils/maternityEntitlement';
 
 const router = Router();
@@ -1022,9 +1022,17 @@ router.get('/api/insurance/coverage-quote', async (req: Request, res: Response) 
     }
 
     const ins = await getPatientPrimaryInsurance(patientId);
-    if (!ins || !ins.active || !ins.providerId) {
-      res.json({ hasActiveCase: false, case_id: null, provider_name: null, patient: { co_pay: 0 }, insurer: { covered: 0 }, items: [] });
+    // An active policy is not enough — billing requires an ACTIVE CASE.
+    if (!ins || !ins.active || !ins.providerId || !ins.caseId) {
+      res.json({ hasActiveCase: false, case_id: null, provider_name: null, in_window: false, patient: { co_pay: 0 }, insurer: { covered: 0 }, items: [] });
       return;
+    }
+
+    // Coverage window: outside it nothing may be billed to the payer.
+    let inWindow = true;
+    if (ins.caseId) {
+      const caseRow = await pool.query('SELECT coverage_start_date, coverage_end_date FROM insurance_cases WHERE id = $1', [ins.caseId]);
+      inWindow = isCaseInCoverageWindow(caseRow.rows[0]);
     }
 
     const quoteItems: any[] = [];
@@ -1038,9 +1046,13 @@ router.get('/api/insurance/coverage-quote', async (req: Request, res: Response) 
       const svcType = item.service_type === 'prescription' ? 'pharmacy' : (item.service_type || 'general');
       const itemName = item.description || '';
 
-      let coveragePct = 100;
-      try { coveragePct = await getCoverageForService(ins.providerId as string, svcType, itemName); } catch {}
-      if (isNaN(coveragePct)) coveragePct = 100;
+      // Fail closed: an unconfigured service is 0% covered, and nothing is
+      // covered at all outside the case's coverage window.
+      let coveragePct = 0;
+      if (inWindow) {
+        try { coveragePct = await getCoverageForService(ins.providerId as string, svcType, itemName, item.service_id || null); } catch { coveragePct = 0; }
+      }
+      if (isNaN(coveragePct)) coveragePct = 0;
       coveragePct = Math.max(0, Math.min(100, coveragePct));
 
       const insurerLine = Math.round(lineTotal * coveragePct) / 100;
@@ -1062,6 +1074,7 @@ router.get('/api/insurance/coverage-quote', async (req: Request, res: Response) 
       hasActiveCase: true,
       case_id: ins.caseId,
       provider_name: ins.providerName,
+      in_window: inWindow,
       patient: { co_pay: totalPatient },
       insurer: { covered: totalInsurer },
       items: quoteItems,
@@ -1095,10 +1108,26 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
       targetCaseId = activeRes.rows[0].id;
     }
 
-    // Get case tenant_id
-    const caseResult = await pool.query('SELECT tenant_id FROM insurance_cases WHERE id = $1', [targetCaseId]);
+    // The case must exist, be active, belong to this patient, and be inside its
+    // coverage window before anything can be billed to the payer.
+    const caseResult = await pool.query(
+      'SELECT tenant_id, status, patient_id, coverage_start_date, coverage_end_date FROM insurance_cases WHERE id = $1',
+      [targetCaseId]
+    );
     if (caseResult.rows.length === 0) {
       res.status(404).json({ error: true, message: 'Case not found' });
+      return;
+    }
+    if (caseResult.rows[0].patient_id && caseResult.rows[0].patient_id !== patientId) {
+      res.status(400).json({ error: true, message: 'This case belongs to a different patient' });
+      return;
+    }
+    if (caseResult.rows[0].status !== 'active') {
+      res.status(400).json({ error: true, message: 'This insurance case is not active.' });
+      return;
+    }
+    if (!isCaseInCoverageWindow(caseResult.rows[0])) {
+      res.status(400).json({ error: true, message: 'Today is outside this case\'s coverage window. Route to the insurance desk.' });
       return;
     }
     const tenantId = caseResult.rows[0].tenant_id;
