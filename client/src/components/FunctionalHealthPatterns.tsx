@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import api from '../hooks/useAxios'
 import {
   Activity, AlertTriangle, CheckCircle, ChevronDown, ChevronUp, ClipboardList,
@@ -37,6 +37,7 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [readOnly, setReadOnly] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const footerRef = useRef<HTMLDivElement | null>(null)
 
   const applyAssessment = useCallback((patternsList: Pattern[], a: any) => {
     const next: Record<string, FindingState> = {}
@@ -117,7 +118,14 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
     if (readOnly) return
     setFindings((prev) => {
       const cur = prev[code] || emptyFinding()
-      return { ...prev, [code]: { ...cur, responses: { ...cur.responses, [key]: !cur.responses[key] } } }
+      const responses = { ...cur.responses, [key]: !cur.responses[key] }
+      // Checking a concern implies the pattern needs attention; if the nurse has
+      // not chosen a status yet, default it to "At Risk" so the finding counts.
+      let status = cur.status
+      const anyChecked = Object.values(responses).some(Boolean)
+      if (anyChecked && status === 'not_assessed') status = 'at_risk'
+      if (!anyChecked && status === 'at_risk') status = 'not_assessed'
+      return { ...prev, [code]: { ...cur, responses, status } }
     })
   }
   function setNotes(code: string, notes: string) {
@@ -125,11 +133,26 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
     setFindings((prev) => ({ ...prev, [code]: { ...(prev[code] || emptyFinding()), notes } }))
   }
 
+  function markRemainingEffective() {
+    if (readOnly) return
+    setFindings((prev) => {
+      const next = { ...prev }
+      for (const p of patterns) {
+        if ((next[p.code]?.status || 'not_assessed') === 'not_assessed') {
+          next[p.code] = { ...(next[p.code] || emptyFinding()), status: 'effective' }
+        }
+      }
+      return next
+    })
+  }
+
   async function save(status: 'draft' | 'completed') {
     if (status === 'completed' && assessmentType === 'baseline') {
       const missing = patterns.filter((p) => (findings[p.code]?.status || 'not_assessed') === 'not_assessed')
       if (missing.length > 0) {
-        setError(`Assess all 11 patterns before completing the baseline (${missing.length} remaining).`)
+        // Always give visible feedback next to the button that was clicked.
+        setError(`${missing.length} pattern${missing.length === 1 ? '' : 's'} still need a status. Set each one, or use "Mark unassessed as Effective".`)
+        footerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         return
       }
     }
@@ -154,6 +177,7 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
       setNotice(status === 'completed' ? 'Assessment completed.' : 'Draft saved.')
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to save the assessment.')
+      footerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
     } finally { setBusy(false) }
   }
 
@@ -192,8 +216,8 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
         </div>
       </div>
 
-      {notice && <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700"><CheckCircle size={15} /> {notice}</div>}
-      {error && <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-700"><AlertTriangle size={15} /> {error}</div>}
+      {readOnly && notice && <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700"><CheckCircle size={15} /> {notice}</div>}
+      {readOnly && error && <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-700"><AlertTriangle size={15} /> {error}</div>}
       {!readOnly && !assessmentId && (
         <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-sm text-indigo-700">
           <AlertTriangle size={15} /> Recording a new {TYPE_LABEL[assessmentType] || assessmentType} assessment — tick the relevant findings and save when done.
@@ -267,7 +291,16 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
       </div>
 
       {!readOnly && (
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+        <div ref={footerRef} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+          {error && <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-700"><AlertTriangle size={15} /> {error}</div>}
+          {notice && <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700"><CheckCircle size={15} /> {notice}</div>}
+          {assessmentType === 'baseline' && openCount < patterns.length && (
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
+              <span>{patterns.length - openCount} pattern{patterns.length - openCount === 1 ? '' : 's'} still need a status before the baseline can be completed.</span>
+              <button type="button" onClick={markRemainingEffective}
+                className="px-3 py-1.5 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700">Mark unassessed as Effective</button>
+            </div>
+          )}
           <textarea rows={2} value={summary} onChange={(e) => setSummary(e.target.value)}
             placeholder="Overall assessment summary (optional)"
             className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" />
