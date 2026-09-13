@@ -37,6 +37,7 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [readOnly, setReadOnly] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [expandedHistory, setExpandedHistory] = useState<string | null>(null)
   const footerRef = useRef<HTMLDivElement | null>(null)
 
   const applyAssessment = useCallback((patternsList: Pattern[], a: any) => {
@@ -116,16 +117,11 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
   }
   function togglePrompt(code: string, key: string) {
     if (readOnly) return
+    // Ticking a finding records it but never changes the pattern status — the
+    // nurse decides Effective / At Risk / Ineffective explicitly.
     setFindings((prev) => {
       const cur = prev[code] || emptyFinding()
-      const responses = { ...cur.responses, [key]: !cur.responses[key] }
-      // Checking a concern implies the pattern needs attention; if the nurse has
-      // not chosen a status yet, default it to "At Risk" so the finding counts.
-      let status = cur.status
-      const anyChecked = Object.values(responses).some(Boolean)
-      if (anyChecked && status === 'not_assessed') status = 'at_risk'
-      if (!anyChecked && status === 'at_risk') status = 'not_assessed'
-      return { ...prev, [code]: { ...cur, responses, status } }
+      return { ...prev, [code]: { ...cur, responses: { ...cur.responses, [key]: !cur.responses[key] } } }
     })
   }
   function setNotes(code: string, notes: string) {
@@ -225,16 +221,49 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
       )}
 
       {showHistory && assessments.length > 0 && (
-        <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-50">
-          {assessments.map((a) => (
-            <div key={a.id} className="px-4 py-2.5 flex items-center justify-between gap-3 text-sm">
-              <span className="text-slate-700">{TYPE_LABEL[a.assessment_type] || a.assessment_type} · {new Date(a.assessed_at).toLocaleString()}</span>
-              <span className="flex items-center gap-2">
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${a.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{a.status}</span>
-                <span className="text-xs text-slate-400">{a.assessed_by_name || '—'}</span>
-              </span>
-            </div>
-          ))}
+        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+          {assessments.map((a) => {
+            const openHist = expandedHistory === a.id
+            return (
+              <div key={a.id} className="border-b border-slate-100 last:border-b-0">
+                <button onClick={() => setExpandedHistory(openHist ? null : a.id)}
+                  className="w-full px-4 py-2.5 flex items-center justify-between gap-3 text-sm text-left hover:bg-slate-50">
+                  <span className="text-slate-700">
+                    {TYPE_LABEL[a.assessment_type] || a.assessment_type} · {new Date(a.assessed_at).toLocaleString()}
+                    {assessmentId === a.id && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-semibold">CURRENT</span>}
+                  </span>
+                  <span className="flex items-center gap-2 flex-shrink-0">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${a.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{a.status}</span>
+                    <span className="text-xs text-slate-400">{a.assessed_by_name || '—'}</span>
+                    {openHist ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                  </span>
+                </button>
+                {openHist && (
+                  <div className="px-4 pb-4 pt-1 space-y-2.5 bg-slate-50/70 border-t border-slate-100">
+                    {patterns.map((p) => {
+                      const f = (a.findings || []).find((x: any) => x.pattern_code === p.code)
+                      if (!f) return null
+                      const meta = STATUS_META[f.status] || STATUS_META.not_assessed
+                      const checked = p.prompts.filter((pr) => f.responses?.[pr.key])
+                      return (
+                        <div key={p.code} className="text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium text-slate-700">{p.label}</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${meta.cls}`}>{meta.label}</span>
+                          </div>
+                          {checked.length > 0 && (
+                            <p className="text-slate-500 mt-0.5">Findings: {checked.map((c) => c.label).join('; ')}</p>
+                          )}
+                          {f.notes && <p className="text-slate-500 italic mt-0.5">{f.notes}</p>}
+                        </div>
+                      )
+                    })}
+                    {a.summary && <p className="text-xs text-slate-600 pt-1"><span className="font-medium">Summary:</span> {a.summary}</p>}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 
