@@ -27,6 +27,7 @@ export default function BillingPage() {
   const [showCart, setShowCart] = useState(false)
   // Insurance: only offered when the patient has an ACTIVE case.
   const [insuranceCase, setInsuranceCase] = useState<any>(null)
+  const [insuranceInWindow, setInsuranceInWindow] = useState(true)
   const [insuranceLoading, setInsuranceLoading] = useState(false)
   const [billToInsurance, setBillToInsurance] = useState(false)
   const [quote, setQuote] = useState<any>(null)
@@ -78,12 +79,15 @@ export default function BillingPage() {
   // Select a patient, reset the bill, and check for an active insurance case.
   function choosePatient(p: any) {
     setSelectedPatient(p)
-    setCart([]); setBillToInsurance(false); setQuote(null); setInsuranceCase(null)
+    setCart([]); setBillToInsurance(false); setQuote(null); setInsuranceCase(null); setInsuranceInWindow(true)
     if (!p?.id) return
     setInsuranceLoading(true)
     api.get(`/insurance/active-case/${p.id}`)
-      .then((r) => setInsuranceCase(r.data?.hasActiveCase ? r.data.case : null))
-      .catch(() => setInsuranceCase(null))
+      .then((r) => {
+        setInsuranceCase(r.data?.hasActiveCase ? r.data.case : null)
+        setInsuranceInWindow(r.data?.inWindow !== false)
+      })
+      .catch(() => { setInsuranceCase(null); setInsuranceInWindow(true) })
       .finally(() => setInsuranceLoading(false))
   }
 
@@ -140,6 +144,11 @@ export default function BillingPage() {
       <div className="space-y-2">
         {insuranceLoading ? (
           <div className="flex items-center justify-center gap-2 py-1 text-xs text-slate-400"><Loader2 size={12} className="animate-spin" /> Checking insurance...</div>
+        ) : insuranceCase && !insuranceInWindow ? (
+          <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+            <p className="font-semibold">Coverage for {insuranceCase.provider_name} is expired or outside its window — the insurer cannot be billed.</p>
+            <p className="mt-0.5">Route the patient to the insurance desk, or bill as self-pay.</p>
+          </div>
         ) : insuranceCase ? (
           <button type="button" onClick={() => setBillToInsurance((v) => !v)}
             className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors ${billToInsurance ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}>
