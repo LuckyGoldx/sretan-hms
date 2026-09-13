@@ -283,26 +283,36 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
                   </span>
                 </button>
                 {openHist && (
-                  <div className="px-4 pb-4 pt-1 space-y-2.5 bg-slate-50/70 border-t border-slate-100">
+                  <div className="px-4 pb-4 pt-3 space-y-2 bg-slate-50/70 border-t border-slate-100">
                     {patterns.map((p) => {
                       const f = (a.findings || []).find((x: any) => x.pattern_code === p.code)
                       if (!f) return null
                       const meta = STATUS_META[f.status] || STATUS_META.not_assessed
                       const checked = p.prompts.filter((pr) => f.responses?.[pr.key])
                       return (
-                        <div key={p.code} className="text-xs">
+                        <div key={p.code} className="bg-white rounded-xl border border-slate-200 p-3 text-xs">
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-medium text-slate-700">{p.label}</span>
+                            <span className="font-semibold text-slate-700">{p.label}</span>
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${meta.cls}`}>{meta.label}</span>
                           </div>
                           {checked.length > 0 && (
-                            <p className="text-slate-500 mt-0.5">Findings: {checked.map((c) => c.label).join('; ')}</p>
+                            <p className="text-slate-500 mt-1.5">
+                              <span className="font-medium text-slate-600">Findings:</span> {checked.map((c) => c.label).join('; ')}
+                            </p>
                           )}
-                          {f.notes && <p className="text-slate-500 italic mt-0.5">{f.notes}</p>}
+                          {f.notes && (
+                            <p className="text-slate-500 italic mt-1">
+                              <span className="font-medium not-italic text-slate-600">Notes:</span> {f.notes}
+                            </p>
+                          )}
                         </div>
                       )
                     })}
-                    {a.summary && <p className="text-xs text-slate-600 pt-1"><span className="font-medium">Summary:</span> {a.summary}</p>}
+                    {a.summary && (
+                      <div className="bg-white rounded-xl border border-slate-200 p-3 text-xs">
+                        <span className="font-medium text-slate-600">Summary:</span> <span className="text-slate-500 italic">{a.summary}</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
