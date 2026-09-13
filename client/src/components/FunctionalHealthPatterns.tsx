@@ -31,6 +31,10 @@ const currentUserId: string | null = (() => { try { const u = localStorage.getIt
 
 function emptyFinding(): FindingState { return { status: 'not_assessed', responses: {}, notes: '' } }
 
+// Records are paginated so a long admission (dozens of shift reassessments)
+// stays fast and short to scan.
+const HISTORY_PER_PAGE = 10
+
 export default function FunctionalHealthPatterns({ admissionId, active = true, onChanged }: { admissionId: string; patientId?: string; active?: boolean; onChanged?: () => void }) {
   const [patterns, setPatterns] = useState<Pattern[]>([])
   const [assessments, setAssessments] = useState<any[]>([])
@@ -47,6 +51,7 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
   const [readOnly, setReadOnly] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null)
+  const [historyPage, setHistoryPage] = useState(1)
   const footerRef = useRef<HTMLDivElement | null>(null)
 
   const applyAssessment = useCallback((patternsList: Pattern[], a: any) => {
@@ -127,6 +132,9 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
     return same.findIndex((x) => x.id === a.id) + 1
   }
   const currentRecord = assessments.find((a) => a.id === assessmentId) || null
+  const historyTotalPages = Math.max(1, Math.ceil(assessments.length / HISTORY_PER_PAGE))
+  const historyPageSafe = Math.min(historyPage, historyTotalPages)
+  const pagedAssessments = assessments.slice((historyPageSafe - 1) * HISTORY_PER_PAGE, historyPageSafe * HISTORY_PER_PAGE)
 
   function startNew(type: 'baseline' | 'shift' | 'discharge') {
     const blank: Record<string, FindingState> = {}
@@ -197,6 +205,7 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
       setAssessmentId(saved.id)
       setReadOnly(saved.status === 'completed')
       setNotice(status === 'completed' ? 'Assessment completed.' : 'Draft saved.')
+      setHistoryPage(1)
       onChanged?.()
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to save the assessment.')
@@ -244,8 +253,13 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
             </div>
           )}
           {assessments.length > 0 && (
-            <button onClick={() => setShowHistory((s) => !s)} className="px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 inline-flex items-center gap-1">
+            <button onClick={() => { setShowHistory((s) => !s); setHistoryPage(1); setExpandedHistory(null) }}
+              title={showHistory ? 'Hide previous assessments' : 'View previous assessments'}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border shadow-sm transition-colors ${
+                showHistory ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+              }`}>
               <History size={12} /> {assessments.length} record{assessments.length === 1 ? '' : 's'}
+              {showHistory ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             </button>
           )}
         </div>
@@ -263,7 +277,8 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
 
       {showHistory && assessments.length > 0 && (
         <div className="space-y-2">
-          {assessments.map((a) => {
+          <div className="space-y-2 max-h-[65vh] overflow-y-auto pr-1">
+          {pagedAssessments.map((a) => {
             const openHist = expandedHistory === a.id
             return (
               <div key={a.id} className={`bg-white rounded-xl border border-slate-200 border-l-4 ${typeBar(a.assessment_type)} overflow-hidden shadow-sm`}>
@@ -318,6 +333,18 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
               </div>
             )
           })}
+          </div>
+          {historyTotalPages > 1 && (
+            <div className="flex items-center justify-between px-1 pt-1">
+              <span className="text-xs text-slate-400">Page {historyPageSafe} of {historyTotalPages} · {assessments.length} records</span>
+              <div className="flex gap-2">
+                <button onClick={() => { setHistoryPage((p) => Math.max(1, p - 1)); setExpandedHistory(null) }} disabled={historyPageSafe <= 1}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Prev</button>
+                <button onClick={() => { setHistoryPage((p) => Math.min(historyTotalPages, p + 1)); setExpandedHistory(null) }} disabled={historyPageSafe >= historyTotalPages}
+                  className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Next</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
