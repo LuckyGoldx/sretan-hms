@@ -13,7 +13,16 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
 }
 const STATUS_ORDER = ['effective', 'at_risk', 'ineffective', 'not_assessed']
 
-const TYPE_LABEL: Record<string, string> = { baseline: 'Baseline', shift: 'Shift reassessment', discharge: 'Discharge' }
+// Each assessment type has its own colour so Baseline / Shift / Discharge are
+// instantly distinguishable wherever they appear.
+const TYPE_META: Record<string, { label: string; badge: string; bar: string }> = {
+  baseline: { label: 'Baseline', badge: 'bg-indigo-100 text-indigo-700 border-indigo-200', bar: 'border-l-indigo-400' },
+  shift: { label: 'Shift reassessment', badge: 'bg-sky-100 text-sky-700 border-sky-200', bar: 'border-l-sky-400' },
+  discharge: { label: 'Discharge assessment', badge: 'bg-violet-100 text-violet-700 border-violet-200', bar: 'border-l-violet-400' },
+}
+const typeLabel = (t?: string) => TYPE_META[t || '']?.label || t || 'Assessment'
+const typeBadge = (t?: string) => TYPE_META[t || '']?.badge || 'bg-slate-100 text-slate-600 border-slate-200'
+const typeBar = (t?: string) => TYPE_META[t || '']?.bar || 'border-l-slate-300'
 
 interface Pattern { code: string; label: string; short: string; prompts: { key: string; label: string; critical?: boolean }[] }
 interface FindingState { status: string; responses: Record<string, boolean>; notes: string }
@@ -107,6 +116,18 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
   const openCount = useMemo(() => patterns.filter((p) => findings[p.code]?.status !== 'not_assessed').length, [patterns, findings])
   const flaggedCount = useMemo(() => patterns.filter((p) => ['ineffective', 'at_risk'].includes(findings[p.code]?.status || '')).length, [patterns, findings])
 
+  // Sequence number within each type (oldest = 1), shown only when there is
+  // more than one of that type so "Shift reassessment #2" is unambiguous.
+  const typeCount = (type: string) => assessments.filter((a) => a.assessment_type === type).length
+  const sequenceOf = (a: any) => {
+    const same = assessments
+      .filter((x) => x.assessment_type === a.assessment_type)
+      .slice()
+      .sort((x, y) => new Date(x.assessed_at).getTime() - new Date(y.assessed_at).getTime())
+    return same.findIndex((x) => x.id === a.id) + 1
+  }
+  const currentRecord = assessments.find((a) => a.id === assessmentId) || null
+
   function startNew(type: 'baseline' | 'shift' | 'discharge') {
     const blank: Record<string, FindingState> = {}
     for (const p of patterns) blank[p.code] = emptyFinding()
@@ -194,11 +215,23 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center"><Activity size={20} className="text-indigo-600" /></div>
           <div>
-            <h3 className="text-sm font-semibold text-slate-800">Functional Health Patterns · {TYPE_LABEL[assessmentType] || assessmentType}{!assessmentId && !readOnly ? ' (unsaved)' : ''}</h3>
-            <p className="text-xs text-slate-500">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-sm font-semibold text-slate-800">Functional Health Patterns</h3>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${typeBadge(assessmentType)}`}>
+                {typeLabel(assessmentType)}{typeCount(assessmentType) > 1 && assessmentId ? ` #${sequenceOf(currentRecord)}` : ''}
+              </span>
+              {!assessmentId && !readOnly && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">UNSAVED</span>}
+              {assessmentId && currentRecord && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${currentRecord.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                  {currentRecord.status === 'completed' ? 'Completed' : 'Draft'}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
               {openCount}/{patterns.length} patterns assessed
               {flaggedCount > 0 && <span className="text-rose-600 font-medium"> · {flaggedCount} flagged</span>}
-              {!active && <span className="text-amber-600"> · patient not admitted — read-only</span>}
+              {currentRecord?.assessed_at && <span className="text-slate-400"> · {new Date(currentRecord.assessed_at).toLocaleString()}{currentRecord.assessed_by_name ? ` · ${currentRecord.assessed_by_name}` : ''}</span>}
+              {!active && <span className="text-amber-600"> · closed admission, read-only</span>}
             </p>
           </div>
         </div>
@@ -222,7 +255,9 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
       {readOnly && error && <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-700"><AlertTriangle size={15} /> {error}</div>}
       {canWrite && !assessmentId && (
         <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-sm text-indigo-700">
-          <AlertTriangle size={15} /> Recording a new {TYPE_LABEL[assessmentType] || assessmentType} assessment — tick the relevant findings and save when done.
+          <AlertTriangle size={15} /> Recording a new
+          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${typeBadge(assessmentType)}`}>{typeLabel(assessmentType)}</span>
+          assessment — tick the relevant findings and save when done.
         </div>
       )}
 
@@ -231,12 +266,15 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
           {assessments.map((a) => {
             const openHist = expandedHistory === a.id
             return (
-              <div key={a.id} className="border-b border-slate-100 last:border-b-0">
+              <div key={a.id} className={`border-b border-slate-100 last:border-b-0 border-l-4 ${typeBar(a.assessment_type)}`}>
                 <button onClick={() => setExpandedHistory(openHist ? null : a.id)}
                   className="w-full px-4 py-2.5 flex items-center justify-between gap-3 text-sm text-left hover:bg-slate-50">
-                  <span className="text-slate-700">
-                    {TYPE_LABEL[a.assessment_type] || a.assessment_type} · {new Date(a.assessed_at).toLocaleString()}
-                    {assessmentId === a.id && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-semibold">CURRENT</span>}
+                  <span className="flex items-center gap-2 flex-wrap">
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${typeBadge(a.assessment_type)}`}>
+                      {typeLabel(a.assessment_type)}{typeCount(a.assessment_type) > 1 ? ` #${sequenceOf(a)}` : ''}
+                    </span>
+                    <span className="text-slate-500 text-xs">{new Date(a.assessed_at).toLocaleString()}</span>
+                    {assessmentId === a.id && <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-600 text-white font-semibold">CURRENT</span>}
                   </span>
                   <span className="flex items-center gap-2 flex-shrink-0">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${a.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{a.status}</span>
