@@ -22,7 +22,7 @@ const currentUserId: string | null = (() => { try { const u = localStorage.getIt
 
 function emptyFinding(): FindingState { return { status: 'not_assessed', responses: {}, notes: '' } }
 
-export default function FunctionalHealthPatterns({ admissionId, active = true }: { admissionId: string; active?: boolean }) {
+export default function FunctionalHealthPatterns({ admissionId, active = true, onChanged }: { admissionId: string; patientId?: string; active?: boolean; onChanged?: () => void }) {
   const [patterns, setPatterns] = useState<Pattern[]>([])
   const [assessments, setAssessments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,13 +69,18 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
         return
       }
       const latest = history[0]
+      // The 11 patterns are always opened maximised by default; the nurse may
+      // collapse individual ones, and that choice then persists.
+      const allExpanded = Object.fromEntries(list.map((p) => [p.code, true]))
       if (latest && latest.status === 'draft') {
         // Resume the open draft so it can be finished.
         applyAssessment(list, latest)
+        setExpanded(allExpanded)
       } else if (latest) {
         // Show the last completed assessment read-only; a reassessment starts on demand.
         applyAssessment(list, latest)
         setReadOnly(true)
+        setExpanded(allExpanded)
       } else {
         // First assessment for this admission: open an editable baseline right
         // away (cards expanded) so the nurse can start recording immediately.
@@ -171,6 +176,7 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
       setAssessmentId(saved.id)
       setReadOnly(saved.status === 'completed')
       setNotice(status === 'completed' ? 'Assessment completed.' : 'Draft saved.')
+      onChanged?.()
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to save the assessment.')
       footerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -199,9 +205,9 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
         <div className="flex items-center gap-2">
           {readOnly && active && (
             <div className="flex gap-1.5">
-              {!baselineDone && <button onClick={() => startNew('baseline')} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700">New baseline</button>}
-              {baselineDone && <button onClick={() => startNew('shift')} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"><Plus size={12} className="inline mr-1" />Shift reassessment</button>}
-              {baselineDone && <button onClick={() => startNew('discharge')} className="px-3 py-1.5 rounded-lg bg-slate-700 text-white text-xs font-medium hover:bg-slate-800">Discharge</button>}
+              {!baselineDone && <button onClick={() => startNew('baseline')} title="Record the full 11-pattern assessment on admission" className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700">New baseline</button>}
+              {baselineDone && <button onClick={() => startNew('shift')} title="Record this shift's reassessment" className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"><Plus size={12} className="inline mr-1" />Shift reassessment</button>}
+              {baselineDone && <button onClick={() => startNew('discharge')} title="Record the patient's final functional status before discharge" className="px-3 py-1.5 rounded-lg bg-slate-700 text-white text-xs font-medium hover:bg-slate-800">Discharge assessment</button>}
             </div>
           )}
           {assessments.length > 0 && (
@@ -214,7 +220,7 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
 
       {readOnly && notice && <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700"><CheckCircle size={15} /> {notice}</div>}
       {readOnly && error && <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-700"><AlertTriangle size={15} /> {error}</div>}
-      {!readOnly && !assessmentId && (
+      {canWrite && !assessmentId && (
         <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-50 border border-indigo-200 text-sm text-indigo-700">
           <AlertTriangle size={15} /> Recording a new {TYPE_LABEL[assessmentType] || assessmentType} assessment — tick the relevant findings and save when done.
         </div>
@@ -319,7 +325,7 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
         })}
       </div>
 
-      {!readOnly && (
+      {canWrite && (
         <div ref={footerRef} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
           {error && <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-sm text-rose-700"><AlertTriangle size={15} /> {error}</div>}
           {notice && <div className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-sm text-emerald-700"><CheckCircle size={15} /> {notice}</div>}
@@ -346,9 +352,12 @@ export default function FunctionalHealthPatterns({ admissionId, active = true }:
         </div>
       )}
 
-      {readOnly && active && (
+      {!canWrite && (
         <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500">
-          <ClipboardList size={14} /> This assessment is completed and locked. Start a new one above to reassess.
+          <ClipboardList size={14} />
+          {active
+            ? 'This assessment is completed and locked. Start a new one above to reassess.'
+            : 'This admission is closed. The functional assessment is read-only and cannot be edited unless the patient is re-admitted.'}
         </div>
       )}
     </div>

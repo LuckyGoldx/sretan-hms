@@ -191,6 +191,32 @@ router.post('/api/admissions/:id/fhp', async (req: Request, res: Response) => {
   }
 });
 
+// Patient-level summary across all admissions: how many assessments exist and
+// which episodes they belong to. Drives the chart tab visibility/count and the
+// read-only view for discharged episodes.
+router.get('/api/patients/:id/fhp/summary', async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    const patientId = String(req.params.id);
+    const episodes = await pool.query(
+      `SELECT a.id AS admission_id, w.name AS ward_name, a.admitted_at, a.discharged_at, a.status,
+              COUNT(fa.id)::int AS count
+         FROM admissions a
+         LEFT JOIN wards w ON w.id = a.ward_id
+         LEFT JOIN fhp_assessments fa ON fa.admission_id = a.id AND fa.tenant_id = $1
+        WHERE a.tenant_id = $1 AND a.patient_id = $2
+        GROUP BY a.id, w.name, a.admitted_at, a.discharged_at, a.status
+       HAVING COUNT(fa.id) > 0
+        ORDER BY a.admitted_at DESC`,
+      [tenantId, patientId]
+    );
+    const count = episodes.rows.reduce((sum: number, r: any) => sum + (r.count || 0), 0);
+    res.json({ count, episodes: episodes.rows });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
 // Nurse dashboard: active admissions with their FHP baseline / last assessment
 // and the number of unresolved concerns, so the roster can flag what is due.
 router.get('/api/nurse-dashboard/fhp', async (_req: Request, res: Response) => {

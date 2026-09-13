@@ -178,6 +178,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
   const [radOrders, setRadOrders] = useState<any[]>([])
   const [vitalsList, setVitalsList] = useState<any[]>([])
   const [admissions, setAdmissions] = useState<any[]>([])
+  const [fhpSummary, setFhpSummary] = useState<{ count: number; episodes: any[] }>({ count: 0, episodes: [] })
   const [viewLabModal, setViewLabModal] = useState<any | null>(null)
   const [viewRadModal, setViewRadModal] = useState<any | null>(null)
   const [viewImage, setViewImage] = useState<string | null>(null)
@@ -650,6 +651,8 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
 
         const admRes = await api.get(`/admissions?patient_id=${patientId}`).catch(() => ({ data: [] }))
         setAdmissions(admRes.data || [])
+        const fhpRes = await api.get(`/patients/${patientId}/fhp/summary`).catch(() => ({ data: { count: 0, episodes: [] } }))
+        setFhpSummary({ count: fhpRes.data?.count || 0, episodes: Array.isArray(fhpRes.data?.episodes) ? fhpRes.data.episodes : [] })
 
         // Fetch referrals
         const refRes = await api.get(`/referrals?patient_id=${patientId}`).catch(() => ({ data: [] }))
@@ -808,6 +811,20 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
   const soapEncounters = encounters.filter((e: any) => e.soap_notes && (e.soap_notes.subjective || e.soap_notes.objective || e.soap_notes.assessment || e.soap_notes.plan || e.soap_notes.notes))
   const activeAdmissionRecord = admissions.find((a: any) => a.status === 'active')
 
+  // Functional Health Patterns are shown whenever the patient has any records
+  // (read-only for closed episodes) or is currently admitted (so a baseline can
+  // be started). The count is only shown when greater than zero.
+  const fhpHasRecords = (fhpSummary.count || 0) > 0
+  const latestFhpEpisode = (fhpSummary.episodes || [])[0] || null
+  const fhpAdmissionId = activeAdmissionRecord?.id || latestFhpEpisode?.admission_id || null
+  async function refreshFhpSummary() {
+    if (!patientId) return
+    try {
+      const r = await api.get(`/patients/${patientId}/fhp/summary`)
+      setFhpSummary({ count: r.data?.count || 0, episodes: Array.isArray(r.data?.episodes) ? r.data.episodes : [] })
+    } catch {}
+  }
+
   const sections = [
     { id: 'summary', label: 'Summary', icon: FileText },
     { id: 'vitals', label: vitalsList.length > 0 ? `Vitals (${vitalsList.length})` : 'Vitals', icon: Activity },
@@ -816,10 +833,13 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
     { id: 'lab', label: labOrders.length > 0 ? `Lab (${labOrders.length})` : 'Lab', icon: FlaskConical },
     { id: 'radiology', label: radOrders.length > 0 ? `Radiology (${radOrders.length})` : 'Radiology', icon: Scan },
     { id: 'admissions', label: admissions.length > 0 ? `Admissions (${admissions.length})` : 'Admissions', icon: Bed },
-    // Holistic nursing assessment, offered only while the patient is admitted.
-    ...(admissions.some((a: any) => a.status === 'active') ? [{ id: 'fhp', label: 'Health Patterns', icon: Activity }] : []),
-    { id: 'treatment_sheet', label: `Tx Sheet (${treatments.filter((t: any) => t.status === 'active').length})`, icon: Pill },
-    { id: 'treatment_summary', label: `Tx Summary (${treatments.length})`, icon: ClipboardList },
+    // Holistic nursing assessment: shown when the patient is admitted (to fill)
+    // or has any records (read-only history); count only when > 0.
+    ...((activeAdmissionRecord || fhpHasRecords)
+      ? [{ id: 'fhp', label: fhpHasRecords ? `Health Patterns (${fhpSummary.count})` : 'Health Patterns', icon: Activity }]
+      : []),
+    { id: 'treatment_sheet', label: treatments.filter((t: any) => t.status === 'active').length > 0 ? `Tx Sheet (${treatments.filter((t: any) => t.status === 'active').length})` : 'Tx Sheet', icon: Pill },
+    { id: 'treatment_summary', label: treatments.length > 0 ? `Tx Summary (${treatments.length})` : 'Tx Summary', icon: ClipboardList },
     { id: 'fluid_balance', label: fluidSessions.length > 0 ? `Fluid (${fluidSessions.length})` : 'Fluid', icon: Droplets },
     { id: 'maternity', label: 'Maternity', icon: Baby },
     { id: 'referrals', label: referrals.length > 0 ? `Referrals (${referrals.length})` : 'Referrals', icon: Building2 },
@@ -1498,13 +1518,26 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
         </div>
       )}
 
-      {/* Functional Health Patterns (inpatients only) */}
+      {/* Functional Health Patterns: fillable while admitted, read-only once the
+          episode is closed. Visible whenever records exist or the patient is admitted. */}
       {activeSection === 'fhp' && (
-        activeAdmissionRecord ? (
-          <FunctionalHealthPatterns admissionId={activeAdmissionRecord.id} active />
+        fhpAdmissionId ? (
+          <div className="space-y-3">
+            {!activeAdmissionRecord && latestFhpEpisode && (
+              <div className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-500">
+                <Activity size={14} /> Closed admission · {latestFhpEpisode.ward_name || 'Ward'} · admitted {new Date(latestFhpEpisode.admitted_at).toLocaleDateString()}{latestFhpEpisode.discharged_at ? ` · discharged ${new Date(latestFhpEpisode.discharged_at).toLocaleDateString()}` : ''} — read-only
+              </div>
+            )}
+            <FunctionalHealthPatterns
+              admissionId={fhpAdmissionId}
+              patientId={patientId || undefined}
+              active={!!activeAdmissionRecord}
+              onChanged={refreshFhpSummary}
+            />
+          </div>
         ) : (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center text-sm text-slate-400">
-            Functional Health Patterns are recorded only while the patient is admitted.
+            Functional Health Patterns are recorded once the patient is admitted.
           </div>
         )
       )}
