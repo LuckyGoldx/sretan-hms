@@ -86,6 +86,70 @@ export function isCaseInCoverageWindow(caseRow: any): boolean {
   return true;
 }
 
+export interface BillingCase {
+  caseId: string;
+  caseNumber: string | null;
+  providerId: string | null;
+  providerName: string | null;
+  coverageStart: string | null;
+  coverageEnd: string | null;
+  inWindow: boolean;
+}
+
+/**
+ * The one case billing should use for a patient.
+ *
+ * A patient can end up with several `active` cases (e.g. an expired auto-created
+ * one plus the real one). The toggle and the coverage math must agree, so both
+ * resolve through here:
+ *   1. the active case for the patient's PRIMARY active policy provider, else
+ *   2. the most recent active case that is inside its coverage window.
+ * Returns null when there is no active case.
+ */
+export async function resolveBillingCase(patientId: string): Promise<BillingCase | null> {
+  const primary = await pool.query(
+    `SELECT c.id AS case_id, c.case_number, c.provider_id, pr.name AS provider_name,
+            c.coverage_start_date, c.coverage_end_date
+       FROM patient_insurance_policies pp
+       JOIN insurance_providers pr ON pr.id = pp.provider_id
+       JOIN insurance_cases c ON c.patient_id = pp.patient_id AND c.provider_id = pp.provider_id AND c.status = 'active'
+      WHERE pp.patient_id = $1 AND pp.is_active = true AND pp.coverage_type = 'primary'
+        AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE)
+      ORDER BY c.created_at DESC LIMIT 1`,
+    [patientId]
+  );
+
+  let row = primary.rows[0];
+
+  if (!row) {
+    const anyCase = await pool.query(
+      `SELECT c.id AS case_id, c.case_number, c.provider_id, pr.name AS provider_name,
+              c.coverage_start_date, c.coverage_end_date
+         FROM insurance_cases c
+         LEFT JOIN insurance_providers pr ON pr.id = c.provider_id
+        WHERE c.patient_id = $1 AND c.status = 'active'
+        ORDER BY (CASE WHEN (c.coverage_start_date IS NULL OR c.coverage_start_date <= CURRENT_DATE)
+                        AND (c.coverage_end_date IS NULL OR c.coverage_end_date >= CURRENT_DATE)
+                       THEN 0 ELSE 1 END),
+                 c.created_at DESC
+        LIMIT 1`,
+      [patientId]
+    );
+    row = anyCase.rows[0];
+  }
+
+  if (!row) return null;
+  return {
+    caseId: row.case_id,
+    caseNumber: row.case_number,
+    providerId: row.provider_id,
+    providerName: row.provider_name,
+    coverageStart: row.coverage_start_date,
+    coverageEnd: row.coverage_end_date,
+    inWindow: isCaseInCoverageWindow(row),
+  };
+}
+
 /**
  * Get the active primary insurance policy for a patient (returns provider info + case)
  */

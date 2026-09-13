@@ -4,7 +4,7 @@ import { getInsuranceUser } from '../utils/insuranceAuth';
 import { autoSyncClinicalServices } from '../utils/autoSyncServices';
 import { readClinicProfile } from '../config/reader';
 import { generateNumber } from '../utils/numbering';
-import { getCoverageForService, getPatientPrimaryInsurance, isCaseInCoverageWindow } from '../utils/coverageLookup';
+import { getCoverageForService, isCaseInCoverageWindow, resolveBillingCase } from '../utils/coverageLookup';
 import { resolveMaternityUnlock, getPaidMaternityEntitlement, createMaternityEntitlement } from '../utils/maternityEntitlement';
 
 const router = Router();
@@ -575,7 +575,12 @@ router.put('/api/insurance/policies/:id', async (req: Request, res: Response) =>
 
 router.get('/api/insurance/co-pay/:patientId', async (req: Request, res: Response) => {
   try {
-    // Get active case for patient
+    // Use the same billing case the checkout uses.
+    const billingCase = await resolveBillingCase(String(req.params.patientId));
+    if (!billingCase) {
+      res.json({ hasActiveCase: false, co_pay_amount: 0, covered_amount: 0, case: null });
+      return;
+    }
     const activeCase = await pool.query(
       `SELECT c.*, pr.name as provider_name, pr.code as provider_code,
               COALESCE(cp.calculation_method, 'percentage') as calc_method,
@@ -584,15 +589,9 @@ router.get('/api/insurance/co-pay/:patientId', async (req: Request, res: Respons
        FROM insurance_cases c
        LEFT JOIN insurance_providers pr ON c.provider_id = pr.id
        LEFT JOIN insurance_provider_co_pay_config cp ON cp.provider_id = c.provider_id AND cp.is_active = true
-       WHERE c.patient_id = $1 AND c.status = 'active'
-       ORDER BY c.created_at DESC LIMIT 1`,
-      [req.params.patientId]
+       WHERE c.id = $1`,
+      [billingCase.caseId]
     );
-
-    if (activeCase.rows.length === 0) {
-      res.json({ hasActiveCase: false, co_pay_amount: 0, covered_amount: 0, case: null });
-      return;
-    }
 
     const c = activeCase.rows[0];
     let coPayAmount = 0;
@@ -978,23 +977,36 @@ router.get('/api/insurance/patient-summary/:patientId', async (req: Request, res
 
 router.get('/api/insurance/active-case/:patientId', async (req: Request, res: Response) => {
   try {
-    const result = await pool.query(
-      `SELECT c.id, c.case_number, c.provider_id, c.auth_code, c.coverage_start_date, c.coverage_end_date,
-              pr.name as provider_name, pr.code as provider_code,
-              COALESCE(cp.calculation_method, 'percentage') as calc_method,
-              COALESCE(cp.percentage_value, 0) as calc_percentage
-       FROM insurance_cases c
-       LEFT JOIN insurance_providers pr ON c.provider_id = pr.id
-       LEFT JOIN insurance_provider_co_pay_config cp ON cp.provider_id = c.provider_id AND cp.is_active = true
-       WHERE c.patient_id = $1 AND c.status = 'active'
-       ORDER BY c.created_at DESC LIMIT 1`,
-      [req.params.patientId]
-    );
-    if (result.rows.length === 0) {
+    // One resolver for the whole billing flow so the case shown to the cashier
+    // is exactly the case the coverage/co-pay math uses.
+    const billingCase = await resolveBillingCase(String(req.params.patientId));
+    if (!billingCase) {
       res.json({ hasActiveCase: false, case: null });
       return;
     }
-    res.json({ hasActiveCase: true, case: result.rows[0] });
+    const extra = await pool.query(
+      `SELECT c.auth_code, pr.code as provider_code,
+              COALESCE(cp.calculation_method, 'percentage') as calc_method,
+              COALESCE(cp.percentage_value, 0) as calc_percentage
+         FROM insurance_cases c
+         LEFT JOIN insurance_providers pr ON pr.id = c.provider_id
+         LEFT JOIN insurance_provider_co_pay_config cp ON cp.provider_id = c.provider_id AND cp.is_active = true
+        WHERE c.id = $1`,
+      [billingCase.caseId]
+    );
+    res.json({
+      hasActiveCase: true,
+      inWindow: billingCase.inWindow,
+      case: {
+        id: billingCase.caseId,
+        case_number: billingCase.caseNumber,
+        provider_id: billingCase.providerId,
+        provider_name: billingCase.providerName,
+        coverage_start_date: billingCase.coverageStart,
+        coverage_end_date: billingCase.coverageEnd,
+        ...(extra.rows[0] || {}),
+      },
+    });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }
@@ -1021,19 +1033,14 @@ router.get('/api/insurance/coverage-quote', async (req: Request, res: Response) 
       return;
     }
 
-    const ins = await getPatientPrimaryInsurance(patientId);
-    // An active policy is not enough — billing requires an ACTIVE CASE.
-    if (!ins || !ins.active || !ins.providerId || !ins.caseId) {
+    // Same resolver as the active-case endpoint, so the provider whose rules we
+    // price against is exactly the provider of the case being billed.
+    const billingCase = await resolveBillingCase(patientId);
+    if (!billingCase || !billingCase.providerId) {
       res.json({ hasActiveCase: false, case_id: null, provider_name: null, in_window: false, patient: { co_pay: 0 }, insurer: { covered: 0 }, items: [] });
       return;
     }
-
-    // Coverage window: outside it nothing may be billed to the payer.
-    let inWindow = true;
-    if (ins.caseId) {
-      const caseRow = await pool.query('SELECT coverage_start_date, coverage_end_date FROM insurance_cases WHERE id = $1', [ins.caseId]);
-      inWindow = isCaseInCoverageWindow(caseRow.rows[0]);
-    }
+    const inWindow = billingCase.inWindow;
 
     const quoteItems: any[] = [];
     let totalPatient = 0;
@@ -1050,7 +1057,7 @@ router.get('/api/insurance/coverage-quote', async (req: Request, res: Response) 
       // covered at all outside the case's coverage window.
       let coveragePct = 0;
       if (inWindow) {
-        try { coveragePct = await getCoverageForService(ins.providerId as string, svcType, itemName, item.service_id || null); } catch { coveragePct = 0; }
+        try { coveragePct = await getCoverageForService(billingCase.providerId, svcType, itemName, item.service_id || null); } catch { coveragePct = 0; }
       }
       if (isNaN(coveragePct)) coveragePct = 0;
       coveragePct = Math.max(0, Math.min(100, coveragePct));
@@ -1072,8 +1079,8 @@ router.get('/api/insurance/coverage-quote', async (req: Request, res: Response) 
 
     res.json({
       hasActiveCase: true,
-      case_id: ins.caseId,
-      provider_name: ins.providerName,
+      case_id: billingCase.caseId,
+      provider_name: billingCase.providerName,
       in_window: inWindow,
       patient: { co_pay: totalPatient },
       insurer: { covered: totalInsurer },
