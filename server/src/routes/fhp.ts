@@ -37,31 +37,97 @@ async function loadAssessment(tenantId: string, assessmentId: string) {
   return { ...header.rows[0], findings: findings.rows };
 }
 
-// All FHP assessments recorded for one admission (newest first).
+// FHP assessments recorded for one admission.
+//
+// Server-side paginated (newest first). Each row carries `sequence_no` (its
+// chronological position within its own type) and `type_total` so the client
+// can show "Shift reassessment #3 of 40" without loading every record. When no
+// `page`/`limit` is supplied it falls back to returning the full array, which
+// keeps older callers working.
 router.get('/api/admissions/:id/fhp', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const admissionId = String(req.params.id);
-    const list = await pool.query(
-      `SELECT fa.*, s.name AS assessed_by_name
-         FROM fhp_assessments fa
-         LEFT JOIN staff_users s ON s.id = fa.assessed_by
-        WHERE fa.tenant_id = $1 AND fa.admission_id = $2
-        ORDER BY fa.assessed_at DESC`,
+
+    const wantsPage = req.query.page !== undefined || req.query.limit !== undefined;
+    if (!wantsPage) {
+      const list = await pool.query(
+        `SELECT fa.*, s.name AS assessed_by_name
+           FROM fhp_assessments fa
+           LEFT JOIN staff_users s ON s.id = fa.assessed_by
+          WHERE fa.tenant_id = $1 AND fa.admission_id = $2
+          ORDER BY fa.assessed_at DESC`,
+        [tenantId, admissionId]
+      );
+      if (list.rows.length === 0) { res.json([]); return; }
+      const ids = list.rows.map((r: any) => r.id);
+      const findings = await pool.query(
+        `SELECT * FROM fhp_findings WHERE assessment_id = ANY($1::uuid[]) ORDER BY pattern_code`,
+        [ids]
+      );
+      const byAssessment = new Map<string, any[]>();
+      for (const f of findings.rows) {
+        if (!byAssessment.has(f.assessment_id)) byAssessment.set(f.assessment_id, []);
+        byAssessment.get(f.assessment_id)!.push(f);
+      }
+      res.json(list.rows.map((a: any) => ({ ...a, findings: byAssessment.get(a.id) || [] })));
+      return;
+    }
+
+    const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? '10'), 10) || 10));
+    const offset = (page - 1) * limit;
+
+    const totalRes = await pool.query(
+      `SELECT COUNT(*)::int AS total FROM fhp_assessments WHERE tenant_id = $1 AND admission_id = $2`,
       [tenantId, admissionId]
     );
-    if (list.rows.length === 0) { res.json([]); return; }
-    const ids = list.rows.map((r: any) => r.id);
-    const findings = await pool.query(
-      `SELECT * FROM fhp_findings WHERE assessment_id = ANY($1::uuid[]) ORDER BY pattern_code`,
-      [ids]
+    const total = totalRes.rows[0]?.total || 0;
+
+    const list = await pool.query(
+      `WITH ranked AS (
+         SELECT fa.*, s.name AS assessed_by_name,
+                (ROW_NUMBER() OVER (PARTITION BY fa.assessment_type ORDER BY fa.assessed_at ASC, fa.id ASC))::int AS sequence_no,
+                (COUNT(*) OVER (PARTITION BY fa.assessment_type))::int AS type_total
+           FROM fhp_assessments fa
+           LEFT JOIN staff_users s ON s.id = fa.assessed_by
+          WHERE fa.tenant_id = $1 AND fa.admission_id = $2
+       )
+       SELECT * FROM ranked
+        ORDER BY assessed_at DESC, id DESC
+        LIMIT $3 OFFSET $4`,
+      [tenantId, admissionId, limit, offset]
     );
+
+    const ids = list.rows.map((r: any) => r.id);
     const byAssessment = new Map<string, any[]>();
-    for (const f of findings.rows) {
-      if (!byAssessment.has(f.assessment_id)) byAssessment.set(f.assessment_id, []);
-      byAssessment.get(f.assessment_id)!.push(f);
+    if (ids.length > 0) {
+      const findings = await pool.query(
+        `SELECT * FROM fhp_findings WHERE assessment_id = ANY($1::uuid[]) ORDER BY pattern_code`,
+        [ids]
+      );
+      for (const f of findings.rows) {
+        if (!byAssessment.has(f.assessment_id)) byAssessment.set(f.assessment_id, []);
+        byAssessment.get(f.assessment_id)!.push(f);
+      }
     }
-    res.json(list.rows.map((a: any) => ({ ...a, findings: byAssessment.get(a.id) || [] })));
+
+    const baselineRes = await pool.query(
+      `SELECT EXISTS(
+         SELECT 1 FROM fhp_assessments
+          WHERE tenant_id = $1 AND admission_id = $2 AND assessment_type = 'baseline' AND status = 'completed'
+       ) AS has_completed_baseline`,
+      [tenantId, admissionId]
+    );
+
+    res.json({
+      rows: list.rows.map((a: any) => ({ ...a, findings: byAssessment.get(a.id) || [] })),
+      total,
+      page,
+      limit,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+      has_completed_baseline: !!baselineRes.rows[0]?.has_completed_baseline,
+    });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }

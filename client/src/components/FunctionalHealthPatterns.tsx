@@ -37,7 +37,12 @@ const HISTORY_PER_PAGE = 10
 
 export default function FunctionalHealthPatterns({ admissionId, active = true, onChanged }: { admissionId: string; patientId?: string; active?: boolean; onChanged?: () => void }) {
   const [patterns, setPatterns] = useState<Pattern[]>([])
-  const [assessments, setAssessments] = useState<any[]>([])
+  // History is server-paginated: `records` is just the current page.
+  const [records, setRecords] = useState<any[]>([])
+  const [recordsTotal, setRecordsTotal] = useState(0)
+  const [recordsTotalPages, setRecordsTotalPages] = useState(1)
+  const [hasCompletedBaseline, setHasCompletedBaseline] = useState(false)
+  const [currentRecord, setCurrentRecord] = useState<any | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -70,19 +75,25 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const [tplRes, listRes] = await Promise.all([
+      const [tplRes, latestRes, recRes] = await Promise.all([
         api.get('/fhp/template').catch(() => ({ data: { patterns: [] } })),
-        api.get(`/admissions/${admissionId}/fhp`).catch(() => ({ data: [] })),
+        api.get(`/admissions/${admissionId}/fhp/latest`).catch(() => ({ data: null })),
+        api.get(`/admissions/${admissionId}/fhp`, { params: { page: 1, limit: HISTORY_PER_PAGE } })
+          .catch(() => ({ data: { rows: [], total: 0, totalPages: 1, has_completed_baseline: false } })),
       ])
       const list: Pattern[] = tplRes.data?.patterns || []
-      const history: any[] = Array.isArray(listRes.data) ? listRes.data : []
       setPatterns(list)
-      setAssessments(history)
+      setRecords(Array.isArray(recRes.data?.rows) ? recRes.data.rows : [])
+      setRecordsTotal(recRes.data?.total || 0)
+      setRecordsTotalPages(recRes.data?.totalPages || 1)
+      setHasCompletedBaseline(!!recRes.data?.has_completed_baseline)
+      setHistoryPage(1)
       if (list.length === 0) {
         setError('The assessment template could not be loaded. Please refresh, or contact an administrator.')
         return
       }
-      const latest = history[0]
+      const latest = latestRes.data
+      setCurrentRecord(latest)
       // The 11 patterns are always opened maximised by default; the nurse may
       // collapse individual ones, and that choice then persists.
       const allExpanded = Object.fromEntries(list.map((p) => [p.code, true]))
@@ -114,32 +125,33 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
 
   useEffect(() => { load() }, [load])
 
-  const baselineDone = useMemo(
-    () => assessments.some((a) => a.assessment_type === 'baseline' && a.status === 'completed'),
-    [assessments]
-  )
+  const baselineDone = hasCompletedBaseline
   const openCount = useMemo(() => patterns.filter((p) => findings[p.code]?.status !== 'not_assessed').length, [patterns, findings])
   const flaggedCount = useMemo(() => patterns.filter((p) => ['ineffective', 'at_risk'].includes(findings[p.code]?.status || '')).length, [patterns, findings])
 
-  // Sequence number within each type (oldest = 1), shown only when there is
-  // more than one of that type so "Shift reassessment #2" is unambiguous.
-  const typeCount = (type: string) => assessments.filter((a) => a.assessment_type === type).length
-  const sequenceOf = (a: any) => {
-    const same = assessments
-      .filter((x) => x.assessment_type === a.assessment_type)
-      .slice()
-      .sort((x, y) => new Date(x.assessed_at).getTime() - new Date(y.assessed_at).getTime())
-    return same.findIndex((x) => x.id === a.id) + 1
-  }
-  const currentRecord = assessments.find((a) => a.id === assessmentId) || null
-  const historyTotalPages = Math.max(1, Math.ceil(assessments.length / HISTORY_PER_PAGE))
+  // The header's "#n of m" for the record being edited comes from the server
+  // row when it's on the visible page, otherwise from the current record.
+  const currentOnPage = records.find((r) => r.id === assessmentId) || currentRecord
+  const historyTotalPages = recordsTotalPages
   const historyPageSafe = Math.min(historyPage, historyTotalPages)
-  const pagedAssessments = assessments.slice((historyPageSafe - 1) * HISTORY_PER_PAGE, historyPageSafe * HISTORY_PER_PAGE)
+
+  // Load one page of records from the server.
+  async function loadRecords(page: number) {
+    try {
+      const res = await api.get(`/admissions/${admissionId}/fhp`, { params: { page, limit: HISTORY_PER_PAGE } })
+      setRecords(Array.isArray(res.data?.rows) ? res.data.rows : [])
+      setRecordsTotal(res.data?.total || 0)
+      setRecordsTotalPages(res.data?.totalPages || 1)
+      setHasCompletedBaseline(!!res.data?.has_completed_baseline)
+      setHistoryPage(res.data?.page || page)
+      setExpandedHistory(null)
+    } catch {}
+  }
 
   function startNew(type: 'baseline' | 'shift' | 'discharge') {
     const blank: Record<string, FindingState> = {}
     for (const p of patterns) blank[p.code] = emptyFinding()
-    setFindings(blank); setAssessmentId(null); setAssessmentType(type)
+    setFindings(blank); setAssessmentId(null); setAssessmentType(type); setCurrentRecord(null)
     setSummary(''); setReadOnly(false); setError(''); setNotice('')
     // Expand every pattern so the findings are immediately visible/clickable.
     setExpanded(Object.fromEntries(patterns.map((p) => [p.code, true])))
@@ -201,11 +213,12 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
         findings: payloadFindings,
       })
       const saved = res.data
-      setAssessments((prev) => [saved, ...prev.filter((a) => a.id !== saved.id)])
       setAssessmentId(saved.id)
+      setCurrentRecord(saved)
       setReadOnly(saved.status === 'completed')
       setNotice(status === 'completed' ? 'Assessment completed.' : 'Draft saved.')
       setHistoryPage(1)
+      await loadRecords(1)
       onChanged?.()
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to save the assessment.')
@@ -227,7 +240,7 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-sm font-semibold text-slate-800">Functional Health Patterns</h3>
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${typeBadge(assessmentType)}`}>
-                {typeLabel(assessmentType)}{typeCount(assessmentType) > 1 && assessmentId ? ` #${sequenceOf(currentRecord)}` : ''}
+                {typeLabel(assessmentType)}{assessmentId && (currentOnPage?.type_total || 0) > 1 ? ` #${currentOnPage?.sequence_no}` : ''}
               </span>
               {!assessmentId && !readOnly && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 font-semibold">UNSAVED</span>}
               {assessmentId && currentRecord && (
@@ -252,13 +265,13 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
               {baselineDone && <button onClick={() => startNew('discharge')} title="Record the patient's final functional status before discharge" className="px-3 py-1.5 rounded-lg bg-slate-700 text-white text-xs font-medium hover:bg-slate-800">Discharge assessment</button>}
             </div>
           )}
-          {assessments.length > 0 && (
-            <button onClick={() => { setShowHistory((s) => !s); setHistoryPage(1); setExpandedHistory(null) }}
+          {recordsTotal > 0 && (
+            <button onClick={() => { const next = !showHistory; setShowHistory(next); setExpandedHistory(null); if (next && historyPage !== 1) loadRecords(1) }}
               title={showHistory ? 'Hide previous assessments' : 'View previous assessments'}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 border shadow-sm transition-colors ${
                 showHistory ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
               }`}>
-              <History size={12} /> {assessments.length} record{assessments.length === 1 ? '' : 's'}
+              <History size={12} /> {recordsTotal} record{recordsTotal === 1 ? '' : 's'}
               {showHistory ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
             </button>
           )}
@@ -275,10 +288,10 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
         </div>
       )}
 
-      {showHistory && assessments.length > 0 && (
+      {showHistory && recordsTotal > 0 && (
         <div className="space-y-2">
           <div className="space-y-2 max-h-[65vh] overflow-y-auto pr-1">
-          {pagedAssessments.map((a) => {
+          {records.map((a) => {
             const openHist = expandedHistory === a.id
             return (
               <div key={a.id} className={`bg-white rounded-xl border border-slate-200 border-l-4 ${typeBar(a.assessment_type)} overflow-hidden shadow-sm`}>
@@ -286,7 +299,7 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
                   className="w-full px-4 py-2.5 flex items-center justify-between gap-3 text-sm text-left hover:bg-slate-50">
                   <span className="flex items-center gap-2 flex-wrap">
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${typeBadge(a.assessment_type)}`}>
-                      {typeLabel(a.assessment_type)}{typeCount(a.assessment_type) > 1 ? ` #${sequenceOf(a)}` : ''}
+                      {typeLabel(a.assessment_type)}{(a.type_total || 0) > 1 ? ` #${a.sequence_no}` : ''}
                     </span>
                     <span className="text-slate-500 text-xs">{new Date(a.assessed_at).toLocaleString()}</span>
                     {assessmentId === a.id && <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-600 text-white font-semibold">CURRENT</span>}
@@ -336,11 +349,11 @@ export default function FunctionalHealthPatterns({ admissionId, active = true, o
           </div>
           {historyTotalPages > 1 && (
             <div className="flex items-center justify-between px-1 pt-1">
-              <span className="text-xs text-slate-400">Page {historyPageSafe} of {historyTotalPages} · {assessments.length} records</span>
+              <span className="text-xs text-slate-400">Page {historyPageSafe} of {historyTotalPages} · {recordsTotal} records</span>
               <div className="flex gap-2">
-                <button onClick={() => { setHistoryPage((p) => Math.max(1, p - 1)); setExpandedHistory(null) }} disabled={historyPageSafe <= 1}
+                <button onClick={() => loadRecords(Math.max(1, historyPageSafe - 1))} disabled={historyPageSafe <= 1}
                   className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Prev</button>
-                <button onClick={() => { setHistoryPage((p) => Math.min(historyTotalPages, p + 1)); setExpandedHistory(null) }} disabled={historyPageSafe >= historyTotalPages}
+                <button onClick={() => loadRecords(Math.min(historyTotalPages, historyPageSafe + 1))} disabled={historyPageSafe >= historyTotalPages}
                   className="px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 bg-white hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">Next</button>
               </div>
             </div>
