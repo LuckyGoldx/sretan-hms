@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import api from '../hooks/useAxios'
-import { printPaymentReceipt } from '../utils/print'
+import { printPaymentReceipt, printDepositReceipt } from '../utils/print'
 import {
   Search, Loader2, Receipt, FileText, CreditCard, Landmark, Smartphone, Banknote, X, Printer, ArrowLeft, Calendar, ChevronDown, ChevronLeft, ChevronRight,
 } from 'lucide-react'
@@ -200,7 +200,10 @@ export default function FinancePaymentHistory() {
                   const Icon = methodIcon(p.payment_method)
                   return (
                     <tr key={p.id} className="hover:bg-slate-50 transition-colors cursor-pointer group" onClick={() => loadDetail(p.id)}>
-                      <td className="px-5 py-3.5 font-mono text-primary font-medium text-xs">{p.receipt_number}</td>
+                      <td className="px-5 py-3.5">
+                        <span className="font-mono text-primary font-medium text-xs">{p.receipt_number}</span>
+                        {p.is_deposit && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-700 text-[9px] font-bold">Deposit</span>}
+                      </td>
                       <td className="px-5 py-3.5">
                         <p className="font-medium text-slate-800">{p.patient_name || p.walkin_name || 'Walk-in'}</p>
                         {p.hospital_number && <p className="text-[10px] text-slate-400">{p.hospital_number}</p>}
@@ -227,7 +230,7 @@ export default function FinancePaymentHistory() {
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center"><Receipt size={20} className="text-blue-600" /></div>
-                <div><h2 className="text-base font-semibold text-slate-800">Payment Details</h2><p className="text-xs text-slate-400 font-mono">{selectedPayment.receipt_number}</p></div>
+                <div><h2 className="text-base font-semibold text-slate-800">{selectedPayment.is_deposit ? 'Deposit Receipt' : 'Payment Details'}</h2><p className="text-xs text-slate-400 font-mono">{selectedPayment.receipt_number}</p></div>
               </div>
               <button onClick={() => setSelectedPayment(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
@@ -246,20 +249,21 @@ export default function FinancePaymentHistory() {
                 </div>
               </div>
               <div>
-                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Items</h4>
+                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">{selectedPayment.is_deposit ? 'Items covered by this deposit' : 'Items'}</h4>
                 <div className="space-y-2">
-                  {(selectedPayment.items || []).length > 0 ? selectedPayment.items.map((item: any, i: number) => (
+                  {((selectedPayment.is_deposit ? selectedPayment.covered_items : selectedPayment.items) || []).length > 0
+                    ? (selectedPayment.is_deposit ? selectedPayment.covered_items : selectedPayment.items).map((item: any, i: number) => (
                     <div key={i} className="flex items-center justify-between px-4 py-3 rounded-xl bg-white border border-slate-100">
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-800 truncate">{item.description}</p>
                         <p className="text-[10px] text-slate-400 capitalize">{item.service_type?.replace('_', ' ')}</p>
                       </div>
                       <div className="text-right flex-shrink-0 ml-3">
-                        <p className="text-sm font-bold text-slate-800">₦{(item.total_price || 0).toLocaleString()}</p>
-                        <p className="text-[10px] text-slate-400">×{item.quantity || 1}</p>
+                        <p className="text-sm font-bold text-slate-800">₦{Number(item.total_price ?? item.amount ?? 0).toLocaleString()}</p>
+                        {item.quantity ? <p className="text-[10px] text-slate-400">×{item.quantity}</p> : null}
                       </div>
                     </div>
-                  )) : <p className="text-sm text-slate-400 text-center py-4">No items data</p>}
+                  )) : <p className="text-sm text-slate-400 text-center py-4">{selectedPayment.is_deposit ? 'Held as credit on account — not yet applied to a specific bill.' : 'No items data'}</p>}
                 </div>
               </div>
               <div className="bg-slate-50 rounded-xl p-4 border border-slate-100 space-y-2">
@@ -272,7 +276,7 @@ export default function FinancePaymentHistory() {
               </div>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
-              <button onClick={() => printPaymentReceipt(selectedPayment)} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-white"><Printer size={14} /> Print</button>
+              <button onClick={() => { if (selectedPayment.is_deposit) printDepositReceipt(selectedPayment, selectedPayment.covered_items); else printPaymentReceipt(selectedPayment) }} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-white"><Printer size={14} /> Print</button>
               <button onClick={() => setSelectedPayment(null)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
             </div>
           </div>

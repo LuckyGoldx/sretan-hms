@@ -50,10 +50,31 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
 
   useEffect(() => {
     load()
-    const interval = setInterval(load, 30000)
+
+    // Live push via SSE; the 60s poll below is only a fallback for when the
+    // stream is unavailable (EventSource auto-reconnects on transient errors).
+    let stream: EventSource | null = null
+    let debounce: ReturnType<typeof setTimeout> | null = null
+    const scheduleLoad = () => {
+      if (debounce) clearTimeout(debounce)
+      debounce = setTimeout(() => load(), 500)
+    }
+    if (staffId && typeof EventSource !== 'undefined') {
+      try {
+        stream = new EventSource(`/api/notifications/stream?recipient_id=${encodeURIComponent(staffId)}`)
+        stream.addEventListener('notification', scheduleLoad)
+      } catch {}
+    }
+
+    const interval = setInterval(load, 60000)
     const onFocus = () => load()
     window.addEventListener('focus', onFocus)
-    return () => { clearInterval(interval); window.removeEventListener('focus', onFocus) }
+    return () => {
+      if (debounce) clearTimeout(debounce)
+      if (stream) stream.close()
+      clearInterval(interval)
+      window.removeEventListener('focus', onFocus)
+    }
   }, [load])
 
   // Close on outside click
@@ -91,7 +112,7 @@ export default function NotificationBell({ staffId }: NotificationBellProps) {
     switch (n.type) {
       case 'referral_created':
         // The patient appears in the department's referred-patients queue
-        window.location.href = '/consultant/patients'
+        window.location.href = '/specialist/patients'
         return
       case 'referral_completed':
         // Open the patient chart referrals tab and auto-open the consultation report

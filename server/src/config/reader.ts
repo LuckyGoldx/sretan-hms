@@ -37,15 +37,40 @@ export interface ClinicProfile {
 
 const CONFIG_PATH = 'C:/hms/config/clinic_profile.json';
 
+// In-memory cache: readClinicProfile() is called at the top of essentially
+// every request handler. Reading and parsing the JSON file on every call is
+// blocking disk I/O on the single Node event loop. We load once and refresh
+// only when the profile is written (writeProfile) or explicitly invalidated.
+let cachedProfile: ClinicProfile | null = null;
+
+export function invalidateClinicProfile(): void {
+  cachedProfile = null;
+}
+
+// Best-effort: if the profile is edited by another process (installer, update
+// daemon) drop the cache so the next request re-reads it. Writes through
+// writeProfile() already refresh the cache directly.
+try {
+  if (fs.existsSync(CONFIG_PATH)) {
+    fs.watch(CONFIG_PATH, () => { cachedProfile = null; }).on('error', () => {});
+  }
+} catch {
+}
+
 export function readClinicProfile(): ClinicProfile {
+  if (cachedProfile) {
+    // Return a copy so that callers mutating the result cannot corrupt the cache.
+    return { ...cachedProfile };
+  }
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       const raw = fs.readFileSync(CONFIG_PATH, 'utf-8');
-      return JSON.parse(raw) as ClinicProfile;
+      cachedProfile = JSON.parse(raw) as ClinicProfile;
+      return { ...cachedProfile };
     }
   } catch {
   }
-  return {
+  cachedProfile = {
     GLOBAL_SAAS_TENANT_ID: '',
     hospital_name: '',
     address: '',
@@ -78,6 +103,7 @@ export function readClinicProfile(): ClinicProfile {
     hospital_number_prefix: 'SRT',
     hospital_number_include_year: true,
   };
+  return { ...cachedProfile };
 }
 
 export function writeProfile(profile: ClinicProfile): void {
@@ -86,4 +112,6 @@ export function writeProfile(profile: ClinicProfile): void {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.writeFileSync(CONFIG_PATH, JSON.stringify(profile, null, 2), 'utf-8');
+  // Keep the cache coherent with the file we just wrote.
+  cachedProfile = { ...profile };
 }

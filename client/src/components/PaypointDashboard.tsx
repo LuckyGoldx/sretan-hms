@@ -47,15 +47,23 @@ export default function PaypointDashboard() {
         ])
         var result: any[] = []
         var groups = [{ cat: 'pharmacy', items: pharm.data || [] }, { cat: 'lab', items: lb.data || [] }, { cat: 'radiology', items: rad.data || [] }, { cat: 'general', items: gen.data || [] }]
+        const mapItem = (i: any) => ({
+          name: i.drug_name,
+          price: i.price,
+          service_id: i.id,
+          unlocks_maternity: !!i.unlocks_maternity,
+          gender_restriction: i.gender_restriction || null,
+          service_type: (i.service_key === 'FOLDER_ACTIVATION' || /folder activation/i.test(i.drug_name || '')) ? 'folder_activation' : undefined,
+        })
         for (const g of groups) {
           var inv = g.items.filter((i: any) => i.is_active !== false && i.price > 0)
           if (inv.length === 0) continue
           if (g.cat === 'general') {
             var sub: Record<string, any[]> = {}
             for (const i of inv) { var st = i.amount_type || 'service'; if (!sub[st]) sub[st] = []; sub[st].push(i) }
-            for (const [k, v] of Object.entries(sub)) result.push({ category: k.charAt(0).toUpperCase() + k.slice(1), items: v.map((i: any) => ({ name: i.drug_name, price: i.price })) })
+            for (const [k, v] of Object.entries(sub)) result.push({ category: k.charAt(0).toUpperCase() + k.slice(1), items: v.map(mapItem) })
           } else {
-            result.push({ category: CATEGORY_META[g.cat].label, items: inv.map((i: any) => ({ name: i.drug_name, price: i.price })) })
+            result.push({ category: CATEGORY_META[g.cat].label, items: inv.map(mapItem) })
           }
         }
         setCatalog(result)
@@ -71,6 +79,21 @@ export default function PaypointDashboard() {
     return () => clearTimeout(t)
   }, [patientSearch])
 
+  // Arriving from a discharge ("Settle at Paypoint") — preselect the patient.
+  useEffect(() => {
+    const pid = new URLSearchParams(window.location.search).get('patient_id')
+    if (!pid) return
+    let alive = true
+    setMode('search')
+    api.get(`/patients/${pid}`).then((r) => {
+      if (!alive) return
+      setSelectedPatient(r.data)
+      setPatientSearch(r.data?.full_name || '')
+      fetchInsurance(pid)
+    }).catch(() => {})
+    return () => { alive = false }
+  }, [])
+
   async function fetchInsurance(patientId: string) {
     setInsuranceLoading(true)
     try {
@@ -84,8 +107,20 @@ export default function PaypointDashboard() {
     setCart((prev) => {
       var existing = prev.find((c) => c.description === item.name)
       if (existing) return prev.map((c) => c.description === item.name ? { ...c, quantity: c.quantity + 1 } : c)
-      return [...prev, { description: item.name, quantity: 1, unit_price: item.price }]
+      return [...prev, { description: item.name, quantity: 1, unit_price: item.price, service_id: item.service_id || null, gender_restriction: item.gender_restriction || null, service_type: item.service_type || 'billing' }]
     })
+  }
+  const cartHasFolderActivation = cart.some((c) => c.service_type === 'folder_activation')
+  const folderItem = catalog.flatMap((g: any) => g.items).find((i: any) => i.service_type === 'folder_activation')
+  // Sex-specific services (Antenatal booking is female-only) require a selected
+  // female patient, and maternity booking requires an activated folder. The
+  // server enforces this too; disable in the UI to avoid a rejected sale.
+  function itemEligible(item: any) {
+    if (!item?.gender_restriction) return true
+    if (!selectedPatient?.sex) return false
+    if (item.gender_restriction !== selectedPatient.sex) return false
+    if (item.unlocks_maternity && selectedPatient.folder_activated === false && !cartHasFolderActivation) return false
+    return true
   }
   function removeFromCart(i: number) { setCart((p) => p.filter((_, idx) => idx !== i)) }
   function updateQty(i: number, q: number) { setCart((p) => p.map((c, idx) => idx === i ? { ...c, quantity: Math.max(1, q) } : c)) }
@@ -97,7 +132,7 @@ export default function PaypointDashboard() {
     setSubmitting(true)
     try {
       if (billToInsurance && insuranceInfo && selectedPatient) {
-        const items = cart.map((c) => ({ service_type: 'walkin_service', service_id: null, description: c.description, quantity: c.quantity, unit_price: c.unit_price }))
+        const items = cart.map((c) => ({ service_type: c.service_type || 'walkin_service', service_id: c.service_id || null, description: c.description, quantity: c.quantity, unit_price: c.unit_price }))
         await api.post('/insurance/bill-to-insurance', {
           patientId: selectedPatient.id,
           caseId: insuranceInfo.id,
@@ -119,7 +154,7 @@ export default function PaypointDashboard() {
         return
       }
       var payload: any = {
-        items: cart.map((c) => ({ service_type: 'walkin_service', service_id: null, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
+        items: cart.map((c) => ({ service_type: c.service_type || 'walkin_service', service_id: c.service_id || null, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
         payment_method: paymentMethod, notes: null, created_by: currentUser?.id,
       }
       if (selectedPatient) {
@@ -284,6 +319,16 @@ export default function PaypointDashboard() {
                 <button onClick={() => { setSelectedPatient(null); setPatientSearch(''); setInsuranceInfo(null); setBillToInsurance(false) }} className="text-xs text-rose-500 font-medium hover:text-rose-600">Change</button>
               </div>
             )}
+            {selectedPatient?.folder_activated === false && (
+              <div className="mt-3 pt-3 border-t border-amber-100 flex items-center justify-between gap-3">
+                <p className="text-[11px] font-medium text-amber-700">Folder not activated — add the Folder Activation fee to bill antenatal / book a pregnancy.</p>
+                {cartHasFolderActivation
+                  ? <span className="text-[11px] font-semibold text-emerald-700 whitespace-nowrap">Folder fee added</span>
+                  : folderItem && (
+                    <button onClick={() => addToCart(folderItem)} className="px-2.5 py-1 rounded-lg bg-amber-600 text-white text-[11px] font-medium whitespace-nowrap hover:bg-amber-700">Bill and Activate folder first</button>
+                  )}
+              </div>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -320,13 +365,19 @@ export default function PaypointDashboard() {
                   <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{group.category}</p>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 p-3">
-                  {group.items.map((item: any) => (
-                    <button key={item.name} onClick={() => addToCart(item)}
-                      className={`text-left px-3 py-2 rounded-xl border text-xs transition-all ${cart.find((c) => c.description === item.name) ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:border-primary'}`}>
-                      <p className="truncate">{item.name}</p>
-                      <p className="font-bold mt-0.5">₦{item.price.toLocaleString()}</p>
-                    </button>
-                  ))}
+                  {group.items.map((item: any) => {
+                    const eligible = itemEligible(item)
+                    const needsFolder = item.unlocks_maternity && selectedPatient?.folder_activated === false && !cartHasFolderActivation
+                    return (
+                      <button key={item.name} onClick={() => eligible && addToCart(item)} disabled={!eligible}
+                        title={!eligible ? (needsFolder ? 'Bill and Activate folder first' : `Select a ${item.gender_restriction?.toLowerCase()} patient to bill this item`) : undefined}
+                        className={`text-left px-3 py-2 rounded-xl border text-xs transition-all ${!eligible ? 'bg-slate-50 border-slate-100 text-slate-300 cursor-not-allowed' : cart.find((c) => c.description === item.name) ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:border-primary'}`}>
+                        <p className="truncate">{item.name}</p>
+                        <p className="font-bold mt-0.5">₦{item.price.toLocaleString()}</p>
+                        {!eligible && <p className="text-[9px] font-medium mt-0.5">{needsFolder ? 'Bill and Activate folder first' : `${item.gender_restriction} only`}</p>}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             ))}
@@ -372,10 +423,10 @@ export default function PaypointDashboard() {
 
       {showReceipt && receipt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowReceipt(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 text-center border-b"><div className="w-14 h-14 rounded-full bg-emerald-100 mx-auto mb-3"><CheckCircle size={28} className="text-emerald-600" /></div>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 text-center border-b flex-shrink-0"><div className="w-14 h-14 rounded-full bg-emerald-100 mx-auto mb-3"><CheckCircle size={28} className="text-emerald-600" /></div>
               <h2 className="text-lg font-semibold">Payment Successful</h2><p className="text-xs text-slate-400">#{receipt.receipt_number}</p></div>
-            <div className="p-6 space-y-2">
+            <div className="p-6 space-y-2 overflow-y-auto flex-1">
               <p className="text-sm font-semibold text-center">{receipt.patient_name || receipt.walkin_name || 'OTC Customer'}</p>
               {(receipt.items || []).map((item: any, i: number) => (
                 <div key={i} className="flex justify-between text-sm"><span>{item.description}</span><span className="font-medium">₦{(item.total_price || 0).toLocaleString()}</span></div>
@@ -383,7 +434,7 @@ export default function PaypointDashboard() {
               <div className="flex justify-between font-bold pt-3 border-t"><span>Total</span><span>₦{(receipt.total_amount || 0).toLocaleString()}</span></div>
               <div className="flex justify-between text-xs text-slate-400 pt-2"><span>{receipt.payment_method?.toUpperCase()}</span><span>{new Date(receipt.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
             </div>
-            <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+            <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
               <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium"><Printer size={14} /> Print</button>
               <button onClick={() => setShowReceipt(false)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
             </div>

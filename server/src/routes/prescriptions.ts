@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { clockGuard } from '../middleware/clockGuard';
+import { parsePagination } from '../utils/pagination';
 
 const router = Router();
 
@@ -45,6 +46,10 @@ router.get('/api/prescriptions', async (req: Request, res: Response) => {
     if (encounter_type) { query += ` AND e.encounter_type = $${paramIndex}`; params.push(encounter_type); paramIndex++; }
     query += ' ORDER BY p.created_at DESC';
 
+    const { limit, offset } = parsePagination(req.query);
+    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(limit, offset);
+
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err: any) {
@@ -55,6 +60,7 @@ router.get('/api/prescriptions', async (req: Request, res: Response) => {
 router.get('/api/prescriptions/unpaid', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
+    const page = parsePagination(req.query);
     const result = await pool.query(
       `SELECT pr.id, pr.drug_name, pr.dosage, pr.quantity, pr.instructions, pr.status,
               COALESCE(pr.is_paid, false) as is_paid, pr.created_at,
@@ -68,8 +74,9 @@ router.get('/api/prescriptions/unpaid', async (req: Request, res: Response) => {
        LEFT JOIN staff_users s ON s.id = enc.staff_id
        LEFT JOIN departments dept ON dept.id = enc.department_id
        WHERE pr.tenant_id = $1 AND pr.status = 'pending' AND COALESCE(pr.is_paid, false) = false
-       ORDER BY pr.created_at DESC`,
-      [tenantId]
+       ORDER BY pr.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [tenantId, page.limit, page.offset]
     );
     res.json(result.rows);
   } catch (err: any) {

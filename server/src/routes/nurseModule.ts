@@ -9,23 +9,95 @@ function getTenantId(): string {
   return readClinicProfile().GLOBAL_SAAS_TENANT_ID;
 }
 
+function composeHandoverFields(p: any): string {
+  const lines: string[] = [];
+  if (p.situation) lines.push(`S: ${p.situation}`);
+  if (p.background) lines.push(`B: ${p.background}`);
+  if (p.assessment) lines.push(`A: ${p.assessment}`);
+  if (p.recommendation) lines.push(`R: ${p.recommendation}`);
+  if (p.pending_tasks) lines.push(`Pending: ${p.pending_tasks}`);
+  if (p.contingency) lines.push(`If/Then: ${p.contingency}`);
+  if (Array.isArray(p.flags) && p.flags.length) lines.push(`Flags: ${p.flags.join(', ')}`);
+  return lines.join('\n');
+}
+
 // ── Nurse Notes ──
 router.get('/api/nurse-notes', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { patient_id, note_type } = req.query;
-    let query = `SELECT nn.*, s.name as staff_name FROM nurse_notes nn
+    const { patient_id, note_type, search, staff_id, limit, page, date_from, date_to } = req.query;
+    let query = `SELECT nn.*, s.name as staff_name, p.full_name as patient_name, p.hospital_number
+                 FROM nurse_notes nn
                  LEFT JOIN staff_users s ON s.id = nn.staff_id
+                 LEFT JOIN patients p ON p.id = nn.patient_id
                  WHERE nn.tenant_id = $1`;
     const params: any[] = [tenantId];
     let idx = 2;
 
     if (patient_id) { query += ` AND nn.patient_id = $${idx}`; params.push(patient_id); idx++; }
     if (note_type) { query += ` AND nn.note_type = $${idx}`; params.push(note_type); idx++; }
+    if (staff_id) { query += ` AND nn.staff_id = $${idx}`; params.push(staff_id); idx++; }
+    if (search) { query += ` AND (p.full_name ILIKE $${idx} OR p.hospital_number ILIKE $${idx} OR nn.content ILIKE $${idx})`; params.push(`%${search}%`); idx++; }
+    if (date_from) { query += ` AND nn.created_at >= $${idx}::date`; params.push(date_from); idx++; }
+    if (date_to) { query += ` AND nn.created_at < ($${idx}::date + INTERVAL '1 day')`; params.push(date_to); idx++; }
+
+    // Opt-in pagination; without `page` keep the plain-array behaviour.
+    const pageNum = parseInt(page as string) || 0;
+    if (pageNum) {
+      const limitNum = parseInt(limit as string) || 20;
+      const countRes = await pool.query(`SELECT COUNT(*)::int AS total FROM nurse_notes nn LEFT JOIN patients p ON p.id = nn.patient_id WHERE ${query.split('WHERE ')[1]}`, params);
+      const offset = (pageNum - 1) * limitNum;
+      const listRes = await pool.query(`${query} ORDER BY nn.created_at DESC LIMIT $${idx++} OFFSET $${idx++}`, [...params, limitNum, offset]);
+      res.json({ rows: listRes.rows, total: countRes.rows[0]?.total || 0, page: pageNum, limit: limitNum });
+      return;
+    }
 
     query += ' ORDER BY nn.created_at DESC';
+    if (limit) { query += ` LIMIT $${idx++}`; params.push(parseInt(String(limit)) || 200); }
     const result = await pool.query(query, params);
     res.json(result.rows);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+// Edit a nurse note (e.g. handover) — nurses and admins only.
+router.put('/api/nurse-notes/:id', async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    const { content, actor_role, actor_id, priority, flags, situation, background, assessment, recommendation, pending_tasks, contingency, voice_notes } = req.body;
+    const role = String(actor_role || '');
+    const noteRes = await pool.query('SELECT staff_id, created_at, note_type FROM nurse_notes WHERE id = $1 AND tenant_id = $2', [req.params.id, tenantId]);
+    if (noteRes.rows.length === 0) { res.status(404).json({ error: true, message: 'Note not found' }); return; }
+    const note = noteRes.rows[0];
+    const isPrivileged = role === 'Admin' || role === 'SuperAdmin';
+    const isCreator = !!actor_id && note.staff_id === actor_id;
+    if (note.note_type === 'handover') {
+      if (!['Nurse', 'Admin', 'SuperAdmin'].includes(role)) { res.status(403).json({ error: true, message: 'Only nursing staff can edit a handover note.' }); return; }
+      const ageMs = Date.now() - new Date(note.created_at).getTime();
+      if (ageMs > 24 * 60 * 60 * 1000) { res.status(403).json({ error: true, message: 'Handover notes cannot be edited after 24 hours.' }); return; }
+      if (!isCreator && !isPrivileged) { res.status(403).json({ error: true, message: 'Only the staff member who created this handover can edit it.' }); return; }
+    } else if (!['Nurse', 'Admin'].includes(role)) {
+      res.status(403).json({ error: true, message: 'Only nursing staff can edit this note.' }); return;
+    }
+    const structured = (situation !== undefined || background !== undefined || assessment !== undefined || recommendation !== undefined || pending_tasks !== undefined || contingency !== undefined || Array.isArray(flags));
+    const composed = content && String(content).trim() ? String(content).trim() : (structured ? composeHandoverFields({ situation, background, assessment, recommendation, pending_tasks, contingency, flags }) : '');
+    if (!composed) { res.status(400).json({ error: true, message: 'content is required.' }); return; }
+    const result = await pool.query(
+      `UPDATE nurse_notes SET
+         content = $1,
+         priority = COALESCE($4, priority),
+         flags = CASE WHEN $5::jsonb IS NULL THEN flags ELSE $5::jsonb END,
+         situation = COALESCE($6, situation), background = COALESCE($7, background),
+         assessment = COALESCE($8, assessment), recommendation = COALESCE($9, recommendation),
+         pending_tasks = COALESCE($10, pending_tasks), contingency = COALESCE($11, contingency),
+         voice_notes = CASE WHEN $12::jsonb IS NULL THEN voice_notes ELSE $12::jsonb END
+       WHERE id = $2 AND tenant_id = $3 RETURNING *`,
+      [composed, req.params.id, tenantId, priority ?? null,
+       Array.isArray(flags) ? JSON.stringify(flags) : null,
+       situation ?? null, background ?? null, assessment ?? null, recommendation ?? null, pending_tasks ?? null, contingency ?? null,
+       voice_notes && typeof voice_notes === 'object' ? JSON.stringify(voice_notes) : null]
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Note not found' }); return; }
+    res.json(result.rows[0]);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 
@@ -70,12 +142,23 @@ router.get('/api/nurse-notes', async (req: Request, res: Response) => {
 router.post('/api/nurse-notes', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { patient_id, staff_id, note_type, content } = req.body;
-    if (!patient_id || !content) { res.status(400).json({ error: true, message: 'patient_id and content are required' }); return; }
+    const { patient_id, staff_id, note_type, content, created_by, actor_role,
+      priority, flags, situation, background, assessment, recommendation, pending_tasks, contingency, voice_notes } = req.body;
+    // Handover notes may only be written by nursing staff.
+    if (note_type === 'handover' && actor_role && !['Nurse', 'Admin'].includes(String(actor_role))) {
+      res.status(403).json({ error: true, message: 'Only nursing staff can record a handover note.' });
+      return;
+    }
+    const composed = content && String(content).trim() ? String(content).trim() : composeHandoverFields({ situation, background, assessment, recommendation, pending_tasks, contingency, flags });
+    if (!patient_id || !composed) { res.status(400).json({ error: true, message: 'patient_id and content are required' }); return; }
     const id = uuidv4();
     const result = await pool.query(
-      `INSERT INTO nurse_notes (id, tenant_id, patient_id, staff_id, note_type, content) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [id, tenantId, patient_id, staff_id || null, note_type || 'general', content]
+      `INSERT INTO nurse_notes (id, tenant_id, patient_id, staff_id, note_type, content, priority, flags, situation, background, assessment, recommendation, pending_tasks, contingency, voice_notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+      [id, tenantId, patient_id, staff_id || null, note_type || 'general', composed,
+       priority || null, JSON.stringify(Array.isArray(flags) ? flags : []),
+       situation || null, background || null, assessment || null, recommendation || null, pending_tasks || null, contingency || null,
+       JSON.stringify(voice_notes && typeof voice_notes === 'object' ? voice_notes : {})]
     );
     res.status(201).json(result.rows[0]);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
@@ -356,6 +439,31 @@ router.post('/api/fluid-balance', async (req: Request, res: Response) => {
       [id, tenantId, patient_id, staff_id || null, fluid_type || null, intake_ml || 0, output_ml || 0, fluidRoute || null, notes || null, details ? JSON.stringify(details) : null, session_id || null]
     );
     res.status(201).json(result.rows[0]);
+  } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
+});
+
+// ── Nurse Dashboard ──
+
+// Pending medication doses for the drug round, soonest scheduled first.
+router.get('/api/nurse-dashboard/doses', async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    const limit = Math.min(parseInt(String(req.query.limit || '25'), 10) || 25, 100);
+    const result = await pool.query(
+      `SELECT td.id, td.scheduled_time, td.status,
+              t.treatment, t.patient_id,
+              s.dosage, s.route, s.frequency,
+              p.full_name AS patient_name, p.hospital_number
+         FROM treatment_doses td
+         JOIN treatments t ON t.id = td.treatment_id
+         LEFT JOIN treatment_sessions s ON s.id = td.session_id
+         JOIN patients p ON p.id = t.patient_id
+        WHERE td.tenant_id = $1 AND td.status = 'pending' AND t.status = 'active'
+        ORDER BY td.scheduled_time ASC
+        LIMIT $2`,
+      [tenantId, limit]
+    );
+    res.json(result.rows);
   } catch (err: any) { res.status(500).json({ error: true, message: err.message }); }
 });
 

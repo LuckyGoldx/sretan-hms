@@ -15,7 +15,7 @@ export default function MaternityGuard({ children }: { children: ReactNode }) {
     return null
   })()
 
-  if (user?.role === 'Consultant') {
+  if (user?.role === 'Specialist') {
     const modules = Array.isArray(user.department_modules) ? user.department_modules : []
     if (!modules.includes('maternity')) {
       return <Navigate to="/dashboard" replace />

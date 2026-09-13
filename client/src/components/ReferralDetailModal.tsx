@@ -91,7 +91,7 @@ export default function ReferralDetailModal({ referral, onClose, onCancel }: Ref
               <p className="font-medium text-slate-700 flex items-center gap-1.5"><Building2 size={14} className="text-indigo-500" /> {r.to_department_name || '—'}</p>
             </div>
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
-              <p className="text-xs text-slate-500 mb-1">Consultant</p>
+              <p className="text-xs text-slate-500 mb-1">Specialist</p>
               <p className="font-medium text-slate-700">{r.to_consultant_name || 'Any in department'}</p>
             </div>
             <div className="bg-slate-50 rounded-xl p-4 border border-slate-100">
@@ -119,7 +119,7 @@ export default function ReferralDetailModal({ referral, onClose, onCancel }: Ref
           {/* Outcome */}
           {r.outcome_note && (
             <div>
-              <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-1">Consultant Outcome</p>
+              <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wider mb-1">Specialist Outcome</p>
               <p className="text-sm text-slate-700 bg-emerald-50 border border-emerald-100 rounded-xl p-3">{r.outcome_note}</p>
             </div>
           )}

@@ -10,7 +10,7 @@ function getTenantId(): string {
   return readClinicProfile().GLOBAL_SAAS_TENANT_ID;
 }
 
-const VALID_ROLES = ['Doctor', 'Nurse', 'Lab Scientist', 'Pharmacist', 'Records', 'Paypoint', 'Admin', 'Finance', 'Radiology', 'Consultant'];
+const VALID_ROLES = ['Doctor', 'Nurse', 'Lab Scientist', 'Pharmacist', 'Records', 'Paypoint', 'Admin', 'Finance', 'Radiology', 'Specialist'];
 
 router.get('/api/staff', async (_req: Request, res: Response) => {
   try {
@@ -66,8 +66,8 @@ router.post('/api/staff', async (req: Request, res: Response) => {
       return;
     }
 
-    if (role === 'Consultant' && !department_id) {
-      res.status(400).json({ error: true, message: 'A department is required for a Consultant' });
+    if (role === 'Specialist' && !department_id) {
+      res.status(400).json({ error: true, message: 'A department is required for a Specialist' });
       return;
     }
 
@@ -125,8 +125,8 @@ router.put('/api/staff/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    if (role === 'Consultant' && !department_id) {
-      res.status(400).json({ error: true, message: 'A department is required for a Consultant' });
+    if (role === 'Specialist' && !department_id) {
+      res.status(400).json({ error: true, message: 'A department is required for a Specialist' });
       return;
     }
 

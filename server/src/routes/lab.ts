@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { generateNumber } from '../utils/numbering';
+import { parsePagination } from '../utils/pagination';
 
 const router = Router();
 
@@ -64,6 +65,9 @@ router.get('/api/lab-orders', async (req: Request, res: Response) => {
     if (encounter_type) { query += ` AND enc.encounter_type = $${idx}`; params.push(encounter_type); idx++; }
 
     query += ' ORDER BY l.created_at DESC';
+    const { limit, offset } = parsePagination(req.query);
+    query += ` LIMIT $${idx} OFFSET $${idx + 1}`;
+    params.push(limit, offset);
     const result = await pool.query(query, params);
 
     res.json(result.rows);
@@ -495,6 +499,9 @@ router.get('/api/lab-results', async (req: Request, res: Response) => {
     if (status) { query += ` AND lr.status = $${idx}`; params.push(status); idx++; }
 
     query += ' ORDER BY lr.created_at DESC';
+    const { limit, offset } = parsePagination(req.query);
+    query += ` LIMIT $${idx} OFFSET $${idx + 1}`;
+    params.push(limit, offset);
     const result = await pool.query(query, params);
 
     res.json(result.rows);

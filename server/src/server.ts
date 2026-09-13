@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import * as fs from 'fs';
 import * as path from 'path';
 import sharp from 'sharp';
@@ -9,8 +10,11 @@ import { ensureSchema } from './db/init';
 import { startSyncDaemon } from './sync/syncDaemon';
 import { detectSchemaChanges } from './utils/schemaVersion';
 import { startUpdateDaemon } from './utils/updateDaemon';
+import { startPostnatalDaemon } from './utils/postnatalTransitions';
+import { backfillDepositPayments, backfillDepositApplications } from './utils/patientBalance';
 import pool from './db/pool';
 import healthRouter from './routes/health';
+import dashboardRouter from './routes/dashboard';
 import patientsRouter from './routes/patients';
 import vitalsRouter from './routes/vitals';
 import prescriptionsRouter from './routes/prescriptions';
@@ -25,6 +29,7 @@ import purchaseOrdersRouter from './routes/purchaseOrders';
 import encountersRouter from './routes/encounters';
 import radiologyOrdersRouter from './routes/radiologyOrders';
 import admissionsRouter from './routes/admissions';
+import fhpRouter from './routes/fhp';
 import appointmentsRouter from './routes/appointments';
 import otcSalesRouter from './routes/otcSales';
 import nurseModuleRouter from './routes/nurseModule';
@@ -41,6 +46,8 @@ import insuranceReportsRouter from './routes/insuranceReports';
 import insuranceCoverageRouter from './routes/insuranceCoverage';
 import consultantsRouter from './routes/consultants';
 import notificationsRouter from './routes/notifications';
+import expensesRouter from './routes/expenses';
+import handoversRouter, { backfillHandoverChartNotes } from './routes/handovers';
 import visitsRouter from './routes/visits';
 import superadminRouter from './routes/superadmin';
 import auditRouter from './routes/audit';
@@ -53,10 +60,14 @@ const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.use(corsMiddleware);
+// Gzip/deflate JSON API responses and the SPA bundle. Without this every cold
+// load transfers the ~2.4 MB client build and large JSON payloads uncompressed.
+app.use(compression());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 app.use(healthRouter);
+app.use(dashboardRouter);
 app.use(patientsRouter);
 app.use(vitalsRouter);
 app.use(prescriptionsRouter);
@@ -70,6 +81,7 @@ app.use(purchaseOrdersRouter);
 app.use(encountersRouter);
 app.use(radiologyOrdersRouter);
 app.use(admissionsRouter);
+app.use(fhpRouter);
 app.use(appointmentsRouter);
 app.use(otcSalesRouter);
 app.use(nurseModuleRouter);
@@ -87,6 +99,8 @@ app.use(insuranceReportsRouter);
 app.use(insuranceCoverageRouter);
 app.use(consultantsRouter);
 app.use(notificationsRouter);
+app.use(expensesRouter);
+app.use(handoversRouter);
 app.use(visitsRouter);
 app.use(superadminRouter);
 app.use(auditRouter);
@@ -106,7 +120,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 20 * 1024 * 1024 } });
 
-app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', express.static(uploadsDir, { maxAge: '7d' }));
 app.use('/assets', express.static('C:/hms/assets'));
 
 app.post('/api/upload', upload.single('file'), async (req: any, res: any) => {
@@ -135,6 +149,9 @@ app.post('/api/upload', upload.single('file'), async (req: any, res: any) => {
 // requests are never swallowed by the SPA fallback.
 const distDir = path.resolve(__dirname, '..', '..', 'client', 'dist');
 const indexPath = path.join(distDir, 'index.html');
+// Vite emits content-hashed filenames under /assets, so they are safe to cache
+// aggressively (immutable) and are never re-validated on repeat visits.
+app.use('/assets', express.static(path.join(distDir, 'assets'), { maxAge: '1y', immutable: true }));
 app.use(express.static(distDir));
 app.get('*', (req: any, res: any) => {
   if (req.path.startsWith('/api') || req.path.startsWith('/uploads') || req.path.startsWith('/assets')) {
@@ -156,19 +173,13 @@ async function start(): Promise<void> {
       }
     });
 
+    let dbReady = false;
     try {
+      // Only pending migrations (tracked in schema_migrations) run here, so this
+      // is fast after the first boot. The server must not accept traffic before
+      // the schema it serves exists.
       await ensureSchema();
-      // Offline-first sync daemon: it reads the active hospital's deployment
-      // config each cycle and only syncs when cloud_sync_enabled is true and a
-      // Supabase URL/key are configured (Cloud SaaS / Private Supabase). When
-      // Offline Standalone, it bypasses and the system stays fully local.
-      startSyncDaemon(pool);
-      // Detect schema changes (new migration files) and reset sync flags so all
-      // rows (including old data) re-push to the cloud after a schema update.
-      await detectSchemaChanges(pool);
-      // Remote code deployment: auto-pulls new code from the central git repo
-      // when auto-update is enabled on this machine (offline-first).
-      startUpdateDaemon();
+      dbReady = true;
     } catch (dbErr) {
       console.warn('Database initialization failed (server will run without DB):', (dbErr as Error).message);
     }
@@ -176,6 +187,36 @@ async function start(): Promise<void> {
     app.listen(PORT, () => {
       console.log(`MACHOKO HMS Server running on port ${PORT}`);
     });
+
+    // Background work starts only after the server is accepting connections, so
+    // a slow cloud sync or schema re-push can never delay startup.
+    if (dbReady) {
+      try {
+        // Offline-first sync daemon: it reads the active hospital's deployment
+        // config each cycle and only syncs when cloud_sync_enabled is true and a
+        // Supabase URL/key are configured (Cloud SaaS / Private Supabase). When
+        // Offline Standalone, it bypasses and the system stays fully local.
+        startSyncDaemon(pool);
+        // Remote code deployment: auto-pulls new code from the central git repo
+        // when auto-update is enabled on this machine (offline-first).
+        startUpdateDaemon();
+        // Move postnatal patients past the 42-day window into history.
+        startPostnatalDaemon();
+        // Ensure every deposit also exists as a receipted payment for Finance.
+        try { await backfillDepositPayments(); } catch {}
+        // Attribute legacy deposits to the bills they settled (for receipts).
+        try { await backfillDepositApplications(); } catch {}
+        // Ensure every handover patient entry has a chart handover note.
+        try { await backfillHandoverChartNotes(); } catch {}
+      } catch (daemonErr) {
+        console.warn('Background daemon startup failed:', (daemonErr as Error).message);
+      }
+      // Detect schema changes (new migration files) and reset sync flags so all
+      // rows (including old data) re-push to the cloud after a schema update.
+      detectSchemaChanges(pool).catch((e: any) =>
+        console.warn('[schema] detectSchemaChanges failed:', e?.message)
+      );
+    }
   } catch (err) {
     console.error('Failed to start server:', err);
     process.exit(1);

@@ -4,7 +4,7 @@ import {
   Stethoscope, Loader2, Clock, Zap, Send, ArrowRight, ChevronDown, User, Users,
 } from 'lucide-react'
 import api from '../hooks/useAxios'
-import ConsultantTag from './ConsultantTag'
+import SpecialistTag from './SpecialistTag'
 
 interface DepartmentOption {
   id: string
@@ -61,7 +61,7 @@ function displayStaffName(name: string, role?: string): string {
   if (role === 'Doctor') {
     return /^(dr\.?\s+)/i.test(trimmed) ? trimmed : `Dr. ${trimmed}`
   }
-  if (role === 'Consultant') {
+  if (role === 'Specialist') {
     return /^(dr\.?\s+)/i.test(trimmed) ? trimmed : `Dr. ${trimmed}`
   }
   return trimmed
@@ -261,7 +261,7 @@ export default function ReferralModal({ patientId, patientName, onClose, onSucce
                 <div className="flex items-center gap-2 text-sm text-slate-600 bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2.5">
                   <Stethoscope className="w-4 h-4 text-indigo-500 flex-shrink-0" />
                   <span className="font-medium text-slate-800">{resolvedPatientName}</span>
-                  <span className="text-slate-400">— select a department with an active consultant</span>
+                  <span className="text-slate-400">— select a department with an active specialist</span>
                 </div>
               )}
 
@@ -313,7 +313,7 @@ export default function ReferralModal({ patientId, patientName, onClose, onSucce
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search departments with consultants..."
+                  placeholder="Search departments with specialists..."
                   className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 />
               </div>
@@ -340,7 +340,7 @@ export default function ReferralModal({ patientId, patientName, onClose, onSucce
               {!selectedDept ? (
                 <div className="space-y-2">
                   {displayDepts.length === 0 && (
-                    <p className="text-sm text-slate-400 text-center py-8">No departments with registered doctors or consultants found.</p>
+                    <p className="text-sm text-slate-400 text-center py-8">No departments with registered doctors or specialists found.</p>
                   )}
                   {displayDepts.map((d) => {
                     const dc = d.doctor_count || 0
@@ -353,7 +353,7 @@ export default function ReferralModal({ patientId, patientName, onClose, onSucce
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-slate-800 truncate">{d.name}</p>
                         <p className="text-xs text-slate-500 flex items-center gap-1 flex-wrap">
-                          {cc} consultant{cc !== 1 ? 's' : ''} / {dc} doctor{dc !== 1 ? 's' : ''}
+                          {cc} specialist{cc !== 1 ? 's' : ''} / {dc} doctor{dc !== 1 ? 's' : ''}
                           {d.consultants && d.consultants.length > 0 && (
                             <span className="text-slate-400 truncate">— {d.consultants.map((c) => c.name).join(', ')}</span>
                           )}
@@ -375,7 +375,7 @@ export default function ReferralModal({ patientId, patientName, onClose, onSucce
                   <div className="flex items-center justify-between bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3">
                     <div>
                       <p className="text-sm font-semibold text-slate-800">{selectedDept.name}</p>
-                      <p className="text-xs text-slate-500">{selectedDept.consultant_count || 0} consultant{(selectedDept.consultant_count || 0) !== 1 ? 's' : ''} / {selectedDept.doctor_count || 0} doctor{(selectedDept.doctor_count || 0) !== 1 ? 's' : ''}</p>
+                      <p className="text-xs text-slate-500">{selectedDept.consultant_count || 0} specialist{(selectedDept.consultant_count || 0) !== 1 ? 's' : ''} / {selectedDept.doctor_count || 0} doctor{(selectedDept.doctor_count || 0) !== 1 ? 's' : ''}</p>
                     </div>
                     <button
                       onClick={() => setSelectedDept(null)}
@@ -448,7 +448,7 @@ export default function ReferralModal({ patientId, patientName, onClose, onSucce
 
                   {eligibleStaff.length > 0 && (
                     <div className="relative">
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Refer to specific doctor / consultant (optional)</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1.5">Refer to specific doctor / specialist (optional)</label>
                       <button
                         type="button"
                         onClick={() => setStaffListOpen((o) => !o)}
@@ -460,12 +460,12 @@ export default function ReferralModal({ patientId, patientName, onClose, onSucce
                             <>
                               <User className="w-4 h-4 text-slate-400 flex-shrink-0" />
                               <span className="truncate text-slate-700">{displayStaffName(selectedStaff.name, selectedStaff.role)}</span>
-                              {selectedStaff.role === 'Consultant' && <ConsultantTag size="sm" />}
+                              {selectedStaff.role === 'Specialist' && <SpecialistTag size="sm" />}
                             </>
                           ) : (
                             <>
                               <Users className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                              <span className="truncate text-slate-700">Consultant / Any doctor in {selectedDept.name}</span>
+                              <span className="truncate text-slate-700">Specialist / Any doctor in {selectedDept.name}</span>
                             </>
                           )}
                         </span>
@@ -480,7 +480,7 @@ export default function ReferralModal({ patientId, patientName, onClose, onSucce
                             className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                           >
                             <Users className="w-4 h-4 text-slate-400 flex-shrink-0" />
-                            <span className="truncate">Consultant / Any doctor in {selectedDept.name}</span>
+                            <span className="truncate">Specialist / Any doctor in {selectedDept.name}</span>
                           </button>
                           {eligibleStaff.map((c) => (
                             <button
@@ -491,7 +491,7 @@ export default function ReferralModal({ patientId, patientName, onClose, onSucce
                             >
                               <User className="w-4 h-4 text-slate-400 flex-shrink-0" />
                               <span className="truncate text-slate-700">{displayStaffName(c.name, c.role)}</span>
-                              {c.role === 'Consultant' && <ConsultantTag size="sm" />}
+                              {c.role === 'Specialist' && <SpecialistTag size="sm" />}
                             </button>
                           ))}
                         </div>
@@ -506,7 +506,7 @@ export default function ReferralModal({ patientId, patientName, onClose, onSucce
                       value={referralNotes}
                       onChange={(e) => setReferralNotes(e.target.value)}
                       rows={3}
-                      placeholder="Any extra instructions for the consultant..."
+                      placeholder="Any extra instructions for the specialist..."
                       className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none overflow-hidden"
                     />
                   </div>

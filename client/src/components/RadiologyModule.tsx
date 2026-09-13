@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import DoctorComment from './DoctorComment'
-import ConsultantTag from './ConsultantTag'
+import SpecialistTag from './SpecialistTag'
 import type { RadiologyOrder } from '../types'
 import {
   ArrowLeft,
@@ -258,8 +258,8 @@ export default function RadiologyModule() {
                           {order.imaging_type || 'Imaging'}
                         </p>
                         <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                          {((order as any).is_consultation || (order as any).doctor_role === 'Consultant') && (
-                            <ConsultantTag departmentName={(order as any).department_name} />
+                          {((order as any).is_consultation || (order as any).doctor_role === 'Specialist') && (
+                            <SpecialistTag departmentName={(order as any).department_name} />
                           )}
                           <p className="text-xs text-slate-500">
                             {order.patient_name || 'Walk-in'} &middot; {order.doctor_name ? `Dr. ${order.doctor_name}` : ''}

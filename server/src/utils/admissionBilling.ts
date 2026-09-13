@@ -86,13 +86,34 @@ export async function resolveOneTimeAdmissionFee(
   return legacy.rows.length > 0 ? { price: parseFloat(legacy.rows[0].price) || 0, cost: parseFloat(legacy.rows[0].cost_price) || 0 } : null;
 }
 
+interface WardStay {
+  ward_id: string | null;
+  ward_name: string | null;
+  bed_number: string | null;
+  started_at: Date;
+  ended_at: Date | null;
+}
+
+/** The ward the patient occupied at a point in time (latest stay that started
+ *  at or before it). Falls back to the first stay / admission ward. */
+function stayAt(stays: WardStay[], at: Date): WardStay | null {
+  let current: WardStay | null = null;
+  for (const s of stays) {
+    if (s.started_at.getTime() <= at.getTime()) current = s;
+    else break;
+  }
+  return current || stays[0] || null;
+}
+
 /**
  * Materialise missing unpaid bed-day charges for active admissions.
  *
  * Bed fees are separate from the one-time Admission (processing) Fee.
  * Every started 24h block anchored at the doctor's admission time accrues
- * one bed-day row, starting at Day 1, priced from the ward's linked per-night
- * item at the time each day first becomes due (past days are never rewritten).
+ * one bed-day row, starting at Day 1. Each day is priced from the ward the
+ * patient occupied at the START of that block, so after a transfer the days
+ * spent in each ward are billed at that ward's own rate (e.g. 2 days ICU +
+ * 4 days Male Ward). Past days are never rewritten.
  */
 export async function accrueBedCharges(
   tenantId: string,
@@ -112,24 +133,113 @@ export async function accrueBedCharges(
   }
 
   const result = await pool.query(query, params);
+  if (result.rows.length === 0) return;
+
+  const admissionIds = result.rows.map((a: any) => a.id);
+
+  // Highest day already billed per admission, fetched once.
+  const existingRes = await pool.query(
+    `SELECT admission_id, MAX(day_index)::int AS max_day
+     FROM admission_daily_charges
+     WHERE tenant_id = $1 AND admission_id = ANY($2::uuid[])
+     GROUP BY admission_id`,
+    [tenantId, admissionIds]
+  ).catch(() => ({ rows: [] as any[] }));
+  const maxDayByAdmission = new Map<string, number>();
+  for (const row of existingRes.rows) {
+    maxDayByAdmission.set(row.admission_id, row.max_day || 0);
+  }
+
+  // Ward-stay history per admission (empty for legacy rows: fall back to the
+  // admission's ward for the whole episode).
+  const stayRes = await pool.query(
+    `SELECT s.admission_id, s.ward_id, s.bed_number, w.name AS ward_name, s.started_at, s.ended_at
+       FROM admission_ward_stays s
+       LEFT JOIN wards w ON w.id = s.ward_id
+      WHERE s.admission_id = ANY($1::uuid[])
+      ORDER BY s.started_at ASC`,
+    [admissionIds]
+  ).catch(() => ({ rows: [] as any[] }));
+  const staysByAdmission = new Map<string, WardStay[]>();
+  for (const row of stayRes.rows) {
+    if (!staysByAdmission.has(row.admission_id)) staysByAdmission.set(row.admission_id, []);
+    staysByAdmission.get(row.admission_id)!.push({
+      ward_id: row.ward_id,
+      ward_name: row.ward_name,
+      bed_number: row.bed_number || null,
+      started_at: new Date(row.started_at),
+      ended_at: row.ended_at ? new Date(row.ended_at) : null,
+    });
+  }
+
+  // Ward rates are usually shared across admissions; resolve each ward once.
+  const rateByWard = new Map<string, { price: number; cost: number } | null>();
+  async function wardRate(wardId?: string | null, wardName?: string | null) {
+    const key = wardId || `name:${wardName || ''}`;
+    let rate = rateByWard.get(key);
+    if (rate === undefined) {
+      rate = await resolveWardPerNight(tenantId, wardId || undefined, wardName || undefined);
+      rateByWard.set(key, rate);
+    }
+    return rate;
+  }
+
+  // Optional per-bed nightly price override (admin Ward Management).
+  const bedRateByKey = new Map<string, number | null>();
+  async function bedRate(wardId?: string | null, bedNumber?: string | null): Promise<number | null> {
+    if (!wardId || !bedNumber) return null;
+    const key = `${wardId}:${bedNumber}`;
+    if (bedRateByKey.has(key)) return bedRateByKey.get(key)!;
+    const r = await pool.query(
+      `SELECT daily_rate FROM beds WHERE tenant_id = $1 AND ward_id = $2 AND bed_number = $3 LIMIT 1`,
+      [tenantId, wardId, bedNumber]
+    ).catch(() => ({ rows: [] as any[] }));
+    const raw = r.rows[0]?.daily_rate;
+    const value = raw === null || raw === undefined ? null : parseFloat(raw) || 0;
+    bedRateByKey.set(key, value);
+    return value;
+  }
 
   for (const admission of result.rows) {
-    const rate = await resolveWardPerNight(tenantId, admission.ward_id, admission.ward_name);
-    if (!rate || rate.price <= 0) continue;
-
     const admittedAt = new Date(admission.admitted_at);
-    const days = billableBedDays(admittedAt, reference);
+    const stays = staysByAdmission.get(admission.id) || [
+      { ward_id: admission.ward_id, ward_name: admission.ward_name, bed_number: admission.bed_number || null, started_at: admittedAt, ended_at: null },
+    ];
 
-    for (let dayIndex = 1; dayIndex <= days; dayIndex++) {
+    const days = billableBedDays(admittedAt, reference);
+    const startDay = (maxDayByAdmission.get(admission.id) || 0) + 1;
+    if (startDay > days) continue;
+
+    const values: any[] = [];
+    const placeholders: string[] = [];
+    let p = 1;
+    for (let dayIndex = startDay; dayIndex <= days; dayIndex++) {
       const periodStart = new Date(admittedAt.getTime() + (dayIndex - 1) * DAY_MS);
       const periodEnd = new Date(periodStart.getTime() + DAY_MS);
-      await pool.query(
-        `INSERT INTO admission_daily_charges
-           (id, tenant_id, admission_id, patient_id, day_index, period_start, period_end, amount)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         ON CONFLICT (admission_id, day_index) DO NOTHING`,
-        [uuidv4(), tenantId, admission.id, admission.patient_id, dayIndex, periodStart, periodEnd, rate.price]
-      );
+
+      const stay = stayAt(stays, periodStart);
+      const wardId = stay?.ward_id || admission.ward_id;
+      // A per-bed price (when set) overrides the ward's nightly rate.
+      const bedOverride = await bedRate(wardId, stay?.bed_number || null);
+      let dayPrice = bedOverride && bedOverride > 0 ? bedOverride : null;
+      if (dayPrice === null) {
+        const rate = await wardRate(wardId, stay?.ward_name || admission.ward_name);
+        // A missing ward rate stops this admission's tail (rather than leaving
+        // a permanent price hole) so the days are billed once the rate is set.
+        if (!rate || rate.price <= 0) break;
+        dayPrice = rate.price;
+      }
+
+      placeholders.push(`($${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++})`);
+      values.push(uuidv4(), tenantId, admission.id, admission.patient_id, dayIndex, periodStart, periodEnd, dayPrice, wardId || null);
     }
+    if (placeholders.length === 0) continue;
+    await pool.query(
+      `INSERT INTO admission_daily_charges
+         (id, tenant_id, admission_id, patient_id, day_index, period_start, period_end, amount, ward_id)
+       VALUES ${placeholders.join(', ')}
+       ON CONFLICT (admission_id, day_index) DO NOTHING`,
+      values
+    );
   }
 }

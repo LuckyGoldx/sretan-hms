@@ -68,6 +68,7 @@ export interface ReceiptData {
   receiptNumber: string
   date: string
   time: string
+  title?: string
   staff?: string
   customer?: string
   paymentMethod?: string
@@ -93,7 +94,7 @@ export function buildReceiptHtml(data: ReceiptData): string {
   <style>@page { margin: 0; } body { width: 72mm; }</style></head>
   <body style="font-family:monospace;width:72mm;margin:0 auto;padding:8px 6px;color:#0f172a;font-size:12px">
     ${receiptHeaderHtml()}
-    <div style="text-align:center;padding:6px 0;font-size:13px;font-weight:700">RECEIPT</div>
+    <div style="text-align:center;padding:6px 0;font-size:13px;font-weight:700">${escapeHtml(data.title || 'RECEIPT')}</div>
     <div style="font-size:11px;color:#334155">
       <div>Receipt No: ${escapeHtml(data.receiptNumber)}</div>
       <div>Date: ${escapeHtml(data.date)} ${escapeHtml(data.time)}</div>
@@ -159,6 +160,107 @@ export function printPaymentReceipt(r: any): Window | null {
     notes: r.notes || '',
   })
   return openPrint(html)
+}
+
+// Print a deposit receipt: labelled "DEPOSIT RECEIPT", itemising the bills the
+// deposit settled (coveredItems from deposit_applications).
+export function printDepositReceipt(r: any, coveredItems?: any[]): Window | null {
+  if (!r) return null
+  const d = r.created_at ? new Date(r.created_at) : new Date()
+  const customer = r.patient_name || r.walkin_name || 'Patient'
+  const src = (coveredItems && coveredItems.length > 0)
+    ? coveredItems.map((it: any) => ({ item: it.description || 'Item', quantity: 1, price: Number(it.amount) || 0, total: Number(it.amount) || 0 }))
+    : [{ item: 'Deposit on account', quantity: 1, price: Number(r.total_amount) || 0, total: Number(r.total_amount) || 0 }]
+  const html = buildReceiptHtml({
+    title: 'DEPOSIT RECEIPT',
+    receiptNumber: r.receipt_number || generateReceiptNumber(),
+    date: receiptDate(d),
+    time: receiptTime(d),
+    staff: r.staff_name || '',
+    customer,
+    paymentMethod: r.payment_method ? String(r.payment_method).toUpperCase() : '',
+    lines: src,
+    total: Number(r.total_amount) || src.reduce((s, l) => s + Number(l.total), 0),
+    notes: 'Advance deposit received. The items above are the bills this deposit settled; any remaining credit stays on account.',
+  })
+  return openPrint(html)
+}
+
+// Print the maternity register (Records): a table of the current list.
+export function printMaternityRegister(rows: any[], meta?: { subtitle?: string }): Window | null {
+  const fmtDate = (d?: string) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—')
+  const body = (rows || []).map((p) => `
+    <tr>
+      <td>${escapeHtml(p.full_name || '')}<br/><span class="muted">${escapeHtml(p.hospital_number || '')}</span></td>
+      <td>${escapeHtml(p.phone || '—')}</td>
+      <td>${escapeHtml(p.booking_code || '—')}</td>
+      <td>${escapeHtml(fmtDate(p.edd))}</td>
+      <td>${escapeHtml(`G${p.gravida ?? '-'} P${p.para ?? '-'}`)}</td>
+      <td>${escapeHtml(String(p.risk_level || '—'))}</td>
+      <td>${escapeHtml(String(p.status || '—'))}</td>
+      <td>${escapeHtml(fmtDate(p.next_appointment_date))}</td>
+    </tr>`).join('')
+
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Maternity Register</title>
+  <style>
+    @page { margin: 14mm; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 11px; }
+    h1 { font-size: 14px; text-transform: uppercase; letter-spacing: .8px; text-align: center; margin: 10px 0 4px; }
+    .sub { text-align: center; color: #64748b; font-size: 10px; margin-bottom: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #cbd5e1; padding: 5px 6px; text-align: left; vertical-align: top; }
+    th { background: #f1f5f9; font-size: 10px; text-transform: uppercase; letter-spacing: .3px; }
+    .muted { color: #94a3b8; font-size: 9px; }
+    .foot { margin-top: 12px; color: #94a3b8; font-size: 9px; display: flex; justify-content: space-between; }
+  </style></head><body>
+    ${reportHeaderHtml()}
+    <h1>Maternity Register</h1>
+    <div class="sub">${escapeHtml(meta?.subtitle || '')}${meta?.subtitle ? ' · ' : ''}Printed ${escapeHtml(new Date().toLocaleString())} · ${rows.length} record${rows.length !== 1 ? 's' : ''}</div>
+    <table>
+      <thead><tr><th>Patient</th><th>Phone</th><th>Booking Code</th><th>EDD</th><th>G/P</th><th>Risk</th><th>Status</th><th>Next Visit</th></tr></thead>
+      <tbody>${body || '<tr><td colspan="8" style="text-align:center;color:#94a3b8">No records</td></tr>'}</tbody>
+    </table>
+    <script>window.addEventListener('load',function(){setTimeout(function(){try{window.print()}catch(e){}},300)})<\/script>
+  </body></html>`
+  return openPrint(html, 1000, 720)
+}
+
+// Print a single maternity registration record (Records slip).
+export function printMaternityRecord(p: any): Window | null {
+  if (!p) return null
+  const fmtDate = (d?: string) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—')
+  const ga = p.lmp ? `${Math.max(0, Math.floor((Date.now() - new Date(p.lmp).getTime()) / (7 * 24 * 60 * 60 * 1000)))} weeks` : '—'
+  const row = (label: string, value: any) => `<tr><td class="label">${escapeHtml(label)}</td><td>${escapeHtml(value == null || value === '' ? '—' : String(value))}</td></tr>`
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Maternity Record</title>
+  <style>
+    @page { margin: 16mm; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #1e293b; font-size: 12px; }
+    h1 { font-size: 14px; text-transform: uppercase; letter-spacing: .8px; text-align: center; margin: 10px 0 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    td { border: 1px solid #cbd5e1; padding: 6px 9px; }
+    .label { color: #64748b; width: 32%; font-size: 11px; }
+    .foot { margin-top: 18px; color: #94a3b8; font-size: 9px; text-align: right; }
+  </style></head><body>
+    ${reportHeaderHtml()}
+    <h1>Maternity Registration Record</h1>
+    <table>
+      ${row('Patient', p.full_name)}
+      ${row('Hospital Number', p.hospital_number)}
+      ${row('Phone', p.phone)}
+      ${row('Booking Code', p.booking_code)}
+      ${row('LMP', fmtDate(p.lmp))}
+      ${row('EDD', fmtDate(p.edd))}
+      ${row('Gestational Age', ga)}
+      ${row('Gravida / Para', `G${p.gravida ?? '-'} P${p.para ?? '-'}`)}
+      ${row('Blood Group / Genotype', `${p.blood_group || '—'} / ${p.genotype || '—'}`)}
+      ${row('Risk Level', p.risk_level)}
+      ${row('Status', p.status)}
+      ${row('Next Appointment', fmtDate(p.next_appointment_date))}
+    </table>
+    <div class="foot">Printed ${escapeHtml(new Date().toLocaleString())}</div>
+    <script>window.addEventListener('load',function(){setTimeout(function(){try{window.print()}catch(e){}},300)})<\/script>
+  </body></html>`
+  return openPrint(html, 820, 700)
 }
 
 // Print a radiology report with the hospital header (heading/address/contact only).

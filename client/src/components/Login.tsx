@@ -27,7 +27,8 @@ export default function Login() {
         const res = await api.post('/auth/login', { username: identifier, password })
         localStorage.setItem('sretan_token', res.data.token)
         localStorage.setItem('sretan_user', JSON.stringify(res.data.user))
-        window.location.href = '/dashboard'
+        // Radiology lands on its own dashboard route.
+        window.location.href = res.data.user?.role === 'Radiology' ? '/radiology' : '/dashboard'
         return
       } catch (clinicalErr: any) {
         // If clinical fails (401), try insurance auth

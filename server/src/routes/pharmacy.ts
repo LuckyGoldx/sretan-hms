@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { clockGuard } from '../middleware/clockGuard';
+import { parsePagination } from '../utils/pagination';
 
 const router = Router();
 
@@ -39,6 +40,10 @@ router.get('/api/inventory', async (req: Request, res: Response) => {
     }
 
     query += ' ORDER BY drug_name ASC';
+
+    const { limit, offset } = parsePagination(req.query);
+    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(limit, offset);
 
     const result = await pool.query(query, params);
     res.json(result.rows);

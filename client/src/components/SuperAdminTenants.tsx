@@ -33,7 +33,7 @@ const MODULES = [
   { key: 'module_triage', label: 'Triage' },
   { key: 'module_doctor', label: 'Doctor' },
   { key: 'module_nurses', label: 'Nurses' },
-  { key: 'module_consultants', label: 'Consultants' },
+  { key: 'module_consultants', label: 'Specialists' },
   { key: 'module_consultation', label: 'Consultation' },
   { key: 'module_laboratory', label: 'Laboratory' },
   { key: 'module_pharmacy', label: 'Pharmacy' },

@@ -79,7 +79,7 @@ export default function MaternityPatientDetail({ id: idProp, hideBack }: { id?: 
         if (!u) return
         const p = JSON.parse(u)
         const dept = p.department_id
-        if (p.role !== 'Consultant' || !dept || !record?.patient_id) { setIsReferredToMe(false); return }
+        if (p.role !== 'Specialist' || !dept || !record?.patient_id) { setIsReferredToMe(false); return }
         const refRes = await fetch(`/api/referrals?patient_id=${record.patient_id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
         const refs = await refRes.json()
         const active = (Array.isArray(refs) ? refs : []).some((r: any) =>
@@ -203,9 +203,9 @@ export default function MaternityPatientDetail({ id: idProp, hideBack }: { id?: 
     }
   }, [record])
 
-  const canEdit = role === 'Doctor' || role === 'Consultant' || role === 'Nurse' || role === 'Admin'
+  const canEdit = role === 'Doctor' || role === 'Specialist' || role === 'Nurse' || role === 'Admin'
   const isRecords = role === 'Records'
-  const isDoctor = role === 'Doctor' || role === 'Consultant'
+  const isDoctor = role === 'Doctor' || role === 'Specialist'
 
   // Load catalog data for consultation
   useEffect(() => {
@@ -370,13 +370,13 @@ export default function MaternityPatientDetail({ id: idProp, hideBack }: { id?: 
         </div>
         {!hideBack && (
           <div className="flex gap-2 flex-wrap">
-            {(role === 'Doctor' || (role === 'Consultant' && isReferredToMe)) && (
+            {(role === 'Doctor' || (role === 'Specialist' && isReferredToMe)) && (
               <button onClick={() => setActiveTab('consultation')}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-500 text-white text-sm font-medium">
                 <PenLine size={15} /> Consult
               </button>
             )}
-            {(isDoctor || role === 'Consultant') && (
+            {(isDoctor || role === 'Specialist') && (
               <button onClick={() => setShowReferralModal(true)}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-500 text-white text-sm font-medium">
                 <Send size={15} /> Refer / Transfer

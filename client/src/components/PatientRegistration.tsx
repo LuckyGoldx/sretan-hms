@@ -13,6 +13,7 @@ interface FormData {
   phone: string; email: string; address: string
   nationality: string; state_of_origin: string; lga: string
   occupation: string; marital_status: string
+  spouse_name: string; spouse_sex: string; spouse_phone: string; spouse_occupation: string; spouse_address: string
   next_of_kin: string; next_of_kin_phone: string; relationship: string; next_of_kin_address: string
   emergency_contact_name: string; emergency_contact_phone: string
   insurance: string; insurance_type: string; insurance_sub_type: string
@@ -26,6 +27,7 @@ const initialForm: FormData = {
   full_name: '', dob: '', sex: '', phone: '', email: '', address: '',
   nationality: 'Nigeria', state_of_origin: '', lga: '',
   occupation: '', marital_status: '',
+  spouse_name: '', spouse_sex: '', spouse_phone: '', spouse_occupation: '', spouse_address: '',
   next_of_kin: '', next_of_kin_phone: '', relationship: '', next_of_kin_address: '',
   emergency_contact_name: '', emergency_contact_phone: '',
   insurance: '', insurance_type: '', insurance_sub_type: '', blood_type: '',
@@ -58,6 +60,9 @@ export default function PatientRegistration() {
   const [documents, setDocuments] = useState<DocItem[]>([])
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [fullscreenPreview, setFullscreenPreview] = useState<string | null>(null)
+  const [sameSpouseAddress, setSameSpouseAddress] = useState(false)
+  const [sameAsSpouseAddress, setSameAsSpouseAddress] = useState(false)
+  const [spouseSexTouched, setSpouseSexTouched] = useState(false)
   const [showDocPopup, setShowDocPopup] = useState(false)
   const [popupDocType, setPopupDocType] = useState('')
   const [popupCustomType, setPopupCustomType] = useState('')
@@ -75,6 +80,44 @@ export default function PatientRegistration() {
 
   const isAdmin = currentUser?.role === 'Admin'
   const update = (field: keyof FormData, value: string) => { setForm((p) => ({ ...p, [field]: value })); setErrors((p) => ({ ...p, [field]: undefined })) }
+
+  const oppositeSex = (s: string) => (s === 'Male' ? 'Female' : s === 'Female' ? 'Male' : '')
+
+  // Patient sex auto-fills the spouse's sex to the opposite, until the user
+  // picks a spouse sex manually.
+  function handlePatientSex(value: string) {
+    setForm((p) => ({
+      ...p,
+      sex: value,
+      spouse_sex: spouseSexTouched ? p.spouse_sex : oppositeSex(value),
+    }))
+    setErrors((p) => ({ ...p, sex: undefined }))
+  }
+
+  function handleSpouseSex(value: string) {
+    setSpouseSexTouched(true)
+    update('spouse_sex', value)
+  }
+
+  // Patient address can mirror the spouse's address (only offered when the
+  // spouse address has been captured).
+  function toggleSameAsSpouse(checked: boolean) {
+    setSameAsSpouseAddress(checked)
+    if (checked) {
+      setSameSpouseAddress(false)
+      update('address', form.spouse_address)
+    }
+  }
+
+  function handlePatientAddress(value: string) {
+    if (sameAsSpouseAddress) return
+    update('address', value)
+  }
+
+  function handleSpouseAddress(value: string) {
+    update('spouse_address', value)
+    if (sameAsSpouseAddress) update('address', value)
+  }
   const states = form.nationality === 'Nigeria' ? NIGERIA_STATES : []
   const lgas = form.state_of_origin && NIGERIA_LGAS[form.state_of_origin] ? NIGERIA_LGAS[form.state_of_origin] : []
   const allDocTypes = [...stdDocTypes, ...customDocTypes, 'Other']
@@ -142,6 +185,11 @@ export default function PatientRegistration() {
         phone: form.phone.trim(), email: form.email.trim(), address: form.address.trim(),
         nationality: form.nationality, state_of_origin: form.state_of_origin, lga: form.lga,
         occupation: form.occupation, marital_status: form.marital_status,
+        spouse_name: form.marital_status === 'Married' ? form.spouse_name.trim() : '',
+        spouse_sex: form.marital_status === 'Married' ? form.spouse_sex : '',
+        spouse_phone: form.marital_status === 'Married' ? form.spouse_phone.trim() : '',
+        spouse_occupation: form.marital_status === 'Married' ? form.spouse_occupation : '',
+        spouse_address: form.marital_status === 'Married' ? (sameSpouseAddress ? form.address.trim() : form.spouse_address.trim()) : '',
         next_of_kin: form.next_of_kin.trim(), next_of_kin_phone: form.next_of_kin_phone.trim(),
         relationship: form.relationship, next_of_kin_address: form.next_of_kin_address.trim(),
         emergency_contact_name: form.emergency_contact_name.trim(), emergency_contact_phone: form.emergency_contact_phone.trim(),
@@ -207,7 +255,7 @@ export default function PatientRegistration() {
                     className={`w-full rounded-xl border px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none ${errors.dob ? 'border-rose-300 bg-rose-50' : 'border-slate-200'}`} />
                   {errors.dob && <p className="text-xs text-rose-500 mt-1">{errors.dob}</p>}</div>
                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Sex<Req /></label>
-                  <select value={form.sex} onChange={(e) => update('sex', e.target.value)}
+                  <select value={form.sex} onChange={(e) => handlePatientSex(e.target.value)}
                     className={`w-full rounded-xl border px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none ${errors.sex ? 'border-rose-300 bg-rose-50' : 'border-slate-200'}`}>
                     <option value="">Select...</option><option>Male</option><option>Female</option></select>
                   {errors.sex && <p className="text-xs text-rose-500 mt-1">{errors.sex}</p>}</div>
@@ -220,6 +268,40 @@ export default function PatientRegistration() {
                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Occupation</label>
                   <SearchableSelect value={form.occupation} onChange={(v) => update('occupation', v)} options={OCCUPATIONS} placeholder="Search occupation..." /></div>
               </div>
+              {form.marital_status === 'Married' && (
+                <div className="border-t border-slate-100 pt-5 space-y-4">
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Spouse / Partner Details</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><label className="block text-xs font-medium text-slate-500 mb-1">Spouse Full Name</label>
+                      <input type="text" placeholder="Spouse full name" value={form.spouse_name} onChange={(e) => update('spouse_name', e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+                    <div><label className="block text-xs font-medium text-slate-500 mb-1">Spouse Sex</label>
+                      <select value={form.spouse_sex} onChange={(e) => handleSpouseSex(e.target.value)}
+                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
+                        <option value="">Select...</option><option>Male</option><option>Female</option></select></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div><label className="block text-xs font-medium text-slate-500 mb-1">Spouse Phone</label>
+                      <input type="tel" placeholder="+234 801 234 5678" value={form.spouse_phone} onChange={(e) => update('spouse_phone', e.target.value.replace(/[^0-9+]/g, ''))}
+                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
+                    <div><label className="block text-xs font-medium text-slate-500 mb-1">Spouse Occupation</label>
+                      <SearchableSelect value={form.spouse_occupation} onChange={(v) => update('spouse_occupation', v)} options={OCCUPATIONS} placeholder="Search occupation..." /></div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-medium text-slate-500">Spouse Address</label>
+                      <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+                        <input type="checkbox" checked={sameSpouseAddress} onChange={(e) => { setSameSpouseAddress(e.target.checked); if (e.target.checked) setSameAsSpouseAddress(false) }} className="rounded border-slate-300" />
+                        Same as patient's address
+                      </label>
+                    </div>
+                    <textarea rows={2} placeholder="Spouse address..." value={sameSpouseAddress ? form.address : form.spouse_address}
+                      disabled={sameSpouseAddress} onChange={(e) => handleSpouseAddress(e.target.value)}
+                      className={`w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none ${sameSpouseAddress ? 'bg-slate-50 text-slate-500' : ''}`} />
+                    {sameSpouseAddress && !form.address.trim() && <p className="text-[11px] text-amber-600 mt-1">The patient's address is captured in the Contact step and will be used for the spouse.</p>}
+                  </div>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-xs font-medium text-slate-500 mb-1">Nationality<Req /></label>
                   <SearchableSelect value={form.nationality} onChange={(v) => { update('nationality', v); update('state_of_origin', ''); update('lga', '') }} options={COUNTRIES} placeholder="Search country..." /></div>
@@ -265,9 +347,20 @@ export default function PatientRegistration() {
                   <input type="email" placeholder="patient@example.com" value={form.email} onChange={(e) => update('email', e.target.value)}
                     className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
               </div>
-              <div><label className="block text-xs font-medium text-slate-500 mb-1">Home Address</label>
-                <textarea rows={2} placeholder="Street, city, state..." value={form.address} onChange={(e) => update('address', e.target.value)}
-                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none" /></div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-slate-500">Home Address</label>
+                  {form.marital_status === 'Married' && form.spouse_address.trim() !== '' && (
+                    <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+                      <input type="checkbox" checked={sameAsSpouseAddress} onChange={(e) => toggleSameAsSpouse(e.target.checked)} className="rounded border-slate-300" />
+                      Same as spouse's address
+                    </label>
+                  )}
+                </div>
+                <textarea rows={2} placeholder="Street, city, state..." value={sameAsSpouseAddress ? form.spouse_address : form.address}
+                  disabled={sameAsSpouseAddress} onChange={(e) => handlePatientAddress(e.target.value)}
+                  className={`w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none resize-none ${sameAsSpouseAddress ? 'bg-slate-50 text-slate-500' : ''}`} />
+              </div>
 
               <div className="border-t border-slate-100 pt-5">
                 <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Next of Kin / Emergency Contact</h3>

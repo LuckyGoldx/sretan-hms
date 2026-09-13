@@ -6,7 +6,7 @@ import multer from 'multer';
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
-import { readClinicProfile, writeProfile } from '../config/reader';
+import { readClinicProfile, writeProfile, invalidateClinicProfile } from '../config/reader';
 import { ensureSchema } from '../db/init';
 import { superadminAuth, SUPERADMIN_TOKEN } from '../middleware/superadminAuth';
 import { getSchemaStatus, ackCloudSchema } from '../utils/schemaVersion';
@@ -31,7 +31,7 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'clinic_profile.json');
 const UPLOADS_DIR = path.resolve(__dirname, '..', 'uploads');
 const MIGRATIONS_DIR = path.resolve(__dirname, '..', '..', '..', 'database');
 
-const VALID_ROLES = ['Doctor', 'Nurse', 'Lab Scientist', 'Pharmacist', 'Records', 'Paypoint', 'Admin', 'Finance', 'Radiology', 'Consultant'];
+const VALID_ROLES = ['Doctor', 'Nurse', 'Lab Scientist', 'Pharmacist', 'Records', 'Paypoint', 'Admin', 'Finance', 'Radiology', 'Specialist'];
 
 const DEFAULT_DEPARTMENTS: Array<[string, string, string]> = [
   ['General Medicine', 'MED', 'Internal medicine and general consultation'],
@@ -46,6 +46,19 @@ const DEFAULT_DEPARTMENTS: Array<[string, string, string]> = [
   ['Dermatology', 'DER', 'Skin care'],
   ['Psychiatry', 'PSY', 'Mental health care'],
   ['Urology', 'URO', 'Urinary tract and male reproductive care'],
+];
+
+// Wards seeded with a new hospital when the superadmin does not supply any.
+// Each becomes a per-night BED_DAY inventory item + its numbered beds.
+const DEFAULT_WARDS: Array<{ name: string; code: string; price: number; beds: number }> = [
+  { name: 'General Ward', code: 'GEN', price: 10000, beds: 5 },
+  { name: 'Male Ward', code: 'MALE', price: 8000, beds: 5 },
+  { name: 'Female Ward', code: 'FEM', price: 8000, beds: 5 },
+  { name: 'Maternity Ward', code: 'MAT', price: 15000, beds: 4 },
+  { name: 'Pediatric Ward', code: 'PED', price: 9000, beds: 3 },
+  { name: 'Surgical Ward', code: 'SURG', price: 15000, beds: 3 },
+  { name: 'ICU', code: 'ICU', price: 50000, beds: 2 },
+  { name: 'Isolation Ward', code: 'ISO', price: 15000, beds: 2 },
 ];
 
 // ---------------------------------------------------------------------------
@@ -368,6 +381,40 @@ async function insertDefaultDepartments(client: any, tenantId: string): Promise<
   }
 }
 
+// Seeds wards, their per-night BED_DAY inventory items and numbered beds for a
+// new hospital. The superadmin may supply their own list; otherwise the default
+// set is used so admissions/bed assignment works out of the box.
+async function insertWardsAndBeds(client: any, tenantId: string, wards: any): Promise<void> {
+  const list = Array.isArray(wards) && wards.length > 0 ? wards : DEFAULT_WARDS;
+  for (const w of list) {
+    const name = String(w?.name || '').trim();
+    if (!name) continue;
+    const rawCode = w?.code ? String(w.code).trim() : null;
+    const code = rawCode ? rawCode : null;
+    const price = Number(w?.price);
+    const bedCount = Math.max(0, Math.min(100, parseInt(String(w?.beds ?? 0), 10) || 0));
+    const wardId = uuidv4();
+    const inserted = await client.query(
+      `INSERT INTO wards (id, tenant_id, name, code) VALUES ($1, $2, $3, $4)
+       ON CONFLICT DO NOTHING RETURNING id`,
+      [wardId, tenantId, name, code]
+    );
+    if (inserted.rows.length === 0) continue; // ward already present for this tenant
+    await client.query(
+      `INSERT INTO inventory_items (id, tenant_id, drug_name, category, price, cost_price, amount_type, is_active, ward_id, service_key)
+       VALUES ($1, $2, $3, 'general', $4, 0, 'units', true, $5, 'BED_DAY')`,
+      [uuidv4(), tenantId, `${name} Admission (Per Night)`, isNaN(price) ? 0 : price, wardId]
+    );
+    for (let i = 1; i <= bedCount; i++) {
+      await client.query(
+        `INSERT INTO beds (id, tenant_id, ward_id, bed_number) VALUES ($1, $2, $3, $4)
+         ON CONFLICT (ward_id, bed_number) DO NOTHING`,
+        [uuidv4(), tenantId, wardId, `Bed ${i}`]
+      );
+    }
+  }
+}
+
 const memoryUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 1024 * 1024 * 1024 },
@@ -550,6 +597,7 @@ router.post('/api/superadmin/tenants', async (req: Request, res: Response) => {
       );
 
       await insertDefaultDepartments(client, tenant.id);
+      await insertWardsAndBeds(client, tenant.id, body.wards);
 
       const admin = body.create_admin;
       if (admin && admin.name && admin.email && admin.password) {
@@ -775,6 +823,17 @@ router.delete('/api/superadmin/tenants/:id', async (req: Request, res: Response)
     const expectedCode = codeRes.rows[0]?.setting_value || '5788';
     if (!suppliedCode || suppliedCode !== expectedCode) {
       res.status(403).json({ error: true, message: 'Invalid master code. Hospital was not deleted.' });
+      return;
+    }
+    // Safety gate: a downloaded backup must be supplied and must exist on disk
+    // before the hospital can be permanently deleted.
+    const backupName = String((req.body && req.body.backup_name) || '').trim();
+    if (!backupName || !isValidTenantBackupName(backupName)) {
+      res.status(400).json({ error: true, message: 'A downloaded backup is required before a hospital can be deleted.' });
+      return;
+    }
+    if (!fs.existsSync(path.join(BACKUP_DIR, 'tenants', id, backupName))) {
+      res.status(400).json({ error: true, message: 'The specified backup was not found. Download a backup before deleting.' });
       return;
     }
     const existing = await pool.query(`SELECT * FROM tenants WHERE id = $1`, [id]);
@@ -1256,6 +1315,7 @@ router.post('/api/superadmin/restore', memoryUpload.single('file'), async (req: 
     if (fs.existsSync(cfgPath)) {
       fs.mkdirSync(CONFIG_DIR, { recursive: true });
       fs.copyFileSync(cfgPath, CONFIG_FILE);
+      invalidateClinicProfile();
     }
     copyDirIfExists(path.join(workDir, 'assets'), ASSETS_DIR);
     copyDirIfExists(path.join(workDir, 'uploads'), UPLOADS_DIR);

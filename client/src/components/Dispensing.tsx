@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../hooks/useAxios'
 import type { Prescription } from '../types'
-import ConsultantTag from './ConsultantTag'
+import SpecialistTag from './SpecialistTag'
 import {
   Pill, ClipboardList, CheckCircle, Loader2, AlertTriangle, X, ArrowLeft, Stethoscope, Shield, Search, ChevronLeft, ChevronRight,
 } from 'lucide-react'
@@ -167,8 +167,8 @@ export default function Dispensing() {
                     {rx.instructions ? ` · ${rx.instructions}` : ' · No instructions'}
                   </p>
                   {rx.doctor_name && <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><Stethoscope size={11} /> Prescribed by: <strong>{rx.doctor_name}</strong>
-                    {(rx.is_consultation || rx.doctor_role === 'Consultant') && (
-                      <ConsultantTag departmentName={rx.department_name} />
+                    {(rx.is_consultation || rx.doctor_role === 'Specialist') && (
+                      <SpecialistTag departmentName={rx.department_name} />
                     )}
                   </p>}
                 </div>
@@ -215,8 +215,8 @@ export default function Dispensing() {
                 <p className="text-sm text-slate-600"><span className="font-semibold">Dosage:</span> {modal.rx.dosage}</p>
                 <p className="text-sm text-slate-600"><span className="font-semibold">Patient:</span> {modal.rx.patient_name || 'Unknown'}{modal.rx.hospital_number ? ` · ${modal.rx.hospital_number}` : ''}</p>
                 {modal.rx.doctor_name && <p className="text-sm text-slate-600 flex items-center gap-1"><Stethoscope size={14} className="text-slate-400" /><span className="font-semibold">Prescribed by:</span> {modal.rx.doctor_name}
-                  {(modal.rx.is_consultation || modal.rx.doctor_role === 'Consultant') && (
-                    <ConsultantTag departmentName={modal.rx.department_name} />
+                  {(modal.rx.is_consultation || modal.rx.doctor_role === 'Specialist') && (
+                    <SpecialistTag departmentName={modal.rx.department_name} />
                   )}
                 </p>}
                 <div className="mt-3">

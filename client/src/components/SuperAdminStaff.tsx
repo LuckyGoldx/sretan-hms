@@ -29,7 +29,7 @@ interface Department {
   code: string | null
 }
 
-const ROLES = ['Doctor', 'Nurse', 'Lab Scientist', 'Pharmacist', 'Records', 'Paypoint', 'Admin', 'Finance', 'Radiology', 'Consultant']
+const ROLES = ['Doctor', 'Nurse', 'Lab Scientist', 'Pharmacist', 'Records', 'Paypoint', 'Admin', 'Finance', 'Radiology', 'Specialist']
 
 export default function SuperAdminStaff() {
   const [tenants, setTenants] = useState<Tenant[]>([])

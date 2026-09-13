@@ -1,4 +1,4 @@
-ï»¿import { Router, Request, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
@@ -15,7 +15,7 @@ const VALID_PRIORITIES = ['routine', 'urgent', 'emergency'];
 
 /**
  * Default specialist/consultant fee from inventory (category 'general'):
- *   "Specialist Consultation" â€” falls back to 0 if not configured.
+ *   "Specialist Consultation" — falls back to 0 if not configured.
  */
 async function getDefaultConsultantFee(): Promise<number> {
   try {
@@ -99,9 +99,9 @@ router.get('/api/departments', async (_req: Request, res: Response) => {
     const result = await pool.query(
       `SELECT d.*,
               (SELECT COUNT(*)::int FROM staff_users su
-               WHERE su.department_id = d.id AND su.role = 'Consultant' AND su.status = 'active') as consultant_count,
+               WHERE su.department_id = d.id AND su.role = 'Specialist' AND su.status = 'active') as consultant_count,
               (SELECT COUNT(*)::int FROM staff_users su
-               WHERE su.department_id = d.id AND su.role = 'Consultant' AND su.status = 'active') as active_consultants
+               WHERE su.department_id = d.id AND su.role = 'Specialist' AND su.status = 'active') as active_consultants
        FROM departments d
        WHERE d.tenant_id = $1
        ORDER BY d.name`,
@@ -125,13 +125,13 @@ router.get('/api/departments/with-consultants', async (_req: Request, res: Respo
               (SELECT COUNT(*)::int FROM (
                  SELECT DISTINCT ON (LOWER(su.email)) su.id
                  FROM staff_users su
-                 WHERE su.department_id = d.id AND su.role IN ('Consultant','Doctor') AND su.status = 'active'
+                 WHERE su.department_id = d.id AND su.role IN ('Specialist','Doctor') AND su.status = 'active'
                  ORDER BY LOWER(su.email), su.created_at
                ) t) as staff_count,
               (SELECT COUNT(*)::int FROM (
                  SELECT DISTINCT ON (LOWER(su.email)) su.id
                  FROM staff_users su
-                 WHERE su.department_id = d.id AND su.role = 'Consultant' AND su.status = 'active'
+                 WHERE su.department_id = d.id AND su.role = 'Specialist' AND su.status = 'active'
                  ORDER BY LOWER(su.email), su.created_at
                ) t) as consultant_count,
               (SELECT COUNT(*)::int FROM (
@@ -147,10 +147,10 @@ router.get('/api/departments/with-consultants', async (_req: Request, res: Respo
                     json_build_object(
                       'id', su.id, 'name', su.name, 'email', su.email, 'role', su.role, 'department_id', su.department_id
                     ) AS x,
-                    CASE su.role WHEN 'Consultant' THEN 0 ELSE 1 END AS _sort_role,
+                    CASE su.role WHEN 'Specialist' THEN 0 ELSE 1 END AS _sort_role,
                     su.name AS _sort_name
                   FROM staff_users su
-                  WHERE su.department_id = d.id AND su.role IN ('Consultant','Doctor') AND su.status = 'active'
+                  WHERE su.department_id = d.id AND su.role IN ('Specialist','Doctor') AND su.status = 'active'
                   ORDER BY LOWER(su.email), su.created_at
                 ) sub
               ), '[]'::json) as consultants
@@ -158,7 +158,7 @@ router.get('/api/departments/with-consultants', async (_req: Request, res: Respo
        WHERE d.tenant_id = $1 AND d.status = 'active'
          AND EXISTS (
            SELECT 1 FROM staff_users su
-           WHERE su.department_id = d.id AND su.role IN ('Consultant','Doctor') AND su.status = 'active'
+           WHERE su.department_id = d.id AND su.role IN ('Specialist','Doctor') AND su.status = 'active'
          )
        ORDER BY d.name`,
       [tenantId]
@@ -545,7 +545,7 @@ router.post('/api/referrals', async (req: Request, res: Response) => {
 
     if (!to_consultant_id) {
       // New department-level ("any") referral: blocked while a department-level referral
-      // is already active to this department â€” no further referrals until it is rejected
+      // is already active to this department — no further referrals until it is rejected
       // or the consultation is completed.
       if (hasActiveDeptLevel) {
         res.status(409).json({ error: true, message: 'This patient already has an active referral to this department. Reject it or complete the consultation before referring again.' });
@@ -566,10 +566,10 @@ router.post('/api/referrals', async (req: Request, res: Response) => {
     }
 
     // If to_consultant_id provided, verify they belong to the target department
-    // (Doctor or Consultant â€” both can receive referrals)
+    // (Doctor or Consultant — both can receive referrals)
     if (to_consultant_id) {
       const cons = await pool.query(
-        `SELECT id FROM staff_users WHERE id = $1 AND role IN ('Consultant','Doctor') AND department_id = $2 AND status = 'active'`,
+        `SELECT id FROM staff_users WHERE id = $1 AND role IN ('Specialist','Doctor') AND department_id = $2 AND status = 'active'`,
         [to_consultant_id, to_department_id]
       );
       if (cons.rows.length === 0) {
@@ -603,7 +603,7 @@ router.post('/api/referrals', async (req: Request, res: Response) => {
     // Notify all active clinical staff (Doctors + Consultants) in the target department
     const deptStaff = await pool.query(
       `SELECT id FROM staff_users
-       WHERE tenant_id = $1 AND department_id = $2 AND role IN ('Consultant','Doctor') AND status = 'active'`,
+       WHERE tenant_id = $1 AND department_id = $2 AND role IN ('Specialist','Doctor') AND status = 'active'`,
       [tenantId, to_department_id]
     );
     const patientInfo = await pool.query(
@@ -618,7 +618,7 @@ router.post('/api/referrals', async (req: Request, res: Response) => {
         recipientId: s.id,
         type: 'referral_created',
         title: 'New referral received',
-        message: `${patientName} has been referred to ${deptName}${reason ? ` â€” ${reason}` : ''}.`,
+        message: `${patientName} has been referred to ${deptName}${reason ? ` — ${reason}` : ''}.`,
         refTable: 'referrals',
         refId: id,
         patientId: patient_id,
@@ -749,7 +749,10 @@ async function transitionReferral(id: string, tenantId: string, fromStatuses: st
   const sets: string[] = ['status = $1'];
   const params: any[] = [toStatus];
 
-  if (toStatus === 'accepted' && performedBy) {
+  if ((toStatus === 'accepted' || toStatus === 'in_consultation') && performedBy) {
+    // Record the consultant who owns the referral. Starting a consultation also
+    // claims it, so the single-active-consultation guard and its database index
+    // can key on a non-null owner.
     sets.push('accepted_by = $' + (params.length + 1));
     params.push(performedBy);
   }
@@ -818,7 +821,66 @@ router.put('/api/referrals/:id/start', async (req: Request, res: Response) => {
     const tenantId = getTenantId();
     const id = String(req.params.id);
     const performedBy: string | null = typeof req.body.performed_by === 'string' ? req.body.performed_by : null;
-    const out = await transitionReferral(id, tenantId, ['pending', 'accepted'], 'in_consultation', performedBy);
+    if (performedBy) {
+      // The actor must belong to the referred department (or be the named
+      // specialist / an admin), and must not be the doctor who referred the patient.
+      const info = await pool.query(
+        `SELECT r.to_department_id, r.referred_by, r.to_consultant_id,
+                su.department_id AS staff_dept, su.role AS staff_role
+           FROM referrals r CROSS JOIN staff_users su
+          WHERE r.id = $1 AND r.tenant_id = $2 AND su.id = $3`,
+        [id, tenantId, performedBy]
+      );
+      if (info.rows.length > 0) {
+        const x: any = info.rows[0];
+        const isPriv = x.staff_role === 'Admin' || x.staff_role === 'SuperAdmin';
+        const inDept = !!x.staff_dept && x.staff_dept === x.to_department_id;
+        const isNamed = !!x.to_consultant_id && x.to_consultant_id === performedBy;
+        if (!isPriv && !inDept && !isNamed) {
+          res.status(403).json({ error: true, message: 'You are not part of the department this patient was referred to.' });
+          return;
+        }
+        if (x.referred_by === performedBy) {
+          res.status(403).json({ error: true, message: 'You referred this patient and cannot consult them.' });
+          return;
+        }
+      }
+    }
+
+    // A specialist can only be in ONE consultation at a time. Key the rule on the
+    // consultant who owns the referral: the acting user when known, otherwise the
+    // named specialist / whoever already accepted it. The database enforces the
+    // same rule with the partial unique index uq_referral_single_active_consult,
+    // so two concurrent starts cannot both win.
+    const ownerRow = await pool.query(
+      `SELECT COALESCE(to_consultant_id, accepted_by) AS consultant_id
+         FROM referrals WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId]
+    );
+    const actingConsultant: string | null = performedBy || ownerRow.rows[0]?.consultant_id || null;
+    if (actingConsultant) {
+      const active = await pool.query(
+        `SELECT r.id, r.referral_number, p.full_name, p.hospital_number
+           FROM referrals r JOIN patients p ON p.id = r.patient_id
+          WHERE r.tenant_id = $1 AND COALESCE(r.to_consultant_id, r.accepted_by) = $2
+            AND r.status = 'in_consultation' AND r.id <> $3 LIMIT 1`,
+        [tenantId, actingConsultant, id]
+      );
+      if (active.rows.length > 0) {
+        res.status(409).json({ error: true, message: `You are already in consultation with ${active.rows[0].full_name}. Complete it before starting another.`, activeConsultation: active.rows[0] });
+        return;
+      }
+    }
+    let out;
+    try {
+      out = await transitionReferral(id, tenantId, ['pending', 'accepted'], 'in_consultation', performedBy);
+    } catch (txErr: any) {
+      if (txErr?.code === '23505') {
+        res.status(409).json({ error: true, message: 'You are already in consultation with another patient. Complete it before starting another.' });
+        return;
+      }
+      throw txErr;
+    }
     if (out.notFound) { res.status(404).json({ error: true, message: 'Referral not found' }); return; }
     if (out.invalidTransition) { res.status(400).json({ error: true, message: `Referral cannot be started from status '${out.current}'` }); return; }
     res.json(out.row);
@@ -929,7 +991,7 @@ async function resolveConsultantDepartment(staffId: string, tenantId: string): P
   if (!staffId) return null;
   const result = await pool.query(
     `SELECT department_id FROM staff_users
-     WHERE id = $1 AND tenant_id = $2 AND role IN ('Consultant','Doctor') AND status = 'active'`,
+     WHERE id = $1 AND tenant_id = $2 AND role IN ('Specialist','Doctor') AND status = 'active'`,
     [staffId, tenantId]
   );
   return result.rows[0]?.department_id || null;
@@ -942,7 +1004,7 @@ router.get('/api/consultants/referred-patients', async (req: Request, res: Respo
     const staffId = String(req.query.staff_id || '');
     const departmentId = await resolveConsultantDepartment(staffId, tenantId);
     if (!departmentId) {
-      res.status(403).json({ error: true, message: 'Consultant department not found or access denied' });
+      res.status(403).json({ error: true, message: 'Specialist department not found or access denied' });
       return;
     }
 
@@ -969,7 +1031,7 @@ router.get('/api/consultants/referred-patients', async (req: Request, res: Respo
     let idx = 3;
 
     // Each consultant sees only their OWN specific referrals plus genuinely unassigned
-    // department-level referrals â€” never a referral aimed at another consultant.
+    // department-level referrals — never a referral aimed at another consultant.
     query += ` AND (r.to_consultant_id IS NULL OR r.to_consultant_id = $${idx})`;
     params.push(staffId);
     idx++;
@@ -1001,8 +1063,11 @@ router.get('/api/consultants/referred-patients', async (req: Request, res: Respo
       idx++;
     }
 
-    query += ' ORDER BY r.id, CASE r.priority WHEN \'emergency\' THEN 0 WHEN \'urgent\' THEN 1 ELSE 2 END, r.created_at DESC';
-    const result = await pool.query(query, params);
+    // DISTINCT ON (r.id) requires the inner ORDER BY to start with r.id; the
+    // output is then ordered pending-first, then newest first.
+    const finalQuery = `SELECT * FROM (${query} ORDER BY r.id) sub
+      ORDER BY CASE WHEN sub.referral_status = 'pending' THEN 0 ELSE 1 END, sub.referred_at DESC`;
+    const result = await pool.query(finalQuery, params);
     res.json(result.rows);
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
@@ -1016,7 +1081,7 @@ router.get('/api/consultants/stats', async (req: Request, res: Response) => {
     const staffId = String(req.query.staff_id || '');
     const departmentId = await resolveConsultantDepartment(staffId, tenantId);
     if (!departmentId) {
-      res.status(403).json({ error: true, message: 'Consultant department not found or access denied' });
+      res.status(403).json({ error: true, message: 'Specialist department not found or access denied' });
       return;
     }
 
@@ -1078,12 +1143,16 @@ router.get('/api/consultants/encounters', async (req: Request, res: Response) =>
       `SELECT e.*, p.full_name as patient_name, p.hospital_number, p.sex, p.dob, p.phone,
               d.name as department_name, s.name as staff_name, s.role as staff_role,
               r.referral_number, r.priority as referral_priority, r.status as referral_status,
-              r.reason as referral_reason, r.outcome_note, r.created_at as referral_created_at
+              r.reason as referral_reason, r.outcome_note, r.created_at as referral_created_at,
+              r.accepted_by, r.accepted_at, ab.name as accepted_by_name,
+              r.completed_by, r.completed_at, cb.name as completed_by_name
        FROM encounters e
        JOIN patients p ON p.id = e.patient_id
        LEFT JOIN departments d ON d.id = e.department_id
        LEFT JOIN staff_users s ON s.id = e.staff_id
        LEFT JOIN referrals r ON r.id = e.referral_id
+       LEFT JOIN staff_users ab ON ab.id = r.accepted_by
+       LEFT JOIN staff_users cb ON cb.id = r.completed_by
        WHERE e.tenant_id = $1 AND e.staff_id = $2 AND e.is_consultation = true
        ORDER BY e.created_at DESC`,
       [tenantId, staffId]

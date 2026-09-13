@@ -18,7 +18,7 @@ WHERE email = 'consultant@sretan.com'
 -- Ensure a consultant user exists for every tenant (password: consultant).
 INSERT INTO staff_users (tenant_id, username, email, name, role, password, status, department_id)
 SELECT t.id, 'consultant_' || LEFT(REPLACE(t.id::text, '-', ''), 6), 'consultant@sretan.com',
-       'Dr. Consultant', 'Consultant',
+       'Dr. Specialist', 'Specialist',
        '$2b$10$W3CAqiV8mzX0mAVl49kSo.8SKfgef/oKxjgm.hs3v/pTjOJGgyyWy',
        'active', d.id
 FROM tenants t

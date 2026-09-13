@@ -4,6 +4,7 @@ import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { generateNumber } from '../utils/numbering';
 import { clockGuard } from '../middleware/clockGuard';
+import { parsePagination } from '../utils/pagination';
 
 const router = Router();
 
@@ -74,7 +75,7 @@ router.get('/api/patients', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const { status, search, doctor_id } = req.query;
-    let query = `SELECT DISTINCT p.*,
+    let query = `SELECT p.*,
                         (SELECT pr.name FROM patient_insurance_policies pp JOIN insurance_providers pr ON pp.provider_id = pr.id
                          WHERE pp.patient_id = p.id AND pp.is_active = true AND pp.coverage_type = 'primary'
                            AND (pp.end_date IS NULL OR pp.end_date >= CURRENT_DATE) LIMIT 1) as primary_provider,
@@ -83,9 +84,9 @@ router.get('/api/patients', async (req: Request, res: Response) => {
                         (SELECT s.name FROM vitals v JOIN encounters ev ON ev.id = v.encounter_id JOIN staff_users s ON s.id = v.recorded_by
                          WHERE ev.patient_id = p.id AND ev.tenant_id = $1 ORDER BY v.created_at DESC LIMIT 1) as last_vitals_by,
                         (SELECT e.created_at FROM encounters e JOIN staff_users es ON es.id = e.staff_id
-                         WHERE e.patient_id = p.id AND e.tenant_id = $1 AND es.role IN ('Doctor','Consultant') ORDER BY e.created_at DESC LIMIT 1) as last_consultation_at,
+                         WHERE e.patient_id = p.id AND e.tenant_id = $1 AND es.role IN ('Doctor','Specialist') ORDER BY e.created_at DESC LIMIT 1) as last_consultation_at,
                         (SELECT s.name FROM encounters e JOIN staff_users s ON s.id = e.staff_id
-                         WHERE e.patient_id = p.id AND e.tenant_id = $1 AND s.role IN ('Doctor','Consultant') ORDER BY e.created_at DESC LIMIT 1) as last_consultation_by,
+                         WHERE e.patient_id = p.id AND e.tenant_id = $1 AND s.role IN ('Doctor','Specialist') ORDER BY e.created_at DESC LIMIT 1) as last_consultation_by,
                         (SELECT s.name FROM staff_users s WHERE s.id = p.assigned_doctor_id) as assigned_doctor_name,
                         (SELECT d.name FROM departments d WHERE d.id = p.department_id) as department_name,
                         (SELECT d.name FROM departments d WHERE d.id = p.last_consulted_department_id) as last_consulted_department_name,
@@ -111,20 +112,19 @@ router.get('/api/patients', async (req: Request, res: Response) => {
     }
 
     if (search) {
-      query += ` AND (p.full_name ILIKE $${paramIndex} OR p.hospital_number ILIKE $${paramIndex})`;
+      // Single predicate (previously appended twice, doubling the ILIKE work).
+      query += ` AND (p.full_name ILIKE $${paramIndex} OR p.hospital_number::text ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
       paramIndex++;
     }
 
     query += ' AND p.folder_activated IS DISTINCT FROM false';
 
-    if (search) {
-      query += ` AND (p.full_name ILIKE $${paramIndex} OR p.hospital_number::text ILIKE $${paramIndex})`;
-      params.push(`%${search}%`);
-      paramIndex++;
-    }
-
     query += ' ORDER BY p.created_at DESC';
+
+    const { limit, offset } = parsePagination(req.query);
+    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(limit, offset);
 
     const result = await pool.query(query, params);
     res.json(result.rows);
@@ -163,10 +163,10 @@ router.get('/api/patients/active', async (req: Request, res: Response) => {
         (SELECT s.name FROM vitals v JOIN encounters ev ON ev.id = v.encounter_id JOIN staff_users s ON s.id = v.recorded_by
          WHERE ev.patient_id = p.id AND ev.tenant_id = $1 ORDER BY v.created_at DESC LIMIT 1) as last_vitals_by,
         (SELECT e.created_at FROM encounters e JOIN staff_users es ON es.id = e.staff_id
-         WHERE e.patient_id = p.id AND e.tenant_id = $1 AND es.role IN ('Doctor','Consultant')
+         WHERE e.patient_id = p.id AND e.tenant_id = $1 AND es.role IN ('Doctor','Specialist')
          ORDER BY e.created_at DESC LIMIT 1) as last_consultation_at,
         (SELECT s.name FROM encounters e JOIN staff_users s ON s.id = e.staff_id
-         WHERE e.patient_id = p.id AND e.tenant_id = $1 AND s.role IN ('Doctor','Consultant')
+         WHERE e.patient_id = p.id AND e.tenant_id = $1 AND s.role IN ('Doctor','Specialist')
          ORDER BY e.created_at DESC LIMIT 1) as last_consultation_by,
         a.id as admission_id, a.ward_id, a.bed_number, w.name as ward_name, a.admitted_at, a.admitted_by,
         ab.name as admitted_by_name,
@@ -216,7 +216,7 @@ router.get('/api/patients/active', async (req: Request, res: Response) => {
     } else if (segment === 'consulted') {
       query += ` AND EXISTS (
         SELECT 1 FROM encounters e JOIN staff_users es ON es.id = e.staff_id
-        WHERE e.patient_id = p.id AND es.role IN ('Doctor','Consultant') AND e.created_at >= CURRENT_DATE
+        WHERE e.patient_id = p.id AND es.role IN ('Doctor','Specialist') AND e.created_at >= CURRENT_DATE
       )`;
     } else if (segment === 'with_doctor') {
       query += ` AND p.status = 'with_doctor'`;
@@ -227,6 +227,9 @@ router.get('/api/patients/active', async (req: Request, res: Response) => {
     }
 
     query += ` ORDER BY last_activity_at DESC NULLS LAST, p.created_at DESC`;
+    const { limit, offset } = parsePagination(req.query);
+    query += ` LIMIT $${idx} OFFSET $${idx + 1}`;
+    params.push(limit, offset);
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err: any) {
@@ -260,7 +263,7 @@ router.get('/api/patients/active/counts', async (_req: Request, res: Response) =
         (SELECT COUNT(*)::int FROM patients p
          WHERE p.tenant_id = $1 AND p.folder_activated IS DISTINCT FROM false
            AND EXISTS (SELECT 1 FROM encounters e JOIN staff_users es ON es.id = e.staff_id
-                       WHERE e.patient_id = p.id AND es.role IN ('Doctor','Consultant') AND e.created_at >= CURRENT_DATE)) as consulted
+                       WHERE e.patient_id = p.id AND es.role IN ('Doctor','Specialist') AND e.created_at >= CURRENT_DATE)) as consulted
       `,
       [tenantId]
     );
@@ -360,7 +363,8 @@ router.post('/api/patients', async (req: Request, res: Response) => {
   try {
     await clockGuard(pool, 'patients');
 
-    const { full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type, tribe, religion, edited_by, policy_provider_id, policy_number, coverage_type, co_pay_percentage } = req.body;
+    const { full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type, tribe, religion, edited_by, policy_provider_id, policy_number, coverage_type, co_pay_percentage,
+      spouse_name, spouse_sex, spouse_phone, spouse_occupation, spouse_address } = req.body;
     const tenantId = getTenantId();
 
     if (!full_name || !dob || !sex) {
@@ -373,10 +377,11 @@ router.post('/api/patients', async (req: Request, res: Response) => {
     const prefix = config.hospital_number_prefix || 'SRT';
     const hospitalNumber = await generateNumber(tenantId, 'hospital', { prefix });
     const result = await pool.query(
-      `INSERT INTO patients (id, tenant_id, hospital_number, full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type, tribe, religion)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+      `INSERT INTO patients (id, tenant_id, hospital_number, full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type, tribe, religion, spouse_name, spouse_sex, spouse_phone, spouse_occupation, spouse_address)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
        RETURNING *`,
-      [id, tenantId, hospitalNumber, full_name, dob, sex, phone || null, next_of_kin || null, next_of_kin_phone || null, insurance || null, blood_type || null, status || 'checked_in', email || null, address || null, emergency_contact_name || null, emergency_contact_phone || null, occupation || null, marital_status || null, nationality || null, state_of_origin || null, lga || null, next_of_kin_address || null, relationship || null, insurance_type || null, insurance_sub_type || null, tribe || null, religion || null]
+      [id, tenantId, hospitalNumber, full_name, dob, sex, phone || null, next_of_kin || null, next_of_kin_phone || null, insurance || null, blood_type || null, status || 'checked_in', email || null, address || null, emergency_contact_name || null, emergency_contact_phone || null, occupation || null, marital_status || null, nationality || null, state_of_origin || null, lga || null, next_of_kin_address || null, relationship || null, insurance_type || null, insurance_sub_type || null, tribe || null, religion || null,
+       spouse_name || null, spouse_sex || null, spouse_phone || null, spouse_occupation || null, spouse_address || null]
     );
 
     // Create insurance policy if provider selected during registration
@@ -421,7 +426,8 @@ router.put('/api/patients/:id', async (req: Request, res: Response) => {
 
     const tenantId = getTenantId();
     const { id } = req.params;
-    const { full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type, tribe, religion, edited_by } = req.body;
+    const { full_name, dob, sex, phone, next_of_kin, next_of_kin_phone, insurance, blood_type, status, email, address, emergency_contact_name, emergency_contact_phone, occupation, marital_status, nationality, state_of_origin, lga, next_of_kin_address, relationship, insurance_type, insurance_sub_type, tribe, religion, edited_by,
+      spouse_name, spouse_sex, spouse_phone, spouse_occupation, spouse_address } = req.body;
 
     const existing = await pool.query(
       'SELECT * FROM patients WHERE id = $1 AND tenant_id = $2',
@@ -447,10 +453,14 @@ router.put('/api/patients/:id', async (req: Request, res: Response) => {
         lga = COALESCE($18, lga), next_of_kin_address = COALESCE($19, next_of_kin_address),
         relationship = COALESCE($20, relationship), insurance_type = COALESCE($21, insurance_type),
         insurance_sub_type = COALESCE($22, insurance_sub_type),
-        tribe = COALESCE($23, tribe), religion = COALESCE($24, religion)
-       WHERE id = $25 AND tenant_id = $26
+        tribe = COALESCE($23, tribe), religion = COALESCE($24, religion),
+        spouse_name = COALESCE($25, spouse_name), spouse_sex = COALESCE($26, spouse_sex),
+        spouse_phone = COALESCE($27, spouse_phone), spouse_occupation = COALESCE($28, spouse_occupation),
+        spouse_address = COALESCE($29, spouse_address)
+       WHERE id = $30 AND tenant_id = $31
        RETURNING *`,
-      [full_name || null, dob || null, sex || null, phone || null, next_of_kin || null, next_of_kin_phone || null, insurance || null, blood_type || null, status || null, email || null, address || null, emergency_contact_name || null, emergency_contact_phone || null, occupation || null, marital_status || null, nationality || null, state_of_origin || null, lga || null, next_of_kin_address || null, relationship || null, insurance_type || null, insurance_sub_type || null, tribe || null, religion || null, id, tenantId]
+      [full_name || null, dob || null, sex || null, phone || null, next_of_kin || null, next_of_kin_phone || null, insurance || null, blood_type || null, status || null, email || null, address || null, emergency_contact_name || null, emergency_contact_phone || null, occupation || null, marital_status || null, nationality || null, state_of_origin || null, lga || null, next_of_kin_address || null, relationship || null, insurance_type || null, insurance_sub_type || null, tribe || null, religion || null,
+       spouse_name || null, spouse_sex || null, spouse_phone || null, spouse_occupation || null, spouse_address || null, id, tenantId]
     );
 
     var oldData: any = existing.rows[0];

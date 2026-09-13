@@ -2,6 +2,72 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Heart, Search, Loader2, ArrowLeft, Plus, X, CheckCircle, Baby, Calendar, Activity, AlertTriangle } from 'lucide-react'
 
+const POSTNATAL_DAYS = 42
+
+const OUTCOME_LABELS: Record<string, string> = {
+  live_birth: 'Live Birth',
+  stillbirth: 'Fresh Stillbirth',
+  still_birth: 'Stillbirth',
+  macerated_stillbirth: 'Macerated Stillbirth',
+  miscarriage: 'Miscarriage',
+}
+function outcomeLabel(outcome?: string): string {
+  if (!outcome) return '—'
+  return OUTCOME_LABELS[outcome] || outcome.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+const DELIVERY_TYPE_LABELS: Record<string, string> = {
+  SVD: 'SVD (Spontaneous Vertex Delivery)',
+  vacuum: 'Vacuum Extraction',
+  forceps: 'Forceps Delivery',
+  c_section: 'Caesarean Section',
+  breech: 'Breech Delivery',
+}
+function deliveryTypeLabel(type?: string): string | null {
+  if (!type) return null
+  return DELIVERY_TYPE_LABELS[type] || type.replace(/_/g, ' ')
+}
+
+function postnatalProgress(dateStr?: string) {
+  if (!dateStr) return null
+  const start = new Date(dateStr); start.setHours(0, 0, 0, 0)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const elapsed = Math.max(0, Math.round((today.getTime() - start.getTime()) / 86400000))
+  const dayNumber = Math.min(POSTNATAL_DAYS, elapsed + 1)
+  const daysLeft = Math.max(0, POSTNATAL_DAYS - elapsed)
+  const weeksLeft = Math.floor(daysLeft / 7)
+  const remDays = daysLeft % 7
+  const parts: string[] = []
+  if (weeksLeft > 0) parts.push(`${weeksLeft} week${weeksLeft > 1 ? 's' : ''}`)
+  if (remDays > 0) parts.push(`${remDays} day${remDays > 1 ? 's' : ''}`)
+  return {
+    dayNumber,
+    daysLeft,
+    complete: daysLeft === 0,
+    summary: daysLeft === 0
+      ? '42-day postnatal care complete'
+      : `Day ${dayNumber} of ${POSTNATAL_DAYS} — ${parts.join(', ')} left to complete postnatal care`,
+  }
+}
+
+function PostnatalCountdownBadge({ deliveryDate }: { deliveryDate?: string }) {
+  const prog = postnatalProgress(deliveryDate)
+  if (!prog) return null
+  const tone = prog.complete
+    ? 'bg-emerald-100 text-emerald-700'
+    : prog.daysLeft <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-teal-100 text-teal-700'
+  return (
+    <span className="relative group inline-flex">
+      <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${tone}`}>
+        {prog.complete ? 'Complete' : `Day ${prog.dayNumber}/${POSTNATAL_DAYS}`}
+      </span>
+      <span className="pointer-events-none absolute left-0 top-full mt-1 z-30 hidden group-hover:block whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-[10px] font-medium text-white shadow-lg">
+        {prog.summary}
+      </span>
+    </span>
+  )
+}
+
 export default function MaternityPostnatalWard() {
   const navigate = useNavigate()
   const [patients, setPatients] = useState<any[]>([])
@@ -19,6 +85,7 @@ export default function MaternityPostnatalWard() {
   const [showVisitsModal, setShowVisitsModal] = useState(false)
   const [visitForm, setVisitForm] = useState<any>({})
   const [submitting, setSubmitting] = useState(false)
+  const [tab, setTab] = useState<'ward' | 'history'>('ward')
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setStaffId(JSON.parse(u).id || '') } catch {}
@@ -28,7 +95,7 @@ export default function MaternityPostnatalWard() {
     setLoading(true)
     try {
       const params = new URLSearchParams()
-      params.append('status', 'delivered')
+      params.append('status', tab === 'history' ? 'postnatal_closed' : 'delivered')
       params.append('page', String(page))
       params.append('limit', String(limit))
       if (search) params.append('search', search)
@@ -61,9 +128,13 @@ export default function MaternityPostnatalWard() {
     } catch {} finally { setLoading(false) }
   }
 
-  useEffect(() => { loadPatients() }, [page])
+  useEffect(() => { loadPatients() }, [page, tab])
 
   function handleSearch() { setPage(1); loadPatients() }
+  function switchTab(next: 'ward' | 'history') {
+    if (next === tab) return
+    setTab(next); setPage(1); setSearch('')
+  }
 
   const filtered = patients
 
@@ -127,45 +198,62 @@ export default function MaternityPostnatalWard() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-teal-100 flex items-center justify-center"><Heart size={18} className="text-teal-600" /></div>
-            <div>
-              <p className="text-2xl font-bold text-slate-800">{totalPatients}</p>
-              <p className="text-xs text-slate-400">Delivered Patients</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center"><Activity size={18} className="text-blue-600" /></div>
-            <div>
-              <p className="text-2xl font-bold text-slate-800">{totalVisits}</p>
-              <p className="text-xs text-slate-400">Total Visits</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center"><Calendar size={18} className="text-amber-600" /></div>
-            <div>
-              <p className="text-2xl font-bold text-slate-800">{recentDeliveries}</p>
-              <p className="text-xs text-slate-400">Delivered ≤7d ago</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-purple-100 flex items-center justify-center"><Baby size={18} className="text-purple-600" /></div>
-            <div>
-              <p className="text-2xl font-bold text-slate-800">{patients.filter((p) => p.visit_count === 0).length}</p>
-              <p className="text-xs text-slate-400">No Visit Yet</p>
-            </div>
-          </div>
-        </div>
+      {/* Tabs */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+        <button onClick={() => switchTab('ward')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab === 'ward' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+          Postnatal Ward
+        </button>
+        <button onClick={() => switchTab('history')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${tab === 'history' ? 'bg-white text-teal-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+          Postnatal History
+        </button>
       </div>
+
+      {tab === 'ward' ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-teal-100 flex items-center justify-center"><Heart size={18} className="text-teal-600" /></div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{totalPatients}</p>
+                <p className="text-xs text-slate-400">In Postnatal Care</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center"><Activity size={18} className="text-blue-600" /></div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{totalVisits}</p>
+                <p className="text-xs text-slate-400">Total Visits</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center"><Calendar size={18} className="text-amber-600" /></div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{recentDeliveries}</p>
+                <p className="text-xs text-slate-400">Delivered ≤7d ago</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-purple-100 flex items-center justify-center"><Baby size={18} className="text-purple-600" /></div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{patients.filter((p) => p.visit_count === 0).length}</p>
+                <p className="text-xs text-slate-400">No Visit Yet</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500">
+          Patients move here automatically 42 days after delivery. All records remain available for review and search.
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative max-w-sm">
@@ -180,7 +268,7 @@ export default function MaternityPostnatalWard() {
       ) : filtered.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center">
           <Heart size={48} className="text-slate-300 mx-auto mb-3" />
-          <p className="text-sm text-slate-400">No patients in postnatal care</p>
+          <p className="text-sm text-slate-400">{tab === 'history' ? 'No postnatal history found' : 'No patients in postnatal care'}</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -192,13 +280,16 @@ export default function MaternityPostnatalWard() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="text-sm font-semibold text-slate-800">{p.full_name}</p>
-                      {p.visit_count === 0 && <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">No visit</span>}
+                      {tab === 'history'
+                        ? <span className="px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[10px] font-bold">Completed</span>
+                        : <PostnatalCountdownBadge deliveryDate={p.delivery_date} />}
+                      {tab === 'ward' && p.visit_count === 0 && <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">No visit</span>}
                     </div>
                     <p className="text-xs text-slate-400">{p.hospital_number}</p>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 mt-1 text-xs text-slate-500">
                       {p.delivery_date && <span>Delivered: {p.delivery_date?.slice(0, 10)}</span>}
-                      {p.delivery_type && <span>Type: {p.delivery_type}</span>}
-                      {p.outcome && <span>Outcome: {p.outcome}</span>}
+                      {deliveryTypeLabel(p.delivery_type) && <span>Type: {deliveryTypeLabel(p.delivery_type)}</span>}
+                      {p.outcome && <span>Outcome: {outcomeLabel(p.outcome)}</span>}
                       <span>Visits: {p.visit_count}</span>
                     </div>
                   </div>
@@ -222,8 +313,10 @@ export default function MaternityPostnatalWard() {
                     }
                   })()}}
                     className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 transition-colors">Visits</button>
-                  <button onClick={() => openVisitForm(p)}
-                    className="px-3 py-1.5 rounded-lg bg-teal-500 text-white text-xs font-medium hover:bg-teal-600 transition-colors flex items-center gap-1"><Plus size={12} /> Record</button>
+                  {tab === 'ward' && (
+                    <button onClick={() => openVisitForm(p)}
+                      className="px-3 py-1.5 rounded-lg bg-teal-500 text-white text-xs font-medium hover:bg-teal-600 transition-colors flex items-center gap-1"><Plus size={12} /> Record</button>
+                  )}
                 </div>
               </div>
             </div>

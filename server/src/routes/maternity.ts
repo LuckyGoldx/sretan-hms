@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { generateNumber } from '../utils/numbering';
+import { closeOverduePostnatal } from '../utils/postnatalTransitions';
 
 const router = Router();
 
@@ -15,7 +16,14 @@ function getTenantId(): string {
 router.get('/api/maternity-patients', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { status, search, patient_id, edd_before, edd_after, risk_level, available_female, page, limit, smart_filter } = req.query;
+    const { status, exclude_status, search, patient_id, edd_before, edd_after, risk_level, available_female, page, limit, smart_filter } = req.query;
+
+    // Postnatal patients transition to history 42 days after delivery. Sweep
+    // before listing so the ward and the history tab are always current.
+    if (status === 'delivered' || status === 'postnatal_closed') {
+      try { await closeOverduePostnatal(tenantId); } catch {}
+    }
+
     let query = `
       SELECT mp.*, p.full_name, p.hospital_number, p.dob, p.phone, p.sex,
         (SELECT pr.name FROM patient_insurance_policies pp JOIN insurance_providers pr ON pp.provider_id = pr.id
@@ -46,6 +54,10 @@ router.get('/api/maternity-patients', async (req: Request, res: Response) => {
           AND p.sex = 'Female'
           AND p.folder_activated IS DISTINCT FROM false
           AND NOT EXISTS (SELECT 1 FROM maternity_patients mp2 WHERE mp2.patient_id = p.id AND mp2.status IN ('active', 'in_labour'))
+          -- Only patients who have paid the one-time Antenatal Care (Booking)
+          -- fee at Paypoint (or via insurance) can be booked.
+          AND EXISTS (SELECT 1 FROM maternity_entitlements me
+                      WHERE me.patient_id = p.id AND me.tenant_id = p.tenant_id AND me.status = 'paid')
       `;
       const afParams: any[] = [tenantId];
       let afIdx = 2;
@@ -56,7 +68,13 @@ router.get('/api/maternity-patients', async (req: Request, res: Response) => {
       }
       afQuery += ` ORDER BY p.full_name`;
       if (page) {
-        const countRes = await pool.query(afQuery.replace(/SELECT .*? FROM/, 'SELECT COUNT(*) as total FROM'), afParams);
+        // Anchor on the outer "FROM patients p" — replacing the first
+        // "SELECT ... FROM" naively would hit an inline subquery instead. The
+        // trailing ORDER BY must be dropped from an aggregate count query.
+        const countSql = afQuery
+          .replace(/^[\s\S]*?FROM patients p\b/, 'SELECT COUNT(*) as total FROM patients p')
+          .replace(/\s+ORDER BY p\.full_name\s*$/i, '');
+        const countRes = await pool.query(countSql, afParams);
         const afTotal = parseInt(countRes.rows[0]?.total) || 0;
         const afPageNum = parseInt(page as string) || 1;
         const afLimitNum = parseInt(limit as string) || 25;
@@ -79,6 +97,15 @@ router.get('/api/maternity-patients', async (req: Request, res: Response) => {
     if (status) {
       query += ` AND mp.status = $${idx++}`;
       params.push(status);
+    }
+    if (exclude_status) {
+      // Comma-separated list of statuses to leave out (e.g. closed postnatal
+      // pregnancies on the main patient list).
+      const excluded = String(exclude_status).split(',').map((s) => s.trim()).filter(Boolean);
+      if (excluded.length > 0) {
+        query += ` AND mp.status <> ALL($${idx++}::text[])`;
+        params.push(excluded);
+      }
     }
     if (smart_filter === 'due_this_week') {
       query += ` AND mp.status = 'active' AND mp.edd BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days'`;
@@ -107,7 +134,12 @@ router.get('/api/maternity-patients', async (req: Request, res: Response) => {
 
     // Pagination (only when page param is provided)
     if (page) {
-      const countQuery = query.replace(/SELECT .*? FROM/, 'SELECT COUNT(*) as total FROM');
+      // Anchor on the outer "FROM maternity_patients mp" — a naive first-match
+      // replace would hit an inline subquery instead. The trailing ORDER BY must
+      // be dropped from an aggregate count query.
+      const countQuery = query
+        .replace(/^[\s\S]*?FROM maternity_patients mp\b/, 'SELECT COUNT(*) as total FROM maternity_patients mp')
+        .replace(/\s+ORDER BY mp\.created_at DESC\s*$/i, '');
       const countResult = await pool.query(countQuery, params);
       const total = parseInt(countResult.rows[0]?.total) || 0;
       const pageNum = parseInt(page as string) || 1;
@@ -254,13 +286,17 @@ router.post('/api/maternity-patients', async (req: Request, res: Response) => {
       return;
     }
 
-    const patCheck = await pool.query('SELECT id, sex FROM patients WHERE id = $1', [patient_id]);
+    const patCheck = await pool.query('SELECT id, sex, folder_activated FROM patients WHERE id = $1', [patient_id]);
     if (patCheck.rows.length === 0) {
       res.status(404).json({ error: true, message: 'Patient not found' });
       return;
     }
     if (patCheck.rows[0].sex !== 'Female') {
       res.status(400).json({ error: true, message: 'Only female patients can be booked for maternity' });
+      return;
+    }
+    if (patCheck.rows[0].folder_activated === false) {
+      res.status(409).json({ error: true, message: 'Patient folder has not been activated (registration fee unpaid). Activate the folder before booking a pregnancy.' });
       return;
     }
 
@@ -282,7 +318,7 @@ router.post('/api/maternity-patients', async (req: Request, res: Response) => {
 
     // Auto-calculate para from previous deliveries
     const prevDel = await pool.query(
-      "SELECT COALESCE(SUM(para), 0) as total_para FROM maternity_patients WHERE patient_id = $1 AND status = 'delivered'", [patient_id]
+      "SELECT COALESCE(SUM(para), 0) as total_para FROM maternity_patients WHERE patient_id = $1 AND status IN ('delivered', 'postnatal_closed')", [patient_id]
     );
     const totalPrevPara = parseInt(prevDel.rows[0]?.total_para) || 0;
     const enteredPara = parseInt(para) || 0;
@@ -290,18 +326,57 @@ router.post('/api/maternity-patients', async (req: Request, res: Response) => {
 
     const id = uuidv4();
     const bookingCode = await generateNumber(tenantId, 'anc', { prefix: 'ANC' });
-    const result = await pool.query(
-      `INSERT INTO maternity_patients (id, tenant_id, patient_id, lmp, edd, booking_gestational_age,
-        gravida, para, living_children, miscarriages, baby_alive,
-        blood_group, genotype, rh_factor, hiv_status, hbv_status,
-        risk_level, risk_factors, booked_by, booking_code)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING *`,
-      [id, tenantId, patient_id, lmp || null, edd || null, booking_gestational_age || null,
-       autoGravida, autoPara + (parseInt(para) || 0), living_children || 0, miscarriages || 0, baby_alive || 0,
-       blood_group || null, genotype || null, rh_factor || null, hiv_status || null, hbv_status || null,
-       risk_level || 'low', risk_factors || null, booked_by || null, bookingCode]
-    );
-    res.status(201).json(result.rows[0]);
+
+    // Consume the paid entitlement and create the pregnancy atomically. The
+    // entitlement row is locked FOR UPDATE so two concurrent bookings cannot
+    // both consume the same payment.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const ent = await client.query(
+        `SELECT id FROM maternity_entitlements
+          WHERE tenant_id = $1 AND patient_id = $2 AND status = 'paid'
+          ORDER BY created_at DESC LIMIT 1
+          FOR UPDATE`,
+        [tenantId, patient_id]
+      );
+      if (ent.rows.length === 0) {
+        await client.query('ROLLBACK');
+        res.status(409).json({
+          error: true,
+          message: 'No paid antenatal booking found. Collect the Antenatal Care (Booking) fee at Paypoint before booking this pregnancy.',
+        });
+        return;
+      }
+
+      const result = await client.query(
+        `INSERT INTO maternity_patients (id, tenant_id, patient_id, lmp, edd, booking_gestational_age,
+          gravida, para, living_children, miscarriages, baby_alive,
+          blood_group, genotype, rh_factor, hiv_status, hbv_status,
+          risk_level, risk_factors, booked_by, booking_code)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING *`,
+        [id, tenantId, patient_id, lmp || null, edd || null, booking_gestational_age || null,
+         autoGravida, autoPara, living_children || 0, miscarriages || 0, baby_alive || 0,
+         blood_group || null, genotype || null, rh_factor || null, hiv_status || null, hbv_status || null,
+         risk_level || 'low', risk_factors || null, booked_by || null, bookingCode]
+      );
+
+      await client.query(
+        `UPDATE maternity_entitlements
+            SET status = 'consumed', maternity_patient_id = $1, consumed_at = NOW()
+          WHERE id = $2`,
+        [id, ent.rows[0].id]
+      );
+
+      await client.query('COMMIT');
+      res.status(201).json(result.rows[0]);
+    } catch (txErr: any) {
+      try { await client.query('ROLLBACK'); } catch {}
+      throw txErr;
+    } finally {
+      client.release();
+    }
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }
@@ -684,12 +759,28 @@ router.post('/api/maternity-admit-labour', async (req: Request, res: Response) =
       return;
     }
 
+    // A patient can only be admitted once at a time; the ward must be changed
+    // by transfer, never by a second admission.
+    const activeAdm = await pool.query(
+      "SELECT id FROM admissions WHERE patient_id = $1 AND status = 'active' AND tenant_id = $2",
+      [patientId, tenantId]
+    );
+    if (activeAdm.rows.length > 0) {
+      res.status(409).json({ error: true, message: 'Patient already has an active admission. Discharge or transfer the current admission first.' });
+      return;
+    }
+
     // Create admission record
     const admissionId = uuidv4();
     await pool.query(
       `INSERT INTO admissions (id, tenant_id, patient_id, ward_id, notes, admitted_by, status)
        VALUES ($1, $2, $3, $4, $5, $6, 'active')`,
       [admissionId, tenantId, patientId, maternityWardId, notes || null, admitted_by || null]
+    );
+    await pool.query(
+      `INSERT INTO admission_ward_stays (tenant_id, admission_id, ward_id, started_at)
+       VALUES ($1, $2, $3, NOW())`,
+      [tenantId, admissionId, maternityWardId]
     );
 
     // Create delivery record

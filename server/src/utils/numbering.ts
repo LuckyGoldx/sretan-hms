@@ -16,6 +16,7 @@ const NUMBER_TYPES: Record<string, NumberTypeDef> = {
   referral: { table: 'referrals', column: 'referral_number', defaultPattern: 'REF-{year}-{seq:5}', defaultPrefix: 'REF' },
   case: { table: 'insurance_cases', column: 'case_number', defaultPattern: '{provider}-{year}-{seq:5}', defaultPrefix: 'CS' },
   auth: { table: 'insurance_auth_requests', column: 'request_number', defaultPattern: 'AUTH-{year}-{seq:5}', defaultPrefix: 'AUTH' },
+  expense: { table: 'expenses', column: 'reference', defaultPattern: 'EXP-{yy}{month}{day}-{seq:4}', defaultPrefix: 'EXP' },
 };
 
 export interface RenderContext {

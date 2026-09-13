@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
-import ConsultantTag from './ConsultantTag'
+import SpecialistTag from './SpecialistTag'
 import CollapsibleReason from './CollapsibleReason'
 import {
   Stethoscope, Loader2, Eye, Clock, Zap, AlertTriangle, ChevronLeft, ChevronRight,
@@ -41,7 +41,7 @@ function PriorityBadge({ priority }: { priority?: string | null }) {
   return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold"><Clock className="w-3 h-3" /> ROUTINE</span>
 }
 
-function ReferralStatusBadge({ status }: { status?: string | null }) {
+function ReferralStatusBadge({ status, doctorName, startedAt }: { status?: string | null; doctorName?: string | null; startedAt?: string | null }) {
   if (!status) return null
   const map: Record<string, string> = {
     pending: 'bg-amber-100 text-amber-700',
@@ -51,9 +51,19 @@ function ReferralStatusBadge({ status }: { status?: string | null }) {
     rejected: 'bg-rose-100 text-rose-700',
     cancelled: 'bg-slate-100 text-slate-500',
   }
+  const tip = status === 'in_consultation'
+    ? [doctorName ? `In consultation with ${doctorName}` : null, startedAt ? `Started ${new Date(startedAt).toLocaleString()}` : null].filter(Boolean).join(' · ')
+    : ''
   return (
-    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${map[status] || 'bg-slate-100 text-slate-600'}`}>
-      {status.replace('_', ' ')}
+    <span className="group relative inline-flex">
+      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${map[status] || 'bg-slate-100 text-slate-600'}`}>
+        {status.replace('_', ' ')}
+      </span>
+      {tip && (
+        <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:block whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-[10px] font-normal normal-case text-white shadow-lg">
+          {tip}
+        </span>
+      )}
     </span>
   )
 }
@@ -152,7 +162,7 @@ export default function ConsultantConsultations() {
           <div className="py-16 text-center">
             <Stethoscope className="w-10 h-10 mx-auto mb-3 text-slate-300" />
             <p className="text-sm font-medium text-slate-600">No consultations yet</p>
-            <p className="text-xs text-slate-400 mt-1">Consultant encounters will be recorded here.</p>
+            <p className="text-xs text-slate-400 mt-1">Specialist encounters will be recorded here.</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -185,7 +195,7 @@ export default function ConsultantConsultations() {
                             <p className="text-xs font-mono text-slate-600">{r.referral_number}</p>
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <PriorityBadge priority={r.referral_priority} />
-                              <ReferralStatusBadge status={r.referral_status} />
+                              <ReferralStatusBadge status={r.referral_status} doctorName={(r as any).accepted_by_name} startedAt={(r as any).accepted_at} />
                             </div>
                           </div>
                         ) : <span className="text-xs text-slate-400">—</span>}
@@ -268,9 +278,9 @@ export default function ConsultantConsultations() {
             <div className="p-6 overflow-y-auto flex-1 space-y-5">
               {/* Badges */}
               <div className="flex items-center gap-2 flex-wrap">
-                {d.department_name && <ConsultantTag departmentName={d.department_name} size="sm" />}
+                {d.department_name && <SpecialistTag departmentName={d.department_name} size="sm" />}
                 <PriorityBadge priority={d.referral_priority} />
-                <ReferralStatusBadge status={d.referral_status} />
+                <ReferralStatusBadge status={d.referral_status} doctorName={(d as any).accepted_by_name} startedAt={(d as any).accepted_at} />
                 {d.referral_number && <span className="text-xs font-mono text-slate-500">{d.referral_number}</span>}
               </div>
 
@@ -349,7 +359,7 @@ export default function ConsultantConsultations() {
               {/* Outcome */}
               {d.outcome_note && (
                 <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4">
-                  <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-1">Consultant Outcome</p>
+                  <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-1">Specialist Outcome</p>
                   <p className="text-sm text-slate-700">{d.outcome_note}</p>
                 </div>
               )}

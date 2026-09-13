@@ -408,17 +408,17 @@ export default function PaypointPending() {
 
       {showReceipt && receipt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowReceipt(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 text-center border-b"><div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3"><CheckCircle size={28} className="text-emerald-600" /></div>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 text-center border-b flex-shrink-0"><div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3"><CheckCircle size={28} className="text-emerald-600" /></div>
               <h2 className="text-lg font-semibold">Payment Successful</h2><p className="text-xs text-slate-400">#{receipt.receipt_number}</p></div>
-            <div className="p-6 space-y-2">
+            <div className="p-6 space-y-2 overflow-y-auto flex-1">
               {(receipt.items || []).map((item: any, i: number) => (
                 <div key={i} className="flex justify-between text-sm"><span className="text-slate-600 flex-1 truncate">{item.description}</span><span className="font-medium ml-4">₦{(item.total_price || 0).toLocaleString()}</span></div>
               ))}
               <div className="flex justify-between font-bold pt-3 border-t"><span>Total</span><span>₦{(receipt.total_amount || 0).toLocaleString()}</span></div>
               <div className="flex justify-between text-xs text-slate-400 pt-2"><span>{receipt.payment_method?.toUpperCase()}</span><span>{new Date(receipt.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
             </div>
-            <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3">
+            <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
               <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium"><Printer size={14} /> Print</button>
               <button onClick={() => setShowReceipt(false)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
             </div>

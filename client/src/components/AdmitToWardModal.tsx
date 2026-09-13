@@ -48,6 +48,12 @@ export default function AdmitToWardModal({ patientId, patientName, onClose, onAd
     try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {}
     return null
   })()
+  // Ward nightly prices are only shown to Admin/Paypoint; clinicians just pick a ward.
+  const currentRole: string = (() => {
+    try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role || '' } catch {}
+    return ''
+  })()
+  const canSeeWardPrice = currentRole === 'Admin' || currentRole === 'Paypoint'
 
   async function handleAdmit() {
     if (!selectedWard) return
@@ -131,9 +137,9 @@ export default function AdmitToWardModal({ patientId, patientName, onClose, onAd
                 <select value={selectedWard} onChange={(e) => setSelectedWard(e.target.value)}
                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
                   <option value="">-- Choose ward --</option>
-                  {wards.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  {wards.map((w) => <option key={w.id} value={w.id}>{w.name}{canSeeWardPrice && Number(w.bed_rate) > 0 ? ` — ${formatNaira(Number(w.bed_rate))}/night` : ''}</option>)}
                 </select>
-                {selectedWard && (
+                {selectedWard && canSeeWardPrice && (
                   selectedWardRate > 0 ? (
                     <p className="text-[11px] text-indigo-600 mt-1.5 font-medium">Bed daily rate: {formatNaira(selectedWardRate)}</p>
                   ) : (

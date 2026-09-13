@@ -217,11 +217,13 @@ export default function MaternityDashboard() {
                 <Users size={18} className="text-slate-500" />
                 <span className="text-[10px] font-medium text-slate-600">Patients</span>
               </button>
-              <button onClick={() => navigate('/maternity/booking')}
-                className="flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl bg-slate-50 hover:bg-primary/5 hover:text-primary transition-colors">
-                <UserPlus size={18} className="text-slate-500" />
-                <span className="text-[10px] font-medium text-slate-600">Book</span>
-              </button>
+              {['Doctor', 'Nurse', 'Admin'].includes(role) && (
+                <button onClick={() => navigate('/maternity/booking')}
+                  className="flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl bg-slate-50 hover:bg-primary/5 hover:text-primary transition-colors">
+                  <UserPlus size={18} className="text-slate-500" />
+                  <span className="text-[10px] font-medium text-slate-600">Book</span>
+                </button>
+              )}
               <button onClick={() => navigate('/maternity/anc')}
                 className="flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl bg-slate-50 hover:bg-primary/5 hover:text-primary transition-colors">
                 <Calendar size={18} className="text-slate-500" />

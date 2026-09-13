@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import api from '../hooks/useAxios'
 
-type StaffRole = 'Doctor' | 'Nurse' | 'Lab Scientist' | 'Pharmacist' | 'Records' | 'Paypoint' | 'Admin' | 'Consultant'
+type StaffRole = 'Doctor' | 'Nurse' | 'Lab Scientist' | 'Pharmacist' | 'Records' | 'Paypoint' | 'Admin' | 'Specialist'
 
 interface StaffMember {
   id: string
@@ -53,7 +53,10 @@ interface RosterCell {
 
 type RosterData = Record<string, Record<string, RosterCell>>
 
-const ROLES: StaffRole[] = ['Doctor', 'Nurse', 'Lab Scientist', 'Pharmacist', 'Records', 'Paypoint', 'Admin', 'Consultant']
+const ROLES: StaffRole[] = ['Doctor', 'Nurse', 'Lab Scientist', 'Pharmacist', 'Records', 'Paypoint', 'Admin', 'Specialist']
+
+const ROLE_LABELS: Record<string, string> = {}
+const roleLabel = (r: string) => ROLE_LABELS[r] || r
 const SHIFTS = [
   { id: 'morning', label: 'Morning', hours: '6AM - 2PM', icon: Clock },
   { id: 'afternoon', label: 'Afternoon', hours: '2PM - 10PM', icon: Clock },
@@ -69,7 +72,7 @@ const ROLE_COLORS: Record<StaffRole, string> = {
   Records: 'bg-cyan-100 text-cyan-700 border-cyan-200',
   Paypoint: 'bg-amber-100 text-amber-700 border-amber-200',
   Admin: 'bg-slate-100 text-slate-700 border-slate-200',
-  Consultant: 'bg-indigo-100 text-indigo-700 border-indigo-200',
+  Specialist: 'bg-indigo-100 text-indigo-700 border-indigo-200',
 }
 
 const ROLE_ICONS: Record<StaffRole, React.FC<{ className?: string }>> = {
@@ -80,7 +83,7 @@ const ROLE_ICONS: Record<StaffRole, React.FC<{ className?: string }>> = {
   Records: FileText,
   Paypoint: Receipt,
   Admin: Users,
-  Consultant: Stethoscope,
+  Specialist: Stethoscope,
 }
 
 const INITIAL_LICENSE_ALERTS: LicenseAlert[] = [
@@ -276,7 +279,7 @@ export default function StaffManagement() {
     else if (!/\S+@\S+\.\S+/.test(newStaff.email)) errs.email = 'Invalid email'
     if (newStaff.username.trim() && !/^[a-z0-9._-]+$/i.test(newStaff.username.trim())) errs.username = 'Username may only contain letters, numbers, dots, dashes and underscores'
     if (!newStaff.role) errs.role = 'Role is required'
-    if (newStaff.role === 'Consultant' && !newStaff.department_id) errs.department_id = 'Department is required for Consultants'
+    if (newStaff.role === 'Specialist' && !newStaff.department_id) errs.department_id = 'Department is required for Specialists'
     if (!newStaff.phone.trim()) errs.phone = 'Phone is required'
     if (!newStaff.password.trim()) errs.password = 'Password is required'
     else if (newStaff.password.length < 4) errs.password = 'Password must be at least 4 characters'
@@ -517,7 +520,7 @@ export default function StaffManagement() {
                             ROLE_COLORS[staff.role]
                           }`}>
                             <RoleIcon className="w-3 h-3" />
-                            {staff.role}
+                            {roleLabel(staff.role)}
                           </span>
                         </td>
                         <td className="px-6 py-4">
@@ -715,7 +718,7 @@ export default function StaffManagement() {
             return (
               <span key={role} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium ${bg} ${text}`}>
                 <RoleIcon className="w-3 h-3" />
-                {role}
+                {roleLabel(role)}
               </span>
             )
           })}
@@ -832,13 +835,13 @@ export default function StaffManagement() {
                     >
                       <option value="">Select role</option>
                       {ROLES.map((r) => (
-                        <option key={r} value={r}>{r}</option>
+                        <option key={r} value={r}>{roleLabel(r)}</option>
                       ))}
                     </select>
                     {formErrors.role && <p className="text-xs text-rose-500 mt-1">{formErrors.role}</p>}
                   </div>
 
-                  {newStaff.role === 'Consultant' && (
+                  {newStaff.role === 'Specialist' && (
                     <div>
                       <label className="block text-sm font-medium text-slate-700 mb-1.5">Department <span className="text-rose-500">*</span></label>
                       <select

@@ -35,6 +35,25 @@ function visitTypeLabel(t?: string): string {
   return t === 'follow_up' ? 'Follow-up' : t === 'review' ? 'Review' : 'New'
 }
 
+function AssignmentStatusBadge({ status, doctorName, startedAt }: { status?: string; doctorName?: string | null; startedAt?: string | null }) {
+  const badge = statusBadge(status)
+  const showTip = (status === 'in_consultation' || status === 'with_doctor') && (doctorName || startedAt)
+  const tip = [
+    doctorName ? `In consultation with ${doctorName}` : null,
+    startedAt ? `Started ${new Date(startedAt).toLocaleString()}` : null,
+  ].filter(Boolean).join(' · ')
+  return (
+    <span className="group relative inline-flex">
+      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${badge.cls}`}>{badge.label}</span>
+      {showTip && (
+        <span className="pointer-events-none absolute right-0 top-full mt-1 z-50 hidden group-hover:block whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-[10px] font-normal text-white shadow-lg">
+          {tip}
+        </span>
+      )}
+    </span>
+  )
+}
+
 export default function AssignmentBoard({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate()
   const [role, setRole] = useState<string | null>(null)
@@ -85,7 +104,7 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
   const [defaultFees, setDefaultFees] = useState<{ new_visit: number; follow_up: number } | null>(null)
   const [doctorLoad, setDoctorLoad] = useState<Record<string, { active: number; waiting: number }>>({})
 
-  const isDoctorQueue = role === 'Doctor' || role === 'Consultant'
+  const isDoctorQueue = role === 'Doctor' || role === 'Specialist'
   const canAssign = role === 'Records' || role === 'Admin' || role === 'Nurse'
   const canSeeFee = role === 'Records' || role === 'Admin'
   const canRecordVitals = role === 'Nurse'
@@ -106,7 +125,7 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
   }, [])
 
   useEffect(() => {
-    api.get('/staff').then((r) => setDoctors((r.data || []).filter((s: any) => (s.role === 'Doctor' || s.role === 'Consultant') && s.status === 'active'))).catch(() => {})
+    api.get('/staff').then((r) => setDoctors((r.data || []).filter((s: any) => (s.role === 'Doctor' || s.role === 'Specialist') && s.status === 'active'))).catch(() => {})
     api.get('/departments').then((r) => setDepartments((r.data || []).filter((d: any) => d.status !== 'inactive'))).catch(() => {})
     api.get('/visits/consultation-fees').then((r) => setDefaultFees(r.data || null)).catch(() => {})
     api.get('/doctors/load').then((r) => {
@@ -428,7 +447,7 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
                       <p className="text-sm font-semibold text-slate-800 truncate">{p.full_name}</p>
                       <p className="text-xs font-mono text-slate-400">{p.hospital_number}</p>
                     </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${statusBadge(p.visit_status || p.status).cls}`}>{statusBadge(p.visit_status || p.status).label}</span>
+                    <AssignmentStatusBadge status={p.visit_status || p.status} doctorName={p.assigned_doctor_name} startedAt={p.started_at} />
                   </div>
                   {p.assigned_doctor_name && (
                     <div className="flex items-center gap-1.5 mt-2 text-[11px] text-slate-500">
@@ -462,6 +481,11 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
                     )}
                     {(role === 'Doctor' || role === 'Admin') && p.visit_status === 'with_doctor' && (
                       admissionMap[p.id] ? (
+                        admissionMap[p.id].discharge_requested_at ? (
+                          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 text-amber-700 text-xs font-medium border border-amber-200">
+                            Awaiting clearance
+                          </span>
+                        ) : (
                         <button onClick={() => setDischargePatient({
                           id: admissionMap[p.id].id,
                           patient_id: p.id,
@@ -474,6 +498,7 @@ export default function AssignmentBoard({ embedded = false }: { embedded?: boole
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 text-xs font-medium hover:bg-rose-100 border border-rose-200">
                           <LogOut size={13} /> Discharge from Ward
                         </button>
+                        )
                       ) : (
                         <button onClick={() => setAdmitPatient(p)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-700 text-xs font-medium hover:bg-indigo-100 border border-indigo-200">

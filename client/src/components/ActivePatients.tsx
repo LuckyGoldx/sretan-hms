@@ -290,7 +290,7 @@ export default function ActivePatients() {
                   >
                     <Eye className="w-3 h-3" /> Chart
                   </button>
-                  {(role === 'Doctor' || role === 'Consultant') && isAdmitted && (
+                  {(role === 'Doctor' || role === 'Specialist') && isAdmitted && (
                     <button
                       onClick={() => navigate(`/consultation/${p.id}`)}
                       className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-purple-50 text-purple-600 text-xs font-medium hover:bg-purple-100"

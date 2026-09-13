@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
-import ConsultantTag from './ConsultantTag'
+import SpecialistTag from './SpecialistTag'
 import {
   Search, Loader2, FileText, Clock, ArrowLeft, Pill, FlaskConical, Scan, User, X, Filter, Calendar, ChevronDown, CheckCircle, AlertTriangle, XCircle, BarChart3, ArrowUp, ArrowDown, Building2,
 } from 'lucide-react'
@@ -325,8 +325,8 @@ export default function DoctorResults() {
                       <Icon size={16} className={item.type === 'lab' ? 'text-purple-600' : 'text-indigo-600'} />
                     </div>
                     <span className="text-sm font-semibold text-slate-800 truncate">{itemLabel(item)}</span>
-                    {(item.is_consultation || item.doctor_role === 'Consultant') && (
-                      <ConsultantTag departmentName={item.department_name} />
+                    {(item.is_consultation || item.doctor_role === 'Specialist') && (
+                      <SpecialistTag departmentName={item.department_name} />
                     )}
                     <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium flex-shrink-0 ${sd.color}`}>{sd.label}</span>
                     {item.is_paid === false && <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-rose-100 text-rose-700 flex-shrink-0">Unpaid</span>}
@@ -413,9 +413,9 @@ export default function DoctorResults() {
                   <p className="text-xs text-slate-500 mb-1">Date Ordered</p>
                   <p className="text-sm font-semibold">{formatDate(detail.created_at)}</p>
                 </div>
-                {(detail.is_consultation || detail.doctor_role === 'Consultant') && (
+                {(detail.is_consultation || detail.doctor_role === 'Specialist') && (
                   <div className="col-span-2 sm:col-span-3 bg-indigo-50 rounded-xl p-3 border border-indigo-100 flex items-center gap-2 flex-wrap">
-                    <ConsultantTag departmentName={detail.department_name} size="sm" />
+                    <SpecialistTag departmentName={detail.department_name} size="sm" />
                     {detail.doctor_name && <span className="text-xs text-slate-600">Ordered by {detail.doctor_name}</span>}
                   </div>
                 )}

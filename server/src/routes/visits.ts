@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { clockGuard } from '../middleware/clockGuard';
+import { parsePagination } from '../utils/pagination';
 
 const router = Router();
 
@@ -91,6 +92,9 @@ router.get('/api/visits', async (req: Request, res: Response) => {
     if (active === 'true') { query += ` AND v.status IN ('waiting','with_doctor')`; }
 
     query += ' ORDER BY v.created_at DESC';
+    const { limit, offset } = parsePagination(req.query);
+    query += ` LIMIT $${idx} OFFSET $${idx + 1}`;
+    params.push(limit, offset);
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err: any) {
@@ -457,7 +461,7 @@ router.get('/api/doctor-queue', async (req: Request, res: Response) => {
     }
 
     const doc = await pool.query(
-      `SELECT id, department_id FROM staff_users WHERE id = $1 AND tenant_id = $2 AND role IN ('Doctor','Consultant') AND status = 'active'`,
+      `SELECT id, department_id FROM staff_users WHERE id = $1 AND tenant_id = $2 AND role IN ('Doctor','Specialist') AND status = 'active'`,
       [staffId, tenantId]
     );
     const departmentId = doc.rows[0]?.department_id || null;
@@ -552,7 +556,7 @@ router.get('/api/assignments', async (req: Request, res: Response) => {
                         (SELECT EXISTS(SELECT 1 FROM visits v
                                        WHERE v.patient_id = p.id AND v.assigned_doctor_id IS NULL
                                          AND v.status = 'waiting' AND v.consultation_status IN ('paid','insurance_authorized'))) as has_paid,
-                        v.id as visit_id, v.visit_type, v.status as visit_status,
+                        v.id as visit_id, v.visit_type, v.status as visit_status, v.started_at,
                         v.consultation_fee, v.consultation_status, v.created_at as visit_created_at
                  FROM patients p
                  LEFT JOIN LATERAL (
@@ -603,7 +607,7 @@ router.get('/api/doctors/load', async (_req: Request, res: Response) => {
               COUNT(*) FILTER (WHERE v.status = 'waiting')::int as waiting
        FROM staff_users s
        LEFT JOIN visits v ON v.assigned_doctor_id = s.id AND v.tenant_id = $1 AND v.status IN ('waiting','with_doctor')
-       WHERE s.tenant_id = $1 AND s.status = 'active' AND s.role IN ('Doctor','Consultant')
+       WHERE s.tenant_id = $1 AND s.status = 'active' AND s.role IN ('Doctor','Specialist')
        GROUP BY s.id, s.name
        ORDER BY s.name`,
       [tenantId]

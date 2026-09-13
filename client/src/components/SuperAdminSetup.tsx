@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Building2, Save, Loader2, CheckCircle, Upload, Palette, Cloud,
-  ShieldCheck, LogIn, Pencil, Eye, EyeOff, WifiOff, Server
+  ShieldCheck, LogIn, Pencil, Eye, EyeOff, WifiOff, Server, Bed, Plus, Trash2
 } from 'lucide-react'
 import api from '../hooks/superadminApi'
 import { THEMES, getThemeDef } from '../utils/themes'
@@ -48,7 +48,7 @@ const MODULES = [
   { key: 'module_triage', label: 'Triage' },
   { key: 'module_doctor', label: 'Doctor' },
   { key: 'module_nurses', label: 'Nurses' },
-  { key: 'module_consultants', label: 'Consultants' },
+  { key: 'module_consultants', label: 'Specialists' },
   { key: 'module_consultation', label: 'Consultation' },
   { key: 'module_laboratory', label: 'Laboratory' },
   { key: 'module_pharmacy', label: 'Pharmacy' },
@@ -66,7 +66,7 @@ const MODULES = [
 const TIERS = [
   { value: 'standard', label: 'Standard', desc: 'Core hospital modules — Records, Triage, Doctor, Nurses, Consultation.' },
   { value: 'premium', label: 'Premium', desc: 'Adds Laboratory, Pharmacy, Radiology, Paypoint, Finance/HMO and Store.' },
-  { value: 'enterprise', label: 'Enterprise', desc: 'Adds Maternity, Insurance, Referrals/Consultants, Appointments and Admissions.' },
+  { value: 'enterprise', label: 'Enterprise', desc: 'Adds Maternity, Insurance, Referrals/Specialists, Appointments and Admissions.' },
 ]
 const STATUSES = [
   { value: 'active', label: 'Active', desc: 'Hospital is fully operational and staff can log in.' },
@@ -112,6 +112,14 @@ export default function SuperAdminSetup() {
   const [modules, setModules] = useState<Record<string, boolean>>({ ...emptyModules })
   const [logoFile, setLogoFile] = useState<File | null>(null)
   const [showAdminPassword, setShowAdminPassword] = useState(false)
+  // Optional ward/bed setup. Empty -> the server seeds a standard ward set.
+  const [wards, setWards] = useState<Array<{ name: string; code: string; price: string; beds: string }>>([])
+
+  function addWardRow() { setWards((w) => [...w, { name: '', code: '', price: '', beds: '5' }]) }
+  function updateWardRow(i: number, key: 'name' | 'code' | 'price' | 'beds', value: string) {
+    setWards((w) => w.map((x, idx) => (idx === i ? { ...x, [key]: value } : x)))
+  }
+  function removeWardRow(i: number) { setWards((w) => w.filter((_, idx) => idx !== i)) }
 
   useEffect(() => {
     api.get('/superadmin/tenants')
@@ -204,6 +212,10 @@ export default function SuperAdminSetup() {
           password: form.admin_password,
         }
         payload.set_active = form.set_active
+        const wardList = wards
+          .filter((w) => w.name.trim())
+          .map((w) => ({ name: w.name.trim(), code: w.code.trim() || null, price: parseFloat(w.price) || 0, beds: parseInt(w.beds, 10) || 0 }))
+        if (wardList.length > 0) payload.wards = wardList
         const res = await api.post('/superadmin/tenants', payload)
         if (logoFile) await uploadLogo(logoFile)
         setMessage(`Hospital "${res.data.tenant.hospital_name}" created successfully${form.set_active ? ' and set as active' : ''}`)
@@ -462,6 +474,42 @@ export default function SuperAdminSetup() {
             </div>
           </div>
         </div>
+
+        {mode === 'create' && (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+            <div className="flex items-center gap-2 mb-2">
+              <Bed className="w-5 h-5 text-slate-600" />
+              <h2 className="text-lg font-semibold text-slate-800">Wards &amp; Beds</h2>
+            </div>
+            <p className="text-xs text-slate-400 mb-5">
+              Optionally define the hospital's wards, their nightly price and how many beds each starts with. Leave empty to seed a standard ward set. Admins can add or remove beds later from Ward Management.
+            </p>
+            {wards.length > 0 && (
+              <div className="space-y-3 mb-4">
+                {wards.map((w, i) => (
+                  <div key={i} className="grid grid-cols-2 md:grid-cols-[2fr_1fr_1fr_1fr_auto] gap-2 items-center">
+                    <input type="text" value={w.name} onChange={(e) => updateWardRow(i, 'name', e.target.value)}
+                      placeholder="Ward name" className={inputCls} />
+                    <input type="text" value={w.code} onChange={(e) => updateWardRow(i, 'code', e.target.value)}
+                      placeholder="Code" className={inputCls} />
+                    <input type="number" min="0" step="0.01" value={w.price} onChange={(e) => updateWardRow(i, 'price', e.target.value)}
+                      placeholder="₦ / night" className={`${inputCls} text-right`} />
+                    <input type="number" min="0" value={w.beds} onChange={(e) => updateWardRow(i, 'beds', e.target.value)}
+                      placeholder="Beds" className={`${inputCls} text-right`} />
+                    <button type="button" onClick={() => removeWardRow(i)}
+                      className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 justify-self-center" title="Remove ward">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={addWardRow}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-sm font-medium hover:bg-slate-200">
+              <Plus className="w-4 h-4" /> Add Ward
+            </button>
+          </div>
+        )}
 
         {mode === 'create' && (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">

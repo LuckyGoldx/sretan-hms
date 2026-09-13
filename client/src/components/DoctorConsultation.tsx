@@ -8,7 +8,7 @@ import {
 import api from '../hooks/useAxios'
 import DoctorComment from './DoctorComment'
 import ReferralModal from './ReferralModal'
-import ConsultantTag from './ConsultantTag'
+import SpecialistTag from './SpecialistTag'
 import CompleteConsultationModal from './CompleteConsultationModal'
 import CollapsibleReason from './CollapsibleReason'
 import ChartModal from './ChartModal'
@@ -510,6 +510,30 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
     } catch (err: any) { showToast(err?.response?.data?.message || 'Failed to complete consultation', 'error') } finally { setVisitBusy(false) }
   }
 
+  // Starting a consultation differs by mode: specialists transition the
+  // referral, doctors start the visit.
+  async function startConsultationFlow() {
+    if (isConsultantMode && referral?.id) {
+      setVisitBusy(true)
+      try {
+        await api.put(`/referrals/${referral.id}/start`, { performed_by: currentStaffId })
+        window.location.reload()
+      } catch (err: any) {
+        const active = err?.response?.data?.activeConsultation
+        if (active) { setActiveConsultBlock(active) }
+        else { showToast(err?.response?.data?.message || 'Failed to start consultation', 'error') }
+      } finally { setVisitBusy(false) }
+      return
+    }
+    startConsultation()
+  }
+
+  // A consultation is "started" when the visit is with the doctor, or (in
+  // specialist mode) the referral is in consultation / completed.
+  const consultationStarted = isConsultantMode
+    ? (referral?.status === 'in_consultation' || referral?.status === 'completed')
+    : (!!visit && (visit.status === 'with_doctor' || visit.status === 'completed'))
+
   const handleSoapSubmit = async () => {
     if (!patientId) return
     const allBlank = !soap.subjective && !soap.objective && !soap.assessment && !soap.plan && !soap.notes
@@ -659,7 +683,8 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
         </div>
       </div>
 
-      {/* Visit / Consultation banner */}
+      {/* Visit / Consultation banner (hidden in specialist mode) */}
+      {!isConsultantMode && (
       <div className={`rounded-2xl border p-4 ${visit ? 'bg-white border-slate-200 shadow-sm' : 'bg-slate-50 border-slate-200'}`}>
         <div className="flex items-start gap-3 flex-wrap">
           <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0"><Stethoscope className="w-4 h-4 text-primary" /></div>
@@ -679,28 +704,108 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-            {visit && visit.status !== 'completed' ? (
-              <>
-                {visit.status === 'waiting' && (
-                  <button onClick={() => setShowStartConfirm(true)} disabled={visitBusy}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-blue-600 disabled:opacity-50 transition-colors">
-                    {visitBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />} Start Consultation
-                  </button>
-                )}
-                <button onClick={completeVisit} disabled={visitBusy}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors">
-                  {visitBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Complete Consultation
-                </button>
-              </>
-            ) : (
+            {(!visit || visit.status === 'waiting') && (
               <button onClick={() => setShowStartConfirm(true)} disabled={visitBusy}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-blue-600 disabled:opacity-50 transition-colors">
                 {visitBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />} Start Consultation
               </button>
             )}
+            {visit && visit.status === 'with_doctor' && (
+              <button onClick={completeVisit} disabled={visitBusy}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors">
+                {visitBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Complete Consultation
+              </button>
+            )}
+            {visit && visit.status === 'completed' && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-700 text-xs font-medium"><CheckCircle className="w-3.5 h-3.5" /> Completed</span>
+            )}
           </div>
         </div>
       </div>
+
+      )}
+
+      {/* Specialist Referral Banner */}
+      {isConsultantMode && referral && (
+        <div className={`rounded-2xl border p-4 ${
+          referral.priority === 'emergency' ? 'bg-rose-50 border-rose-200' :
+          referral.priority === 'urgent' ? 'bg-amber-50 border-amber-200' :
+          'bg-sky-50 border-sky-200'
+        }`}>
+          <div className="flex items-start gap-3 flex-wrap">
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
+              referral.priority === 'emergency' ? 'bg-rose-100 text-rose-600' :
+              referral.priority === 'urgent' ? 'bg-amber-100 text-amber-600' :
+              'bg-sky-100 text-sky-600'
+            }`}>
+              {referral.priority === 'emergency' ? <AlertTriangle className="w-4 h-4" /> : <Stethoscope className="w-4 h-4" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-slate-800">
+                  Referral {referral.referral_number}
+                </p>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
+                  referral.priority === 'emergency' ? 'bg-rose-200 text-rose-800' :
+                  referral.priority === 'urgent' ? 'bg-amber-200 text-amber-800' :
+                  'bg-sky-200 text-sky-800'
+                }`}>{referral.priority}</span>
+                <span className="group relative inline-flex">
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
+                    referral.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                    referral.status === 'rejected' ? 'bg-rose-100 text-rose-700' :
+                    referral.status === 'cancelled' ? 'bg-slate-100 text-slate-500' :
+                    referral.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
+                    referral.status === 'in_consultation' ? 'bg-violet-100 text-violet-700' :
+                    'bg-amber-100 text-amber-700'
+                  }`}>{referral.status.replace('_', ' ')}</span>
+                  {referral.status === 'in_consultation' && (referral.accepted_by_name || referral.accepted_at) && (
+                    <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:block whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-[10px] font-normal normal-case text-white shadow-lg">
+                      {[referral.accepted_by_name ? `In consultation with ${referral.accepted_by_name}` : null, referral.accepted_at ? `Started ${new Date(referral.accepted_at).toLocaleString()}` : null].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
+                </span>
+                {referral.to_department_name && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-medium">
+                    <Building2 className="w-3 h-3" /> {referral.to_department_name}
+                  </span>
+                )}
+              </div>
+              {referral.reason && (
+                <div className="mt-1.5">
+                  <CollapsibleReason text={referral.reason} />
+                </div>
+              )}
+              <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
+                {referral.referred_by_name && <span>Referred by <strong>{referral.referred_by_name}</strong></span>}
+                {referral.accepted_by_name && <span>· Accepted by <strong>{referral.accepted_by_name}</strong>{referral.accepted_at ? ` on ${new Date(referral.accepted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}</span>}
+                {referral.to_consultant_name && <span>· Specialist: <strong>{referral.to_consultant_name}</strong></span>}
+              </div>
+            </div>
+            <div className="flex flex-col items-end gap-2 flex-shrink-0">
+              {referral.status !== 'completed' && referral.status !== 'in_consultation' && (
+                <button onClick={() => startConsultationFlow()} disabled={visitBusy}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-blue-600 disabled:opacity-50 transition-colors">
+                  {visitBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <UserCheck className="w-3.5 h-3.5" />}
+                  Start Consultation
+                </button>
+              )}
+              {referral.status === 'in_consultation' && (
+                <button onClick={handleCompleteConsultation}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  Complete Consultation
+                </button>
+              )}
+              {referral.status === 'completed' && (
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-700 text-xs font-medium">
+                  <CheckCircle className="w-3.5 h-3.5" /> Referral closed
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Today's Vitals */}
       <div className={`rounded-2xl border p-4 ${todayVitals.length > 0 ? 'bg-white border-slate-200 shadow-sm' : 'bg-amber-50 border-amber-200'}`}>
@@ -749,76 +854,6 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
           </button>
         </div>
       </div>
-
-      {/* Consultant Referral Banner */}
-      {isConsultantMode && referral && (
-        <div className={`rounded-2xl border p-4 ${
-          referral.priority === 'emergency' ? 'bg-rose-50 border-rose-200' :
-          referral.priority === 'urgent' ? 'bg-amber-50 border-amber-200' :
-          'bg-sky-50 border-sky-200'
-        }`}>
-          <div className="flex items-start gap-3 flex-wrap">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${
-              referral.priority === 'emergency' ? 'bg-rose-100 text-rose-600' :
-              referral.priority === 'urgent' ? 'bg-amber-100 text-amber-600' :
-              'bg-sky-100 text-sky-600'
-            }`}>
-              {referral.priority === 'emergency' ? <AlertTriangle className="w-4 h-4" /> : <Stethoscope className="w-4 h-4" />}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-semibold text-slate-800">
-                  Referral {referral.referral_number}
-                </p>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide ${
-                  referral.priority === 'emergency' ? 'bg-rose-200 text-rose-800' :
-                  referral.priority === 'urgent' ? 'bg-amber-200 text-amber-800' :
-                  'bg-sky-200 text-sky-800'
-                }`}>{referral.priority}</span>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
-                  referral.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
-                  referral.status === 'rejected' ? 'bg-rose-100 text-rose-700' :
-                  referral.status === 'cancelled' ? 'bg-slate-100 text-slate-500' :
-                  referral.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
-                  referral.status === 'in_consultation' ? 'bg-violet-100 text-violet-700' :
-                  'bg-amber-100 text-amber-700'
-                }`}>{referral.status.replace('_', ' ')}</span>
-                {referral.to_department_name && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-medium">
-                    <Building2 className="w-3 h-3" /> {referral.to_department_name}
-                  </span>
-                )}
-              </div>
-              {referral.reason && (
-                <div className="mt-1.5">
-                  <CollapsibleReason text={referral.reason} />
-                </div>
-              )}
-              <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
-                {referral.referred_by_name && <span>Referred by <strong>{referral.referred_by_name}</strong></span>}
-                {referral.accepted_by_name && <span>· Accepted by <strong>{referral.accepted_by_name}</strong>{referral.accepted_at ? ` on ${new Date(referral.accepted_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}</span>}
-                {referral.to_consultant_name && <span>· Consultant: <strong>{referral.to_consultant_name}</strong></span>}
-              </div>
-            </div>
-            <div className="flex flex-col items-end gap-2 flex-shrink-0">
-              {referral.status !== 'completed' && (
-                <button
-                  onClick={handleCompleteConsultation}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 transition-colors"
-                >
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  Complete Consultation
-                </button>
-              )}
-              {referral.status === 'completed' && (
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-100 text-emerald-700 text-xs font-medium">
-                  <CheckCircle className="w-3.5 h-3.5" /> Referral closed
-                </span>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Vitals Display */}
       {vitals && (
@@ -917,7 +952,18 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
         </div>
       )}
 
-      {/* Inline Tabs */}
+      {/* Inline Tabs — only once the consultation has started */}
+      {!consultationStarted ? (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-8 text-center">
+          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mx-auto mb-3"><Stethoscope className="w-6 h-6 text-primary" /></div>
+          <p className="text-sm font-semibold text-slate-800">Consultation not started</p>
+          <p className="text-xs text-slate-500 mt-1 mb-4">Start the consultation to record the SOAP note, orders, prescriptions and diagnoses.</p>
+          <button onClick={() => isConsultantMode ? startConsultationFlow() : setShowStartConfirm(true)} disabled={visitBusy}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-blue-600 disabled:opacity-50">
+            {visitBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserCheck className="w-4 h-4" />} Start Consultation
+          </button>
+        </div>
+      ) : (
       <div className="flex gap-2 overflow-x-auto pb-1">
         {TABS.map((tab) => {
           const Icon = tab.icon
@@ -932,9 +978,10 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
           )
         })}
       </div>
+      )}
 
       {/* Tab: SOAP Note */}
-      {activeTab === 'soap' && (
+      {consultationStarted && activeTab === 'soap' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {(['subjective', 'objective', 'assessment', 'plan'] as (keyof SoapForm)[]).map((field) => (
@@ -1022,7 +1069,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
       )}
 
       {/* Tab: Orders (CPOE) */}
-      {activeTab === 'orders' && (
+      {consultationStarted && activeTab === 'orders' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <div className="flex gap-3 mb-4">
             <button onClick={() => setActiveModal('lab')}
@@ -1039,7 +1086,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
       )}
 
       {/* Tab: e-Prescribing */}
-      {activeTab === 'prescribe' && (
+      {consultationStarted && activeTab === 'prescribe' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <div className="space-y-3">
             <div className="relative">
@@ -1092,7 +1139,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
       )}
 
       {/* Tab: ICD-11 Browser */}
-      {activeTab === 'icd' && (
+      {consultationStarted && activeTab === 'icd' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <div className="relative">
             <button onClick={() => setIcdOpen((prev) => !prev)}
@@ -1130,7 +1177,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
       )}
 
       {/* Historical Timeline */}
-      {activeTab === 'soap' && (
+      {consultationStarted && activeTab === 'soap' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <div className="flex items-center gap-2 mb-4">
             <Clock className="w-4 h-4 text-primary" />
@@ -1157,7 +1204,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
                         </span>
                         {enc.encounter_type === 'maternity' && <span className="text-[9px] font-bold text-purple-600 bg-purple-100 px-1.5 py-0.5 rounded-full">MAT</span>}
                         {(enc as any).is_consultation && (
-                          <ConsultantTag departmentName={(enc as any).department_name} />
+                          <SpecialistTag departmentName={(enc as any).department_name} />
                         )}
                         <span className="text-xs text-slate-400">{new Date(enc.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                         {realIdx === 0 && <span className="text-[10px] font-semibold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">Current</span>}
@@ -1185,7 +1232,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
         </div>
       )}
 
-      {activeTab === 'orders' && (
+      {consultationStarted && activeTab === 'orders' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <div className="flex items-center gap-2 mb-4">
             <Clock className="w-4 h-4 text-primary" />
@@ -1220,8 +1267,8 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold text-slate-800">{ord._type === 'lab' ? ord.test_name : ord.imaging_type}</span>
-                      {(ord.is_consultation || ord.doctor_role === 'Consultant') && (
-                        <ConsultantTag departmentName={ord.department_name} />
+                      {(ord.is_consultation || ord.doctor_role === 'Specialist') && (
+                        <SpecialistTag departmentName={ord.department_name} doctorName={(ord as any).staff_name || (ord as any).doctor_name} startedAt={(ord as any).started_at || (ord as any).created_at} />
                       )}
                       <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium ${
                         ord.status === 'completed' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
@@ -1251,7 +1298,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
         </div>
       )}
 
-      {activeTab === 'prescribe' && (
+      {consultationStarted && activeTab === 'prescribe' && (
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
           <div className="flex items-center gap-2 mb-4">
             <Clock className="w-4 h-4 text-primary" />
@@ -1269,8 +1316,8 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold text-slate-800">{rx.drug_name}</span>
-                      {(rx.is_consultation || rx.doctor_role === 'Consultant') && (
-                        <ConsultantTag departmentName={rx.department_name} />
+                      {(rx.is_consultation || rx.doctor_role === 'Specialist') && (
+                        <SpecialistTag departmentName={rx.department_name} doctorName={(rx as any).staff_name || (rx as any).doctor_name} startedAt={(rx as any).started_at || (rx as any).created_at} />
                       )}
                       {rx.dosage && <span className="text-xs text-slate-500">{rx.dosage}</span>}
                       {rx.quantity ? <span className="text-xs text-slate-400">Qty: {rx.quantity}</span> : null}
@@ -1554,7 +1601,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
                 </div>
                 <div className="flex items-center gap-2">
                   {(timelineModal.encounter as any).is_consultation && (
-                    <ConsultantTag departmentName={(timelineModal.encounter as any).department_name} />
+                    <SpecialistTag departmentName={(timelineModal.encounter as any).department_name} />
                   )}
                 </div>
                 <div><span className="text-slate-500">Created:</span> <span className="font-medium text-slate-700">{new Date(timelineModal.encounter.created_at).toLocaleString()}</span></div>
@@ -1853,15 +1900,15 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
           referral={referral}
           patientName={patient?.full_name}
           hospitalNumber={patient?.hospital_number}
-          labCount={allLabOrders.filter((o: any) => o.is_consultation || o.doctor_role === 'Consultant').length}
-          radiologyCount={allRadOrders.filter((o: any) => o.is_consultation || o.doctor_role === 'Consultant').length}
-          prescriptionCount={allPrescriptions.filter((o: any) => o.is_consultation || o.doctor_role === 'Consultant').length}
+          labCount={allLabOrders.filter((o: any) => o.is_consultation || o.doctor_role === 'Specialist').length}
+          radiologyCount={allRadOrders.filter((o: any) => o.is_consultation || o.doctor_role === 'Specialist').length}
+          prescriptionCount={allPrescriptions.filter((o: any) => o.is_consultation || o.doctor_role === 'Specialist').length}
           defaultOutcome={soap.assessment || soap.plan}
           onClose={() => setShowCompleteModal(false)}
           onCompleted={() => {
             setShowCompleteModal(false)
             showToast('Consultation completed — referral closed', 'success')
-            setTimeout(() => navigate('/consultant/dashboard'), 1200)
+            setTimeout(() => navigate('/specialist/patients'), 1200)
           }}
         />
       )}

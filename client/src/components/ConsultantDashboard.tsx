@@ -93,7 +93,7 @@ export default function ConsultantDashboard() {
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center"><Stethoscope size={22} className="text-indigo-600" /></div>
           <div>
-            <h1 className="text-xl font-bold text-slate-800">Consultant Dashboard</h1>
+            <h1 className="text-xl font-bold text-slate-800">Specialist Dashboard</h1>
             <p className="text-sm text-slate-500 flex items-center gap-1.5 flex-wrap">
               Welcome back
               {currentDept && (
@@ -105,7 +105,7 @@ export default function ConsultantDashboard() {
           </div>
         </div>
         <button
-          onClick={() => navigate('/consultant/patients')}
+          onClick={() => navigate('/specialist/patients')}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-500 text-white text-sm font-semibold hover:bg-indigo-600 transition-colors"
         >
           <Users className="w-4 h-4" /> Referred Patients <ArrowRight className="w-4 h-4" />
@@ -132,7 +132,7 @@ export default function ConsultantDashboard() {
               </div>
             </div>
             <button
-              onClick={() => navigate('/consultant/patients')}
+              onClick={() => navigate('/specialist/patients')}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 text-white text-xs font-semibold hover:bg-rose-700"
             >
               <Eye className="w-3.5 h-3.5" /> Review Now
@@ -148,7 +148,7 @@ export default function ConsultantDashboard() {
           return (
             <button
               key={s.label}
-              onClick={() => navigate('/consultant/patients')}
+              onClick={() => navigate('/specialist/patients')}
               className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 text-left hover:shadow-md transition-all"
             >
               <div className="flex items-center gap-3">
@@ -165,11 +165,11 @@ export default function ConsultantDashboard() {
 
       {/* Quick Actions */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        <button onClick={() => navigate('/consultant/patients')} className="flex items-center gap-3 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-left hover:bg-indigo-100 transition-colors">
+        <button onClick={() => navigate('/specialist/patients')} className="flex items-center gap-3 p-4 rounded-xl bg-indigo-50 border border-indigo-100 text-left hover:bg-indigo-100 transition-colors">
           <Users size={20} className="text-indigo-600" />
           <div><p className="text-sm font-medium text-slate-800">Referred Patients</p><p className="text-xs text-slate-500">Accept, consult and complete</p></div>
         </button>
-        <button onClick={() => navigate('/consultant/my-consultations')} className="flex items-center gap-3 p-4 rounded-xl bg-violet-50 border border-violet-100 text-left hover:bg-violet-100 transition-colors">
+        <button onClick={() => navigate('/specialist/my-consultations')} className="flex items-center gap-3 p-4 rounded-xl bg-violet-50 border border-violet-100 text-left hover:bg-violet-100 transition-colors">
           <Stethoscope size={20} className="text-violet-600" />
           <div><p className="text-sm font-medium text-slate-800">My Consultations</p><p className="text-xs text-slate-500">Your encounter history</p></div>
         </button>
@@ -191,7 +191,7 @@ export default function ConsultantDashboard() {
               <Users size={18} className="text-indigo-600" />
               <h2 className="text-sm font-semibold text-slate-800">Recent Referred Patients</h2>
             </div>
-            <button onClick={() => navigate('/consultant/patients')} className="text-xs font-medium text-indigo-600 hover:text-indigo-800">View all</button>
+            <button onClick={() => navigate('/specialist/patients')} className="text-xs font-medium text-indigo-600 hover:text-indigo-800">View all</button>
           </div>
           {recent.length === 0 ? (
             <div className="py-12 text-center">
@@ -209,7 +209,7 @@ export default function ConsultantDashboard() {
                   <PriorityBadge priority={p.priority} />
                   <StatusBadge status={p.referral_status} />
                   <button
-                    onClick={() => navigate(`/consultant/consultation/${p.patient_id}?consultant=1&referral_id=${p.referral_id}`)}
+                    onClick={() => navigate(`/specialist/consultation/${p.patient_id}?consultant=1&referral_id=${p.referral_id}`)}
                     className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-medium hover:bg-indigo-100"
                   >
                     <Eye className="w-3 h-3" />

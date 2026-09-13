@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
-import ConsultantTag from './ConsultantTag'
+import SpecialistTag from './SpecialistTag'
 import {
   Pill, Search, Clock, Loader2, AlertTriangle, CheckCircle, XCircle, ArrowLeft, Eye
 } from 'lucide-react'
@@ -136,8 +136,8 @@ export default function DoctorPrescriptions() {
                     <td className="px-5 py-3.5 font-medium text-slate-800">
                       <span className="inline-flex items-center gap-2">
                         {rx.drug_name}
-                        {(rx.is_consultation || rx.doctor_role === 'Consultant') && (
-                          <ConsultantTag departmentName={rx.department_name} />
+                        {(rx.is_consultation || rx.doctor_role === 'Specialist') && (
+                          <SpecialistTag departmentName={rx.department_name} />
                         )}
                       </span>
                     </td>

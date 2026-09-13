@@ -172,7 +172,7 @@ export default function MyPatients() {
   }, [tab, doctorId])
 
   useEffect(() => {
-    api.get('/staff').then((r) => setDoctors((r.data || []).filter((s: any) => s.role === 'Doctor' || s.role === 'Consultant'))).catch(() => {})
+    api.get('/staff').then((r) => setDoctors((r.data || []).filter((s: any) => s.role === 'Doctor' || s.role === 'Specialist'))).catch(() => {})
     api.get('/departments').then((r) => setDepartments((r.data || []).filter((d: any) => d.status !== 'inactive'))).catch(() => {})
     api.get('/visits/consultation-fees').then((r) => setDefaultFees(r.data || null)).catch(() => {})
   }, [])

@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useState, useEffect } from 'react'
-import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { useTheme } from './hooks/useTheme'
 import { loadClinicInfo } from './utils/clinicInfo'
 import {
@@ -10,6 +10,7 @@ import {
   Scan,
   Receipt, Banknote,
   Users,
+  Bed,
   Settings,
   Loader2,
   LogOut,
@@ -30,11 +31,12 @@ import {
   FlaskConical,
   Building2,
   ChevronDown,
-  Baby, Heart, Shield, TrendingUp, Send, UserCheck, ScrollText,
+  Baby, Heart, Shield, TrendingUp, Send, UserCheck, ScrollText, ShieldCheck, Wallet,
 } from 'lucide-react'
 
 const Login = lazy(() => import('./components/Login'))
 const PatientDashboard = lazy(() => import('./components/PatientDashboard'))
+const NurseDashboard = lazy(() => import('./components/NurseDashboard'))
 const PatientRegistration = lazy(() => import('./components/PatientRegistration'))
 const TriageStation = lazy(() => import('./components/TriageStation'))
 const DoctorConsultation = lazy(() => import('./components/DoctorConsultation'))
@@ -43,6 +45,11 @@ const DoctorPrescriptions = lazy(() => import('./components/DoctorPrescriptions'
 const PatientChart = lazy(() => import('./components/PatientChart'))
 const DoctorVitals = lazy(() => import('./components/DoctorVitals'))
 const AdmissionsPage = lazy(() => import('./components/AdmissionsPage'))
+const AdmissionClearance = lazy(() => import('./components/AdmissionClearance'))
+const ReceiptsPage = lazy(() => import('./components/ReceiptsPage'))
+const ExpensesPage = lazy(() => import('./components/ExpensesPage'))
+const ExpenseTracker = lazy(() => import('./components/ExpenseTracker'))
+const NurseHandover = lazy(() => import('./components/NurseHandover'))
 const WalkInSales = lazy(() => import('./components/WalkInSales'))
 const LabInventory = lazy(() => import('./components/LabInventory'))
 const DoctorResults = lazy(() => import('./components/DoctorResults'))
@@ -127,6 +134,7 @@ const ConsultantConsultation = lazy(() => import('./components/ConsultantConsult
 const ConsultantConsultations = lazy(() => import('./components/ConsultantConsultations'))
 const ReferredPatients = lazy(() => import('./components/ReferredPatients'))
 const DepartmentsAdmin = lazy(() => import('./components/DepartmentsAdmin'))
+const WardManagement = lazy(() => import('./components/WardManagement'))
 const AdminAuditLogs = lazy(() => import('./components/AdminAuditLogs'))
 const NotificationBell = lazy(() => import('./components/NotificationBell'))
 const ReferralManagement = lazy(() => import('./components/ReferralManagement'))
@@ -142,24 +150,32 @@ interface SidebarLink {
 
 const sidebarLinks: SidebarLink[] = [
   // ── Dashboard ──
-  { to: '/dashboard', label: 'Dashboard', icon: Pill, roles: ['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin'], category: 'Dashboard' },
+  // Dashboard icon matches the role's clinical/administrative context.
+  { to: '/dashboard', label: 'Dashboard', icon: Stethoscope, roles: ['Doctor', 'Specialist'], category: 'Dashboard' },
+  { to: '/dashboard', label: 'Dashboard', icon: Heart, roles: ['Nurse'], category: 'Dashboard' },
+  { to: '/dashboard', label: 'Dashboard', icon: FileText, roles: ['Records'], category: 'Dashboard' },
+  { to: '/dashboard', label: 'Dashboard', icon: Pill, roles: ['Pharmacist'], category: 'Dashboard' },
+  { to: '/paypoint/dashboard', label: 'Dashboard', icon: Banknote, roles: ['Paypoint'], category: 'Dashboard' },
+  { to: '/finance/dashboard', label: 'Dashboard', icon: TrendingUp, roles: ['Finance'], category: 'Dashboard' },
+  { to: '/dashboard', label: 'Dashboard', icon: BarChart3, roles: ['Admin'], category: 'Dashboard' },
   // ── Clinical ──
   { to: '/patients/register', label: 'Register Patient', icon: UserPlus, roles: ['Records', 'Admin'], category: 'Clinical', module: 'module_records' },
   { to: '/triage', label: 'Triage', icon: Stethoscope, roles: ['Nurse', 'Admin'], category: 'Clinical', module: ['module_nurses', 'module_triage', 'module_consultation'] },
   { to: '/patients', label: 'Patients', icon: Users, roles: ['Doctor', 'Admin', 'Nurse'], category: 'Clinical', module: ['module_doctor', 'module_nurses', 'module_consultation'] },
   { to: '/my-prescriptions', label: 'Prescriptions', icon: Pill, roles: ['Doctor', 'Admin'], category: 'Clinical', module: ['module_doctor', 'module_consultation'] },
   { to: '/vitals', label: 'Vitals', icon: Activity, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Clinical', module: ['module_doctor', 'module_nurses', 'module_consultation'] },
-  { to: '/referrals', label: 'Referrals', icon: Send, roles: ['Doctor', 'Nurse', 'Consultant', 'Admin'], category: 'Clinical', module: ['module_referrals', 'module_consultation'] },
-  { to: '/doctor/results', label: 'Results', icon: FileText, roles: ['Doctor', 'Consultant'], category: 'Clinical', module: ['module_doctor', 'module_consultation'] },
+  { to: '/nurse/handover', label: 'Handover', icon: ClipboardList, roles: ['Nurse', 'Admin'], category: 'Clinical', module: ['module_nurses'] },
+  { to: '/referrals', label: 'Referrals', icon: Send, roles: ['Doctor', 'Specialist', 'Admin'], category: 'Clinical', module: ['module_referrals', 'module_consultation'] },
+  { to: '/doctor/results', label: 'Results', icon: FileText, roles: ['Doctor', 'Specialist'], category: 'Clinical', module: ['module_doctor', 'module_consultation'] },
   { to: '/doctor/consultations', label: 'Consultation', icon: Stethoscope, roles: ['Doctor'], category: 'Clinical', module: ['module_doctor', 'module_consultation'] },
   { to: '/appointments', label: 'Appointments', icon: Calendar, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Clinical', module: ['module_appointments', 'module_consultation'] },
-  { to: '/admissions', label: 'Admissions', icon: Home, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Clinical', module: ['module_admissions', 'module_consultation'] },
-  // ── Consultant ──
-  { to: '/consultant/dashboard', label: 'Consultant Dashboard', icon: Stethoscope, roles: ['Consultant', 'Admin'], category: 'Consultant', module: ['module_consultants', 'module_referrals'] },
-  { to: '/consultant/patients', label: 'Referred Patients', icon: Users, roles: ['Consultant', 'Admin', 'Doctor'], category: 'Consultant', module: ['module_consultants', 'module_referrals'] },
-  { to: '/consultant/my-consultations', label: 'My Consultations', icon: ClipboardList, roles: ['Consultant', 'Admin'], category: 'Consultant', module: ['module_consultants', 'module_referrals'] },
+  { to: '/admissions', label: 'Admissions', icon: Home, roles: ['Doctor', 'Specialist', 'Nurse', 'Admin'], category: 'Clinical', module: ['module_admissions', 'module_consultation'] },
+  // ── Specialist ──
+  { to: '/specialist/patients', label: 'Referred Patients', icon: Users, roles: ['Specialist', 'Admin', 'Doctor'], category: 'Specialist', module: ['module_consultants', 'module_referrals'] },
+  { to: '/specialist/my-consultations', label: 'My Consultations', icon: ClipboardList, roles: ['Specialist', 'Admin'], category: 'Specialist', module: ['module_consultants', 'module_referrals'] },
   // ── Laboratory ──
-  { to: '/lab', label: 'Lab Dashboard', icon: Beaker, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
+  { to: '/dashboard', label: 'Dashboard', icon: Beaker, roles: ['Lab Scientist'], category: 'Laboratory', module: 'module_laboratory' },
+  { to: '/lab', label: 'Lab Dashboard', icon: Beaker, roles: ['Admin'], category: 'Laboratory', module: 'module_laboratory' },
   { to: '/lab/worklist', label: 'Worklist', icon: FileText, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
   { to: '/lab/results', label: 'Results', icon: CheckCircle, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
   { to: '/lab/history', label: 'History', icon: Clock, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
@@ -178,7 +194,8 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/purchase-orders', label: 'Purchase Orders', icon: Truck, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_pharmacy' },
   { to: '/dispensing-history', label: 'Dispensing History', icon: ClipboardList, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_pharmacy' },
   // ── Radiology ──
-  { to: '/radiology', label: 'Radiology Dashboard', icon: Scan, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
+  { to: '/radiology', label: 'Dashboard', icon: Scan, roles: ['Radiology'], category: 'Radiology', module: 'module_radiology' },
+  { to: '/radiology', label: 'Radiology Dashboard', icon: Scan, roles: ['Admin'], category: 'Radiology', module: 'module_radiology' },
   { to: '/radiology/worklist', label: 'Worklist', icon: ClipboardList, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
   { to: '/radiology/results', label: 'Results', icon: CheckCircle, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
   { to: '/radiology/review', label: 'Review', icon: CheckCircle, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
@@ -187,13 +204,15 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/radiology-inventory', label: 'Radiology Inventory', icon: Package, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
   { to: '/radiology-expiry', label: 'Radiology Expiry', icon: Clock, roles: ['Admin', 'Radiology'], category: 'Radiology', module: 'module_radiology' },
   // ── Maternity ──
-  { to: '/maternity', label: 'Maternity Dashboard', icon: Baby, roles: ['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant'], category: 'Maternity', module: 'module_maternity' },
-  { to: '/maternity/booking', label: 'Book Pregnancy', icon: UserPlus, roles: ['Doctor', 'Nurse', 'Records', 'Admin'], category: 'Maternity', module: 'module_maternity' },
-  { to: '/maternity/patients', label: 'Maternity Patients', icon: Users, roles: ['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant'], category: 'Maternity', module: 'module_maternity' },
-  { to: '/maternity/anc', label: 'ANC Visits', icon: Calendar, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity', module: 'module_maternity' },
-  { to: '/maternity/labour', label: 'Labour & Delivery', icon: Stethoscope, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity', module: 'module_maternity' },
-  { to: '/maternity/labour-summary', label: 'Labour Summary', icon: ClipboardList, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity', module: 'module_maternity' },
-  { to: '/maternity/postnatal', label: 'Postnatal', icon: Heart, roles: ['Doctor', 'Nurse', 'Admin', 'Consultant'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity', label: 'Maternity Dashboard', icon: Baby, roles: ['Doctor', 'Nurse', 'Admin', 'Specialist'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity/booking', label: 'Book Pregnancy', icon: UserPlus, roles: ['Doctor', 'Nurse', 'Admin'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity/patients', label: 'Maternity Patients', icon: Users, roles: ['Doctor', 'Nurse', 'Admin', 'Specialist'], category: 'Maternity', module: 'module_maternity' },
+  // Records gets one fused Maternity page: the register + overview.
+  { to: '/maternity/patients', label: 'Maternity', icon: Baby, roles: ['Records'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity/anc', label: 'ANC Visits', icon: Calendar, roles: ['Doctor', 'Nurse', 'Admin', 'Specialist'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity/labour', label: 'Labour & Delivery', icon: Stethoscope, roles: ['Doctor', 'Nurse', 'Admin', 'Specialist'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity/labour-summary', label: 'Labour Summary', icon: ClipboardList, roles: ['Doctor', 'Nurse', 'Admin', 'Specialist'], category: 'Maternity', module: 'module_maternity' },
+  { to: '/maternity/postnatal', label: 'Postnatal', icon: Heart, roles: ['Doctor', 'Nurse', 'Admin', 'Specialist'], category: 'Maternity', module: 'module_maternity' },
   // ── Records ──
   { to: '/records/patients', label: 'Patient Records', icon: Users, roles: ['Records', 'Admin'], category: 'Records', module: 'module_records' },
   { to: '/records/assignments', label: 'Assignments', icon: UserCheck, roles: ['Records', 'Admin'], category: 'Records', module: 'module_records' },
@@ -206,6 +225,10 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/paypoint/patients', label: 'Pending Patients', icon: Users, roles: ['Paypoint', 'Admin'], category: 'Finance', module: 'module_paypoint' },
   { to: '/paypoint/billing', label: 'Billing', icon: Receipt, roles: ['Paypoint', 'Admin'], category: 'Finance', module: 'module_paypoint' },
   { to: '/paypoint/history', label: 'Payment History', icon: FileText, roles: ['Paypoint', 'Admin'], category: 'Finance', module: 'module_paypoint' },
+  { to: '/admissions/clearance', label: 'Pending Clearance', icon: ShieldCheck, roles: ['Paypoint', 'Finance', 'Admin'], category: 'Finance' },
+  { to: '/receipts', label: 'Receipts', icon: Receipt, roles: ['Paypoint', 'Finance', 'Admin'], category: 'Finance' },
+  { to: '/expenses', label: 'Expenses', icon: Wallet, roles: ['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Specialist', 'Radiology', 'InsuranceStaff', 'Paypoint', 'Finance', 'Admin'], category: 'Finance' },
+  { to: '/finance/expenses', label: 'Expense Tracker', icon: Wallet, roles: ['Paypoint', 'Finance', 'Admin'], category: 'Finance' },
   { to: '/finance', label: 'Finance / HMO', icon: Banknote, roles: ['Admin'], category: 'Finance', module: 'module_finance_hmo' },
   // ── Insurance ──
   { to: '/admin/insurance/dashboard', label: 'Insurance Dashboard', icon: Shield, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
@@ -220,6 +243,7 @@ const sidebarLinks: SidebarLink[] = [
   // ── Administration ──
 { to: '/services-inventory', label: 'Services Inventory', icon: Building2, roles: ['Admin'], category: 'Administration' },
 { to: '/departments', label: 'Departments', icon: Building2, roles: ['Admin'], category: 'Administration' },
+{ to: '/admin/wards', label: 'Ward Management', icon: Bed, roles: ['Admin'], category: 'Administration' },
 { to: '/audit-logs', label: 'Audit Logs', icon: ScrollText, roles: ['Admin'], category: 'Administration' },
   { to: '/staff', label: 'Staff Management', icon: Users, roles: ['Admin'], category: 'Administration' },
   { to: '/setup', label: 'Setup', icon: Settings, roles: ['Admin'], category: 'Administration' },
@@ -249,7 +273,6 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [user, setUser] = useState<{ name: string; role: string; id?: string } | null>(null)
   const [pendingRxCount, setPendingRxCount] = useState(0)
   const [pendingLabCount, setPendingLabCount] = useState(0)
-  const [completedLabCount, setCompletedLabCount] = useState(0)
   const [unreadLabCount, setUnreadLabCount] = useState(0)
   const [pendingLabOrdersCount, setPendingLabOrdersCount] = useState(0)
   const [pendingAllCount, setPendingAllCount] = useState(0)
@@ -259,6 +282,9 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [consultantResultsCount, setConsultantResultsCount] = useState(0)
   const [completedReferralsUnviewed, setCompletedReferralsUnviewed] = useState(0)
   const [appointmentsCount, setAppointmentsCount] = useState(0)
+  const [pendingClearanceCount, setPendingClearanceCount] = useState(0)
+  const [pendingExpensesCount, setPendingExpensesCount] = useState(0)
+  const [pendingHandoversCount, setPendingHandoversCount] = useState(0)
   const [collapsedCategories, setCollapsedCategories] = useState<string[]>([])
   const [clinic, setClinic] = useState<{ hospital_name?: string; [k: string]: any } | null>(null)
 
@@ -269,106 +295,102 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   }, [])
 
   useEffect(() => {
-    const stored = localStorage.getItem('sretan_user')
-    if (stored) {
-      try { setUser(JSON.parse(stored)) } catch {}
-    }
-    const interval = setInterval(() => {
+    const readUser = () => {
       const stored = localStorage.getItem('sretan_user')
       if (stored) {
         try { setUser(JSON.parse(stored)) } catch {}
       }
-    }, 1000)
-    return () => clearInterval(interval)
+    }
+    readUser()
+    // React to login/logout in another tab instead of re-parsing localStorage
+    // every second (which created a new object and re-rendered the whole sidebar).
+    window.addEventListener('storage', readUser)
+    return () => window.removeEventListener('storage', readUser)
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+    const AUTH = { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }
+
     async function fetchCounts() {
+      // Skip background refresh while the tab is hidden; it is refreshed again
+      // as soon as the tab becomes visible.
+      if (document.hidden) return
       try {
-        const staffId = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return '' })()
-        const [rxRes, labOrdRes, labResRes, unreadLabRes, pendingOrdRes, pendingAllRes, pendingPatsRes, pendingResultsRes, docRadUnreadRes] = await Promise.all([
-          fetch('/api/prescriptions?status=pending', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
-          fetch('/api/lab-orders?status=ordered', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
-          fetch('/api/lab-results?status=completed', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
-          staffId ? fetch(`/api/lab-orders?status=completed&doctor_id=${staffId}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }) : null,
-          fetch('/api/lab-orders?is_paid=false', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
-          fetch('/api/payments/all-pending-items', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
-          fetch('/api/payments/pending-summary', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
-          fetch('/api/lab-results?status=draft', { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }),
-          staffId ? fetch(`/api/radiology-orders?status=completed&doctor_id=${staffId}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } }) : null,
-        ])
-        const rxData = await rxRes.json()
-        const labOrdData = await labOrdRes.json()
-        const labResData = await labResRes.json()
-        setPendingRxCount(Array.isArray(rxData) ? rxData.length : 0)
-        setPendingLabCount(Array.isArray(labOrdData) ? labOrdData.length : 0)
-        setCompletedLabCount(Array.isArray(labResData) ? labResData.length : 0)
-        var labUnreadCount = 0
-        if (unreadLabRes) {
-          const unreadLabData = await unreadLabRes.json()
-          labUnreadCount = Array.isArray(unreadLabData) ? unreadLabData.filter((o: any) => !o.doctor_read_at).length : 0
-          setUnreadLabCount(labUnreadCount)
-        }
-        const pendingOrdData = await pendingOrdRes.json()
-        setPendingLabOrdersCount(Array.isArray(pendingOrdData) ? pendingOrdData.length : 0)
-        const pendingAllData = await pendingAllRes.json()
-        setPendingAllCount(Array.isArray(pendingAllData) ? pendingAllData.length : 0)
-        const pendingPatsData = await pendingPatsRes.json()
-        setPendingPatientsCount(Array.isArray(pendingPatsData) ? pendingPatsData.length : 0)
-        const pendingResultsData = await pendingResultsRes.json()
-        setPendingResultsCount(Array.isArray(pendingResultsData) ? pendingResultsData.filter((r: any) => r.status === 'draft').length : 0)
-        if (docRadUnreadRes) {
-          var docRadData = await docRadUnreadRes.json()
-          var radUnread = Array.isArray(docRadData) ? docRadData.filter((o: any) => !o.doctor_read_at).length : 0
-          var totalCompleted = labUnreadCount + radUnread
+        const stored = localStorage.getItem('sretan_user')
+        const u = stored ? JSON.parse(stored) : null
+        const staffId = u?.id || ''
+
+        // One lightweight request replaces the previous fan-out of heavy list
+        // endpoints that were fetched only to read .length.
+        const countsRes = await fetch(`/api/dashboard/sidebar-counts?staff_id=${encodeURIComponent(staffId)}`, AUTH)
+        const counts = await countsRes.json()
+        if (cancelled) return
+
+        const labUnreadCount = counts?.unread_lab || 0
+        const radUnread = counts?.unread_radiology || 0
+        setPendingRxCount(counts?.pending_rx || 0)
+        setPendingLabCount(counts?.pending_lab || 0)
+        setPendingLabOrdersCount(counts?.pending_lab_orders || 0)
+        setPendingAllCount(counts?.pending_all_items || 0)
+        setPendingPatientsCount(counts?.pending_patients || 0)
+        setPendingResultsCount(counts?.pending_results || 0)
+        setPendingClearanceCount(counts?.pending_clearance || 0)
+        setPendingExpensesCount(counts?.pending_expenses || 0)
+        setPendingHandoversCount(counts?.pending_handovers || 0)
+        setUnreadLabCount(labUnreadCount)
+
+        if (staffId) {
+          let totalCompleted = labUnreadCount + radUnread
           // Subtract items already read via localStorage
           try {
-            var readIds: string[] = JSON.parse(localStorage.getItem('doctor_read_results') || '[]')
+            const readIds: string[] = JSON.parse(localStorage.getItem('doctor_read_results') || '[]')
             totalCompleted = Math.max(0, totalCompleted - readIds.length)
           } catch {}
           setDoctorUnreadResultsCount(totalCompleted)
         } else {
           setDoctorUnreadResultsCount(labUnreadCount)
         }
+
         // Consultant results notification count
-        try {
-          const stored = localStorage.getItem('sretan_user')
-          if (stored) {
-            const u = JSON.parse(stored)
-            if (u.role === 'Consultant' && u.id) {
-              const notifRes = await fetch(`/api/consultants/result-notifications?staff_id=${u.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
-              const notifData = await notifRes.json()
-              setConsultantResultsCount(notifData?.total || 0)
-            }
-          }
-        } catch {}
+        if (u?.role === 'Specialist' && u.id) {
+          try {
+            const notifRes = await fetch(`/api/consultants/result-notifications?staff_id=${u.id}`, AUTH)
+            const notifData = await notifRes.json()
+            if (!cancelled) setConsultantResultsCount(notifData?.total || 0)
+          } catch {}
+        }
         // Unviewed completed referrals badge (Consultant + Doctor in a department)
-        try {
-          const stored = localStorage.getItem('sretan_user')
-          if (stored) {
-            const u = JSON.parse(stored)
-            if ((u.role === 'Consultant' || u.role === 'Doctor') && u.id && u.department_id) {
-              const refRes = await fetch(`/api/consultants/completed-unviewed-count?staff_id=${u.id}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
-              const refData = await refRes.json()
-              setCompletedReferralsUnviewed(refData?.unviewed || 0)
-            }
-          }
-        } catch {}
+        if ((u?.role === 'Specialist' || u?.role === 'Doctor') && u.id && u.department_id) {
+          try {
+            const refRes = await fetch(`/api/consultants/completed-unviewed-count?staff_id=${u.id}`, AUTH)
+            const refData = await refRes.json()
+            if (!cancelled) setCompletedReferralsUnviewed(refData?.unviewed || 0)
+          } catch {}
+        }
         // Upcoming scheduled appointments badge (doctor: own; staff: all)
-        try {
-          const stored = localStorage.getItem('sretan_user')
-          if (stored) {
-            const u = JSON.parse(stored)
-            const aptRes = await fetch(`/api/appointments/scheduled-count?staff_id=${u.id || ''}&role=${u.role || ''}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+        if (u) {
+          try {
+            const aptRes = await fetch(`/api/appointments/scheduled-count?staff_id=${u.id || ''}&role=${u.role || ''}`, AUTH)
             const aptData = await aptRes.json()
-            setAppointmentsCount(aptData?.count || 0)
-          }
-        } catch {}
+            if (!cancelled) setAppointmentsCount(aptData?.count || 0)
+          } catch {}
+        }
       } catch {}
     }
+
+    function handleVisibility() {
+      if (!document.hidden) fetchCounts()
+    }
+
     fetchCounts()
-    const id = setInterval(fetchCounts, 30000)
-    return () => clearInterval(id)
+    const id = setInterval(fetchCounts, 60000)
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
   }, [])
 
   useEffect(() => {
@@ -401,7 +423,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         if (!enabled) return false
       }
       // Consultants only see Maternity links when their department grants it
-      if (role === 'Consultant' && l.category === 'Maternity') {
+      if (role === 'Specialist' && l.category === 'Maternity') {
         try {
           const u = localStorage.getItem('sretan_user')
           const modules = u ? JSON.parse(u).department_modules || [] : []
@@ -414,9 +436,9 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
 
   // For the Consultant role, render Consultant-category items right after
   // Dashboard so their module is the primary menu (Results/Clinical no longer first).
-  const orderedLinks = role === 'Consultant'
+  const orderedLinks = role === 'Specialist'
     ? [...allowedLinks].sort((a, b) => {
-        const rank = (l: any) => l.category === 'Dashboard' ? 0 : l.category === 'Consultant' ? 1 : l.category === 'Maternity' ? 5 : 2
+        const rank = (l: any) => l.category === 'Dashboard' ? 0 : l.category === 'Specialist' ? 1 : l.category === 'Maternity' ? 5 : 2
         return rank(a) - rank(b)
       })
     : allowedLinks
@@ -456,7 +478,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
               if (!grouped[cat]) grouped[cat] = []
               grouped[cat].push(link)
             }
-            const categoryOrder = ['Dashboard', 'Clinical', 'Consultant', 'Laboratory', 'Pharmacy', 'Radiology', 'Maternity', 'Records', 'Finance', 'Insurance', 'Administration']
+            const categoryOrder = ['Dashboard', 'Clinical', 'Specialist', 'Laboratory', 'Pharmacy', 'Radiology', 'Maternity', 'Records', 'Finance', 'Insurance', 'Administration']
             const sorted = Object.entries(grouped).sort(([a], [b]) => {
               const ia = categoryOrder.indexOf(a)
               const ib = categoryOrder.indexOf(b)
@@ -485,7 +507,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                       <NavLink
                         key={to}
                         to={to}
-                        end={to === '/dashboard' || to === '/dispensing'}
+                        end={to === '/dashboard' || to === '/dispensing' || to === '/radiology'}
                         onClick={onClose}
                         className={({ isActive }) =>
                           `flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
@@ -509,6 +531,15 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                         {to === '/paypoint/patients' && pendingPatientsCount > 0 && (
                           <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingPatientsCount}</span>
                         )}
+                        {to === '/admissions/clearance' && pendingClearanceCount > 0 && (
+                          <span className="ml-auto px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">{pendingClearanceCount}</span>
+                        )}
+                        {to === '/finance/expenses' && pendingExpensesCount > 0 && (
+                          <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingExpensesCount}</span>
+                        )}
+                        {to === '/nurse/handover' && pendingHandoversCount > 0 && (
+                          <span className="ml-auto px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 text-[10px] font-bold">{pendingHandoversCount}</span>
+                        )}
                         {to === '/appointments' && appointmentsCount > 0 && (
                           <span className="ml-auto px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold">{appointmentsCount}</span>
                         )}
@@ -523,7 +554,7 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
               <NavLink
                 key={to}
                 to={to}
-                end={to === '/dashboard' || to === '/dispensing'}
+                end={to === '/dashboard' || to === '/dispensing' || to === '/radiology'}
                 onClick={onClose}
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
@@ -550,16 +581,25 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
                 {to === '/paypoint/patients' && pendingPatientsCount > 0 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingPatientsCount}</span>
                 )}
+                {to === '/admissions/clearance' && pendingClearanceCount > 0 && (
+                  <span className="ml-auto px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">{pendingClearanceCount}</span>
+                )}
+                {to === '/finance/expenses' && pendingExpensesCount > 0 && (
+                  <span className="ml-auto px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold">{pendingExpensesCount}</span>
+                )}
+                {to === '/nurse/handover' && pendingHandoversCount > 0 && (
+                  <span className="ml-auto px-2 py-0.5 rounded-full bg-teal-100 text-teal-700 text-[10px] font-bold">{pendingHandoversCount}</span>
+                )}
                 {to === '/appointments' && appointmentsCount > 0 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold">{appointmentsCount}</span>
                 )}
-                {to === '/consultant/patients' && (role === 'Consultant' || role === 'Doctor') && completedReferralsUnviewed > 1 && (
+                {to === '/specialist/patients' && (role === 'Specialist' || role === 'Doctor') && completedReferralsUnviewed > 1 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-bold">{completedReferralsUnviewed}</span>
                 )}
                 {to === '/doctor/results' && role === 'Doctor' && doctorUnreadResultsCount > 0 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-bold">{doctorUnreadResultsCount}</span>
                 )}
-                {to === '/doctor/results' && role === 'Consultant' && consultantResultsCount > 0 && (
+                {to === '/doctor/results' && role === 'Specialist' && consultantResultsCount > 0 && (
                   <span className="ml-auto px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold">{consultantResultsCount}</span>
                 )}
                 {to === '/lab/results' && role === 'Doctor' && unreadLabCount > 0 && (
@@ -635,12 +675,32 @@ function LoadingFallback() {
 
 function DashboardRouter() {
   var role = getRole()
+  if (role === 'Lab Scientist') return <LabDashboard />
+  if (role === 'Radiology') return <Navigate to="/radiology" replace />
   if (role === 'Records') return <RecordsDashboard />
   if (role === 'Finance') return <Navigate to="/finance/dashboard" replace /> 
   if (role === 'Paypoint') return <Navigate to="/paypoint/dashboard" replace /> 
   if (role === 'Pharmacist') return <PharmacyDashboard />
-  if (role === 'Consultant') return <ConsultantDashboard />
+  if (role === 'Specialist') return <ConsultantDashboard />
+  if (role === 'Nurse') return <NurseDashboard />
   return <PatientDashboard />
+}
+
+// Old /consultant/* links keep working by redirecting to /specialist/*.
+function LegacyConsultantRedirect() {
+  const location = useLocation()
+  const suffix = location.pathname.replace(/^\/consultant/, '')
+  const target = suffix.startsWith('/dashboard')
+    ? '/specialist/patients'
+    : `/specialist${suffix || '/patients'}`
+  return <Navigate to={target + location.search} replace />
+}
+
+function MaternityHome() {
+  var role = getRole()
+  // Records' maternity home is the comprehensive register; /maternity fuses into it.
+  if (role === 'Records') return <Navigate to="/maternity/patients" replace />
+  return <MaternityGuard><MaternityDashboard /></MaternityGuard>
 }
 
 function HomeRedirect() {
@@ -648,6 +708,7 @@ function HomeRedirect() {
   if (!role) return <Navigate to="/login" replace />
   if (role === 'InsuranceStaff') return <Navigate to="/insurance/dashboard" replace />
   if (role === 'SuperAdmin') return <Navigate to="/superadmin" replace />
+  if (role === 'Radiology') return <Navigate to="/radiology" replace />
   return <Navigate to="/dashboard" replace />
 }
 
@@ -714,7 +775,7 @@ export default function App() {
             path="/dashboard"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin', 'Finance', 'Consultant']}>
+                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Paypoint', 'Admin', 'Finance', 'Specialist']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <DashboardRouter />
                   </Suspense>
@@ -774,7 +835,7 @@ export default function App() {
             path="/referrals"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Nurse', 'Consultant', 'Admin']}>
+                <ProtectedRoute roles={['Doctor', 'Specialist', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <ReferralManagement />
                   </Suspense>
@@ -783,10 +844,10 @@ export default function App() {
             }
           />
           <Route
-            path="/consultant/dashboard"
+            path="/specialist/dashboard"
             element={
               <Layout>
-                <ProtectedRoute roles={['Consultant', 'Admin']}>
+                <ProtectedRoute roles={['Specialist', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <ConsultantDashboard />
                   </Suspense>
@@ -795,10 +856,10 @@ export default function App() {
             }
           />
           <Route
-            path="/consultant/patients"
+            path="/specialist/patients"
             element={
               <Layout>
-                <ProtectedRoute roles={['Consultant', 'Admin', 'Doctor']}>
+                <ProtectedRoute roles={['Specialist', 'Admin', 'Doctor']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <ReferredPatients />
                   </Suspense>
@@ -807,10 +868,10 @@ export default function App() {
             }
           />
           <Route
-            path="/consultant/my-consultations"
+            path="/specialist/my-consultations"
             element={
               <Layout>
-                <ProtectedRoute roles={['Consultant', 'Admin']}>
+                <ProtectedRoute roles={['Specialist', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <ConsultantConsultations />
                   </Suspense>
@@ -819,10 +880,10 @@ export default function App() {
             }
           />
           <Route
-            path="/consultant/consultation/:patientId"
+            path="/specialist/consultation/:patientId"
             element={
               <Layout>
-                <ProtectedRoute roles={['Consultant', 'Admin']}>
+                <ProtectedRoute roles={['Specialist', 'Admin', 'Doctor']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <ConsultantConsultation />
                   </Suspense>
@@ -830,6 +891,8 @@ export default function App() {
               </Layout>
             }
           />
+          {/* Legacy /consultant/* links redirect to /specialist/* */}
+          <Route path="/consultant/*" element={<LegacyConsultantRedirect />} />
           <Route
             path="/departments"
             element={
@@ -837,6 +900,18 @@ export default function App() {
                 <ProtectedRoute roles={['Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <DepartmentsAdmin />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/admin/wards"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <WardManagement />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>
@@ -858,7 +933,7 @@ export default function App() {
             path="/doctor/results"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Consultant']}>
+                <ProtectedRoute roles={['Doctor', 'Specialist']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <DoctorResults />
                   </Suspense>
@@ -882,7 +957,7 @@ export default function App() {
             path="/patients"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse', 'Records', 'Paypoint', 'Consultant']}>
+                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse', 'Records', 'Paypoint', 'Specialist']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <MyPatients />
                   </Suspense>
@@ -894,7 +969,7 @@ export default function App() {
             path="/patient/:patientId"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse', 'Consultant']}>
+                <ProtectedRoute roles={['Doctor', 'Admin', 'Nurse', 'Specialist']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <PatientChart />
                   </Suspense>
@@ -906,7 +981,7 @@ export default function App() {
             path="/my-prescriptions"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Admin', 'Consultant']}>
+                <ProtectedRoute roles={['Doctor', 'Admin', 'Specialist']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <DoctorPrescriptions />
                   </Suspense>
@@ -972,14 +1047,14 @@ export default function App() {
           <Route path="/radiology/review" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyReview /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/radiology/orders" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyOrders /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/radiology/history" element={<Layout><ProtectedRoute roles={['Admin', 'Radiology']}><Suspense fallback={<LoadingFallback />}><RadiologyHistory /></Suspense></ProtectedRoute></Layout>} />
-                    <Route path="/maternity" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityDashboard /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/booking" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityBooking /></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/patients" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityPatientList /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/patients/:id" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityPatientDetail /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/anc" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityANCWorklist /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/labour" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityLabourWard /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/labour-summary" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityLabourSummary /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
-          <Route path="/maternity/postnatal" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Consultant']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityPostnatalWard /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
+                    <Route path="/maternity" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin', 'Specialist']}><Suspense fallback={<LoadingFallback />}><MaternityHome /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/booking" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin']}><Suspense fallback={<LoadingFallback />}><MaternityBooking /></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/patients" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin', 'Specialist']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityPatientList /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/patients/:id" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin', 'Specialist']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityPatientDetail /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/anc" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Specialist']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityANCWorklist /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/labour" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Specialist']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityLabourWard /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/labour-summary" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Specialist']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityLabourSummary /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
+          <Route path="/maternity/postnatal" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Specialist']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityPostnatalWard /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
           <Route
             path="/services-inventory" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><ServiceInventory /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance/dashboard" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinanceDashboard /></Suspense></ProtectedRoute></Layout>} />
@@ -1158,7 +1233,7 @@ export default function App() {
             path="/appointments"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin', 'Consultant']}>
+                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Admin', 'Specialist']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <AppointmentsPage />
                   </Suspense>
@@ -1179,10 +1254,70 @@ export default function App() {
             }
           />
           <Route
+            path="/admissions/clearance"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Paypoint', 'Finance', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <AdmissionClearance />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/receipts"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Paypoint', 'Finance', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <ReceiptsPage />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/finance/expenses"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Paypoint', 'Finance', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <ExpenseTracker />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/expenses"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Doctor', 'Nurse', 'Records', 'Pharmacist', 'Lab Scientist', 'Specialist', 'Radiology', 'InsuranceStaff', 'Paypoint', 'Finance', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <ExpensesPage />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/nurse/handover"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Nurse', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <NurseHandover />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
             path="/admissions"
             element={
               <Layout>
-                <ProtectedRoute roles={['Doctor', 'Nurse', 'Admin']}>
+                <ProtectedRoute roles={['Doctor', 'Specialist', 'Nurse', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <AdmissionsPage />
                   </Suspense>

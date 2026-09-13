@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import api from '../hooks/useAxios'
-import ConsultantTag from './ConsultantTag'
+import SpecialistTag from './SpecialistTag'
 import {
   ClipboardList, Loader2, Search, ArrowLeft, Pill, Clock, Filter
 } from 'lucide-react'
@@ -103,8 +103,8 @@ export default function DispensingHistory() {
                     <td className="px-5 py-3.5 font-medium text-slate-800">
                       <span className="inline-flex items-center gap-2">
                         {rx.drug_name}
-                        {(rx.is_consultation || rx.doctor_role === 'Consultant') && (
-                          <ConsultantTag departmentName={rx.department_name} />
+                        {(rx.is_consultation || rx.doctor_role === 'Specialist') && (
+                          <SpecialistTag departmentName={rx.department_name} />
                         )}
                       </span>
                     </td>

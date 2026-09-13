@@ -127,8 +127,8 @@ export default function FinanceDashboard() {
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
               <div className="flex items-center gap-3 mb-3"><Banknote size={20} className="text-emerald-500" /><h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Today</h3></div>
               <p className="text-2xl font-bold text-emerald-600">₦{parseFloat(stats.today_revenue || 0).toLocaleString()}</p>
-              <p className="text-xs text-slate-400 mt-1">{stats.today_count || 0} transactions</p>
-              <p className="text-[11px] text-emerald-600 mt-1 font-medium">Profit ₦{parseFloat(stats.today_profit || 0).toLocaleString()}</p>
+              <p className="text-xs text-slate-400 mt-1">{stats.today_count || 0} transactions · Gross ₦{Number(stats.today_gross_profit ?? 0).toLocaleString()} · Exp ₦{Number(stats.today_expenses || 0).toLocaleString()}</p>
+              <p className="text-[11px] text-emerald-700 mt-1 font-semibold">Net Profit ₦{parseFloat(stats.today_profit || 0).toLocaleString()}</p>
             </div>
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
               <div className="flex items-center gap-3 mb-3"><TrendingUp size={20} className="text-blue-500" /><h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">This Week</h3></div>
@@ -141,8 +141,8 @@ export default function FinanceDashboard() {
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
               <div className="flex items-center gap-3 mb-3"><Banknote size={20} className="text-purple-500" /><h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Revenue</h3></div>
               <p className="text-2xl font-bold text-purple-600">₦{parseFloat(stats.total_revenue || 0).toLocaleString()}</p>
-              <p className="text-xs text-slate-400 mt-1">{stats.total_transactions || 0} total transactions</p>
-              <p className="text-[11px] text-purple-600 mt-1 font-medium">Gross Profit ₦{parseFloat(stats.total_profit || 0).toLocaleString()}</p>
+              <p className="text-xs text-slate-400 mt-1">{stats.total_transactions || 0} transactions · Gross ₦{Number(stats.total_gross_profit ?? 0).toLocaleString()} · Exp ₦{Number(stats.total_expenses || 0).toLocaleString()}</p>
+              <p className="text-[11px] text-purple-700 mt-1 font-semibold">Net Profit ₦{parseFloat(stats.total_profit || 0).toLocaleString()}</p>
             </div>
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
               <div className="flex items-center gap-3 mb-3"><Receipt size={20} className="text-amber-500" /><h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Avg per Transaction</h3></div>

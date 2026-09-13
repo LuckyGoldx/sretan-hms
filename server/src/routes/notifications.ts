@@ -1,12 +1,47 @@
 import { Router, Request, Response } from 'express';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
+import { subscribeNotifications } from '../notifications/stream';
 
 const router = Router();
 
 function getTenantId(): string {
   return readClinicProfile().GLOBAL_SAAS_TENANT_ID;
 }
+
+// GET /api/notifications/stream -- Server-Sent Events push for a recipient.
+// Pushes an event whenever a notification row is inserted for this recipient
+// (via the notifications NOTIFY trigger). Clients keep a slow polling fallback.
+router.get('/api/notifications/stream', (req: Request, res: Response) => {
+  const tenantId = getTenantId();
+  const recipientId = String(req.query.recipient_id || '');
+  if (!recipientId) {
+    res.status(400).json({ error: true, message: 'recipient_id is required' });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  // no-transform stops the compression middleware from buffering the stream.
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  (res as any).flushHeaders?.();
+  res.write('event: ready\ndata: {}\n\n');
+
+  const unsubscribe = subscribeNotifications(tenantId, recipientId, res);
+  const heartbeat = setInterval(() => {
+    try { res.write(': keep-alive\n\n'); } catch {}
+  }, 25000);
+  if (typeof heartbeat.unref === 'function') heartbeat.unref();
+
+  const cleanup = () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+    try { res.end(); } catch {}
+  };
+  req.on('close', cleanup);
+  req.on('error', cleanup);
+});
 
 // GET /api/notifications -- list notifications for a recipient
 router.get('/api/notifications', async (req: Request, res: Response) => {

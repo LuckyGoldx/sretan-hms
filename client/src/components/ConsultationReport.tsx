@@ -94,7 +94,7 @@ export default function ConsultationReport({ referralId, onClose }: { referralId
                 )}
                 {data.referral?.outcome_note && (
                   <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 col-span-2">
-                    <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-1">Consultant Outcome</p>
+                    <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-1">Specialist Outcome</p>
                     <p className="text-sm text-slate-700">{data.referral.outcome_note}</p>
                   </div>
                 )}
@@ -109,7 +109,7 @@ export default function ConsultationReport({ referralId, onClose }: { referralId
                     <div key={enc.id} className="border border-slate-200 rounded-xl overflow-hidden">
                       <div className="flex items-center gap-2 bg-indigo-50 px-4 py-2.5 flex-wrap">
                         <Stethoscope className="w-4 h-4 text-indigo-600 flex-shrink-0" />
-                        <span className="text-sm font-semibold text-slate-800 flex-shrink-0">Consultation by {enc.staff_name || 'Consultant'}</span>
+                        <span className="text-sm font-semibold text-slate-800 flex-shrink-0">Consultation by {enc.staff_name || 'Specialist'}</span>
                         <span className="text-xs text-slate-400 flex-shrink-0">{enc.department_name || '—'}</span>
                         <span className="text-xs text-slate-400 ml-auto">{new Date(enc.created_at).toLocaleString()}</span>
                       </div>

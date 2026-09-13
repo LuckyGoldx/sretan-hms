@@ -24,6 +24,7 @@ interface ReferredPatient {
   reason: string
   referral_notes: string
   outcome_note: string
+  referred_by?: string | null
   referred_by_name: string
   referred_at: string
   accepted_by_name?: string | null
@@ -68,7 +69,7 @@ function PriorityBadge({ priority }: { priority: string }) {
   return <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-[10px] font-bold"><Clock className="w-3 h-3" /> ROUTINE</span>
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, doctorName, startedAt }: { status: string; doctorName?: string | null; startedAt?: string | null }) {
   const map: Record<string, string> = {
     pending: 'bg-amber-100 text-amber-700',
     accepted: 'bg-blue-100 text-blue-700',
@@ -77,9 +78,18 @@ function StatusBadge({ status }: { status: string }) {
     rejected: 'bg-rose-100 text-rose-700',
     cancelled: 'bg-slate-100 text-slate-500',
   }
+  const tip = status === 'in_consultation'
+    ? [doctorName ? `In consultation with ${doctorName}` : null, startedAt ? `Started ${new Date(startedAt).toLocaleString()}` : null].filter(Boolean).join(' · ')
+    : ''
   return (
-    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${map[status] || 'bg-slate-100 text-slate-600'}`}>
-      {status.replace('_', ' ')}
+    <span className="group relative inline-flex">
+      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${map[status] || 'bg-slate-100 text-slate-600'}`}>
+        {status.replace('_', ' ')}</span>
+      {tip && (
+        <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:block whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-[10px] font-normal normal-case text-white shadow-lg">
+          {tip}
+        </span>
+      )}
     </span>
   )
 }
@@ -208,7 +218,7 @@ export default function ReferredPatients() {
     const params = new URLSearchParams({ consultant: '1', referral_id: p.referral_id })
     const userDept = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).department_id } catch {} return '' })()
     if (userDept) params.set('department_id', userDept)
-    navigate(`/consultant/consultation/${p.patient_id}?${params.toString()}`)
+    navigate(`/specialist/consultation/${p.patient_id}?${params.toString()}`)
   }
 
   const statCards = [
@@ -350,7 +360,7 @@ export default function ReferredPatients() {
                   </td>
                   <td className="px-5 py-3"><PriorityBadge priority={p.priority} /></td>
                   <td className="px-5 py-3">
-                    <StatusBadge status={p.referral_status} />
+                    <StatusBadge status={p.referral_status} doctorName={p.accepted_by_name} startedAt={p.accepted_at} />
                     {tab === 'active' && <div className="mt-1.5"><ConsultantFeeBadge p={p} /></div>}
                   </td>
                   <td className="px-5 py-3 max-w-[200px]">
@@ -369,7 +379,7 @@ export default function ReferredPatients() {
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex items-center justify-end gap-2 flex-wrap">
-                      {p.referral_status === 'pending' && (
+                      {p.referral_status === 'pending' && p.referred_by !== currentStaffId && (
                         <>
                           <button
                             onClick={() => acceptReferral(p)}
@@ -387,7 +397,7 @@ export default function ReferredPatients() {
                           </button>
                         </>
                       )}
-                      {(p.referral_status === 'accepted' || p.referral_status === 'in_consultation') && (
+                      {(p.referral_status === 'accepted' || p.referral_status === 'in_consultation') && p.referred_by !== currentStaffId && (
                         <button
                           onClick={() => openConsultation(p)}
                           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-600 text-xs font-medium hover:bg-indigo-100"

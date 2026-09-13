@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import api from '../hooks/useAxios'
-import { printPaymentReceipt } from '../utils/print'
+import { printPaymentReceipt, printDepositReceipt } from '../utils/print'
 import {
   Search, X, Loader2, Receipt, Plus, Trash2, Printer, CreditCard, Building2, Landmark, Smartphone, CheckCircle, ArrowLeft, User, Banknote, FileText, Clock, Package, FlaskConical, Scan, Pill, Home, ShoppingCart, Shield, ChevronLeft, ChevronRight,
 } from 'lucide-react'
@@ -536,24 +536,30 @@ export default function PaypointCheckout() {
       {/* Receipt Modal */}
       {showReceipt && receipt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowReceipt(false)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="p-6 text-center border-b border-slate-100">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[85vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 text-center border-b border-slate-100 flex-shrink-0">
               <div className="w-14 h-14 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-3"><CheckCircle size={28} className="text-emerald-600" /></div>
-              <h2 className="text-lg font-semibold text-slate-800">Payment Successful</h2>
+              <h2 className="text-lg font-semibold text-slate-800">{receipt.is_deposit ? 'Deposit Received' : 'Payment Successful'}</h2>
               <p className="text-xs text-slate-400 mt-1">Receipt #{receipt.receipt_number}</p>
             </div>
-            <div className="p-6 space-y-3">
+            <div className="p-6 space-y-3 overflow-y-auto flex-1">
               <div className="text-center pb-3 border-b border-slate-100">
                 <p className="text-sm font-bold text-slate-800">{receipt.patient_name || receipt.walkin_name || 'Walk-in Customer'}</p>
                 {receipt.hospital_number && <p className="text-xs text-slate-400">#{receipt.hospital_number}</p>}
               </div>
+              {receipt.is_deposit && (
+                <p className="text-[11px] text-teal-700 bg-teal-50 border border-teal-100 rounded-lg px-3 py-1.5 text-center">Deposit on account — the items below are the bills it settled.</p>
+              )}
               <div className="space-y-2">
-                {(receipt.items || []).map((item: any, i: number) => (
+                {((receipt.is_deposit ? receipt.covered_items : receipt.items) || []).map((item: any, i: number) => (
                   <div key={i} className="flex justify-between text-sm">
                     <span className="text-slate-600 flex-1 truncate">{item.description}</span>
-                    <span className="font-medium text-slate-800 ml-4">₦{(item.total_price || 0).toLocaleString()}</span>
+                    <span className="font-medium text-slate-800 ml-4">₦{Number(item.total_price ?? item.amount ?? 0).toLocaleString()}</span>
                   </div>
                 ))}
+                {receipt.is_deposit && (receipt.covered_items || []).length === 0 && (
+                  <p className="text-xs text-slate-400 text-center">Held as credit on account — not yet applied to a specific bill.</p>
+                )}
               </div>
               <div className="flex justify-between text-sm font-bold text-slate-800 pt-3 border-t border-slate-100">
                 <span>Total</span><span>₦{(receipt.total_amount || 0).toLocaleString()}</span>
@@ -564,8 +570,8 @@ export default function PaypointCheckout() {
               </div>
               {receipt.staff_name && <p className="text-xs text-slate-400 text-center pt-1">Processed by: {receipt.staff_name}</p>}
             </div>
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
-              <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50"><Printer size={14} /> Print</button>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
+              <button onClick={() => { if (receipt.is_deposit) printDepositReceipt(receipt, receipt.covered_items); else printPaymentReceipt(receipt) }} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50"><Printer size={14} /> Print</button>
               <button onClick={() => setShowReceipt(false)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
             </div>
           </div>

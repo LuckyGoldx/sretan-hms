@@ -6,7 +6,9 @@ import DoctorComment from './DoctorComment'
 import ReferralModal from './ReferralModal'
 import ConsultationReport from './ConsultationReport'
 import CollapsibleReason from './CollapsibleReason'
-import ConsultantTag from './ConsultantTag'
+import SpecialistTag from './SpecialistTag'
+import FunctionalHealthPatterns from './FunctionalHealthPatterns'
+import ReadMore from './ReadMore'
 import type { Patient, Encounter } from '../types'
 import { Trash2 } from 'lucide-react'
 import {
@@ -15,6 +17,8 @@ import {
   FileText, X, Plus, CheckCircle, Edit2, Mic, Printer, FileImage, Baby, Calendar as CalIcon, Heart, PenLine, Shield,
   Building2, Zap, Send
 } from 'lucide-react'
+
+const HANDOVER_FLAGS = ['Deteriorating', 'Isolation', 'Falls risk', 'Allergies', 'NPO', 'IV / Lines', 'Pressure areas', 'Pending results', 'Critical']
 
 const PER_PAGE = 15
 const VITALS_PER_PAGE = 20
@@ -201,6 +205,8 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
   const [radPage, setRadPage] = useState(1)
   const [vitPage, setVitPage] = useState(1)
   const [nurseNotes, setNurseNotes] = useState<any[]>([])
+  const [handoverForm, setHandoverForm] = useState<any | null>(null)
+  const [handoverView, setHandoverView] = useState<any | null>(null)
   const [treatments, setTreatments] = useState<any[]>([])
   const [fluidBalance, setFluidBalance] = useState<any[]>([])
   const [fluidSessions, setFluidSessions] = useState<any[]>([])
@@ -420,14 +426,19 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
   const isDoctor = currentUser?.role === 'Doctor'
   const currentStaffId = currentUser?.id || ''
   const myDeptId = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).department_id || '' } catch {} return '' })()
-  // A consultant may consult only patients actively referred to their department
-  const isPatientReferredToMe = role === 'Consultant' && !!myDeptId && referrals.some((r: any) =>
+  // A specialist (or a doctor in the referred department) may consult only when
+  // the patient is actively referred to their department.
+  const isPatientReferredToMe = (role === 'Specialist' || isDoctor) && !!myDeptId && referrals.some((r: any) =>
     r.to_department_id === myDeptId && ['pending', 'accepted', 'in_consultation'].includes(r.status)
   )
+  // A doctor cannot consult a patient they themselves referred (to their dept/a specialist).
+  const referredByMe = referrals.some((r: any) =>
+    r.referred_by === currentStaffId && ['pending', 'accepted', 'in_consultation'].includes(r.status)
+  )
   // Consult / Transfer are only available when this patient is assigned to (or claimed by)
-  // the viewing doctor/consultant.
+  // the viewing doctor/consultant, or actively referred to their department.
   const isAssignedToMe = !!(patient?.assigned_doctor_id && patient.assigned_doctor_id === currentStaffId)
-  const canConsultPatient = (isDoctor && isAssignedToMe) || (role === 'Consultant' && isPatientReferredToMe)
+  const canConsultPatient = ((isDoctor && isAssignedToMe) || ((role === 'Specialist' || isDoctor) && isPatientReferredToMe)) && !referredByMe
   const isAdmin = currentUser?.role === 'Admin'
   const isRecords = currentUser?.role === 'Records'
   const canManagePolicies = isAdmin || isRecords
@@ -777,8 +788,19 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
   if (!patient) return <div className="flex flex-col items-center justify-center min-h-[60vh] text-slate-400"><AlertTriangle size={32} /><p className="text-sm mt-2">Patient not found</p></div>
 
   const doctorNotes = nurseNotes.filter((n: any) => n.note_type === 'doctor')
-  const nurseOnlyNotes = nurseNotes.filter((n: any) => n.note_type !== 'doctor')
+  const handoverNotes = nurseNotes.filter((n: any) => n.note_type === 'handover')
+    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  // Handover notes are editable only within 24h, and only by their creator
+  // (Admin/SuperAdmin may also edit within that window).
+  const canEditHandover = (n: any) => {
+    if (!n) return false
+    if (Date.now() - new Date(n.created_at).getTime() > 24 * 60 * 60 * 1000) return false
+    if (currentUser?.role === 'Admin' || currentUser?.role === 'SuperAdmin') return true
+    return n.staff_id === currentUser?.id
+  }
+  const nurseOnlyNotes = nurseNotes.filter((n: any) => n.note_type !== 'doctor' && n.note_type !== 'handover')
   const soapEncounters = encounters.filter((e: any) => e.soap_notes && (e.soap_notes.subjective || e.soap_notes.objective || e.soap_notes.assessment || e.soap_notes.plan || e.soap_notes.notes))
+  const activeAdmissionRecord = admissions.find((a: any) => a.status === 'active')
 
   const sections = [
     { id: 'summary', label: 'Summary', icon: FileText },
@@ -788,12 +810,15 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
     { id: 'lab', label: labOrders.length > 0 ? `Lab (${labOrders.length})` : 'Lab', icon: FlaskConical },
     { id: 'radiology', label: radOrders.length > 0 ? `Radiology (${radOrders.length})` : 'Radiology', icon: Scan },
     { id: 'admissions', label: admissions.length > 0 ? `Admissions (${admissions.length})` : 'Admissions', icon: Bed },
+    // Holistic nursing assessment, offered only while the patient is admitted.
+    ...(admissions.some((a: any) => a.status === 'active') ? [{ id: 'fhp', label: 'Health Patterns', icon: Activity }] : []),
     { id: 'treatment_sheet', label: `Tx Sheet (${treatments.filter((t: any) => t.status === 'active').length})`, icon: Pill },
     { id: 'treatment_summary', label: `Tx Summary (${treatments.length})`, icon: ClipboardList },
     { id: 'fluid_balance', label: fluidSessions.length > 0 ? `Fluid (${fluidSessions.length})` : 'Fluid', icon: Droplets },
     { id: 'maternity', label: 'Maternity', icon: Baby },
     { id: 'referrals', label: referrals.length > 0 ? `Referrals (${referrals.length})` : 'Referrals', icon: Building2 },
     { id: 'insurance', label: 'Insurance', icon: Shield },
+    { id: 'handover_notes', label: handoverNotes.length > 0 ? `Handover (${handoverNotes.length})` : 'Handover', icon: ClipboardList },
     { id: 'nurse_clinical_notes', label: nurseOnlyNotes.length > 0 ? `Nurses Clin. Notes (${nurseOnlyNotes.length})` : 'Nurses Clin. Notes', icon: FileText },
     { id: 'doctor_clinical_notes', label: (doctorNotes.length + soapEncounters.length) > 0 ? `Doctors Cli. Notes (${doctorNotes.length + soapEncounters.length})` : 'Doctors Cli. Notes', icon: Stethoscope },
   ]
@@ -825,7 +850,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
             <span>&middot; {patient.sex} &middot; DOB: {patient.dob?.slice(0, 10)} &middot; {patient.blood_type || 'N/A'}</span>
           </p>
         </div>
-        {!hideBack && (isNurse || isDoctor || role === 'Consultant' ? (
+        {!hideBack && (isNurse || isDoctor || role === 'Specialist' ? (
           <div className="w-full lg:w-auto flex items-center gap-2 lg:ml-auto pt-2 lg:pt-0">
             {(isNurse || isDoctor || role === 'Admin') && (
               <button onClick={() => { setShowVitalsForm(true); setActiveSection('vitals') }}
@@ -1109,8 +1134,8 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
                       <td className="px-5 py-3 text-xs text-slate-600">
                         <span className="inline-flex items-center gap-1.5">
                           {rx.doctor_name || '—'}
-                          {(rx.is_consultation || rx.doctor_role === 'Consultant') && (
-                            <ConsultantTag departmentName={rx.department_name} />
+                          {(rx.is_consultation || rx.doctor_role === 'Specialist') && (
+                            <SpecialistTag departmentName={rx.department_name} />
                           )}
                         </span>
                       </td>
@@ -1152,8 +1177,8 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
                   <div className="flex items-center gap-2 sm:gap-3 text-xs text-slate-500 flex-wrap">
                     {lab.doctor_name && (
                       <span className="inline-flex items-center gap-1.5">Ordered by: <strong>{lab.doctor_name}</strong>
-                        {(lab.is_consultation || lab.doctor_role === 'Consultant') && (
-                          <ConsultantTag departmentName={lab.department_name} />
+                        {(lab.is_consultation || lab.doctor_role === 'Specialist') && (
+                          <SpecialistTag departmentName={lab.department_name} />
                         )}
                       </span>
                     )}
@@ -1386,8 +1411,8 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
                     <div className="flex items-center gap-2 sm:gap-3 text-[11px] text-slate-500 flex-wrap">
                       {rad.doctor_name && (
                         <span className="inline-flex items-center gap-1.5">Ordered by: <strong>{rad.doctor_name}</strong>
-                          {(rad.is_consultation || rad.doctor_role === 'Consultant') && (
-                            <ConsultantTag departmentName={rad.department_name} />
+                          {(rad.is_consultation || rad.doctor_role === 'Specialist') && (
+                            <SpecialistTag departmentName={rad.department_name} />
                           )}
                         </span>
                       )}
@@ -1467,6 +1492,17 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
         </div>
       )}
 
+      {/* Functional Health Patterns (inpatients only) */}
+      {activeSection === 'fhp' && (
+        activeAdmissionRecord ? (
+          <FunctionalHealthPatterns admissionId={activeAdmissionRecord.id} active />
+        ) : (
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center text-sm text-slate-400">
+            Functional Health Patterns are recorded only while the patient is admitted.
+          </div>
+        )
+      )}
+
       {/* Prescription Detail Modal */}
       {modalRx && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setModalRx(null)}>
@@ -1517,7 +1553,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
                 </div>
                 <div className="flex items-center gap-2">
                   {modalEnc.is_consultation && (
-                    <ConsultantTag departmentName={modalEnc.department_name} />
+                    <SpecialistTag departmentName={modalEnc.department_name} />
                   )}
                 </div>
                 <div><span className="text-slate-500">Created:</span> <span className="font-medium text-slate-700">{new Date(modalEnc.created_at).toLocaleString()}</span></div>
@@ -1795,6 +1831,136 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
             </div>
           ))}
           <Pagination page={vitPage} totalPages={Math.max(1, Math.ceil(vitalsList.length / VITALS_PER_PAGE))} onChange={setVitPage} />
+        </div>
+      )}
+
+      {/* Handover Notes Tab */}
+      {activeSection === 'handover_notes' && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-slate-700">Handover Notes</h2>
+            {(isNurse || isAdmin) && (
+              <button onClick={() => setHandoverForm({ editingId: null, priority: 'routine', flags: [], situation: '', background: '', assessment: '', recommendation: '', pending_tasks: '', contingency: '', voice_notes: {} })}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-white text-xs font-medium hover:scale-[1.01] transition-transform"><Plus size={14} /> Record Handover</button>
+            )}
+          </div>
+          {handoverNotes.length === 0 ? <p className="text-sm text-slate-400 text-center py-8">No handover notes recorded</p> : (
+            <div className="space-y-3">
+              {usePagination(handoverNotes, notePage).items.map((n: any) => (
+                <button key={n.id} type="button" onClick={() => { setHandoverView(n); api.post(`/nurse-notes/${n.id}/view`, { viewed_by: currentUser?.id }).catch(() => {}) }}
+                  className="w-full text-left p-4 rounded-xl bg-slate-50 border border-slate-100 hover:bg-slate-100 hover:border-slate-200 transition-colors">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2 text-xs text-slate-400">
+                      <span>{new Date(n.created_at).toLocaleString()}</span>
+                      {n.staff_name && <span>by <strong>{n.staff_name}</strong></span>}
+                    </div>
+                    {n.priority && <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold capitalize ${n.priority === 'critical' ? 'bg-rose-100 text-rose-700' : n.priority === 'watch' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{n.priority}</span>}
+                  </div>
+                  <p className="mt-1 text-sm text-slate-700">
+                    <span className="font-medium">Summary: </span>
+                    {String(n.assessment || n.situation || n.content || '').replace(/^\[Shift handover[^\]]*\]\n?/, '').slice(0, 160)}
+                    {String(n.assessment || n.situation || n.content || '').length > 160 ? '…' : ''}
+                  </p>
+                  {(n.flags || []).length > 0 && <div className="flex flex-wrap gap-1 mt-1">{n.flags.map((f: string) => <span key={f} className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-medium">{f}</span>)}</div>}
+                  <span className="text-[10px] text-primary font-medium mt-1 inline-block">View details →</span>
+                </button>
+              ))}
+              <Pagination page={notePage} totalPages={usePagination(handoverNotes, notePage).totalPages} onChange={setNotePage} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Structured handover modal (same format as the shift handover) */}
+      {handoverForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setHandoverForm(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-2xl mx-4 max-h-[92vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <h2 className="text-base font-semibold text-slate-800">{handoverForm.editingId ? 'Edit Handover Note' : 'Record Handover'}</h2>
+              <button onClick={() => setHandoverForm(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-3 overflow-y-auto flex-1">
+              <div className="flex flex-wrap gap-2 items-center">
+                <select value={handoverForm.priority} onChange={(e) => setHandoverForm((s: any) => ({ ...s, priority: e.target.value }))} className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs bg-white outline-none">
+                  <option value="routine">Routine</option><option value="watch">Watch</option><option value="critical">Critical</option>
+                </select>
+                <div className="flex flex-wrap gap-1">
+                  {HANDOVER_FLAGS.map((f) => (
+                    <button key={f} type="button" onClick={() => setHandoverForm((s: any) => { const cur = s.flags || []; return { ...s, flags: cur.includes(f) ? cur.filter((x: string) => x !== f) : [...cur, f] } })}
+                      className={`px-2 py-1 rounded-full text-[10px] font-medium border ${(handoverForm.flags || []).includes(f) ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-white text-slate-500 border-slate-200'}`}>{f}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {([['situation', 'Situation'], ['background', 'Background'], ['assessment', 'Assessment'], ['recommendation', 'Recommendation'], ['pending_tasks', 'Pending tasks'], ['contingency', 'If…then (contingency)']] as const).map(([k, label]) => (
+                  <div key={k}>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-medium text-slate-600">{label}:</label>
+                      <VoiceInput value={handoverForm[k] || ''} onChange={(val) => setHandoverForm((s: any) => ({ ...s, [k]: val }))} textareaId={`handover-${k}`} />
+                    </div>
+                    <textarea id={`handover-${k}`} rows={2} value={handoverForm[k] || ''} onChange={(e) => setHandoverForm((s: any) => ({ ...s, [k]: e.target.value }))} placeholder={label} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs outline-none resize-y" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100 flex-shrink-0">
+              <button onClick={() => setHandoverForm(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium bg-white">Cancel</button>
+              <button onClick={async () => {
+                const f = handoverForm
+                const payload = { patient_id: patientId, staff_id: currentUser?.id, actor_id: currentUser?.id, note_type: 'handover', actor_role: role, priority: f.priority, flags: f.flags || [], situation: f.situation, background: f.background, assessment: f.assessment, recommendation: f.recommendation, pending_tasks: f.pending_tasks, contingency: f.contingency, voice_notes: f.voice_notes || {} }
+                try {
+                  if (f.editingId) await api.put(`/nurse-notes/${f.editingId}`, payload)
+                  else await api.post('/nurse-notes', payload)
+                  setHandoverForm(null)
+                  const r = await api.get(`/nurse-notes?patient_id=${patientId}`); setNurseNotes(r.data || [])
+                } catch (e: any) { alert(e?.response?.data?.message || 'Failed to save handover note.') }
+              }} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">{handoverForm.editingId ? 'Save' : 'Record Handover'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Handover summary modal */}
+      {handoverView && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setHandoverView(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-2xl mx-4 max-h-[92vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 flex-shrink-0">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800">Handover Note</h2>
+                <p className="text-xs text-slate-400">{new Date(handoverView.created_at).toLocaleString()}{handoverView.staff_name ? ` · by ${handoverView.staff_name}` : ''}</p>
+              </div>
+              <button onClick={() => setHandoverView(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-2 overflow-y-auto flex-1 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                {handoverView.priority && <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold capitalize ${handoverView.priority === 'critical' ? 'bg-rose-100 text-rose-700' : handoverView.priority === 'watch' ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>{handoverView.priority}</span>}
+                {(handoverView.flags || []).map((f: string) => <span key={f} className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-medium">{f}</span>)}
+              </div>
+              {(['situation', 'background', 'assessment', 'recommendation', 'pending_tasks', 'contingency'] as const).some((k) => handoverView[k]) ? (
+                <div className="space-y-2">
+                  {([['situation', 'Situation'], ['background', 'Background'], ['assessment', 'Assessment'], ['recommendation', 'Recommendation'], ['pending_tasks', 'Pending tasks'], ['contingency', 'If…then (contingency)']] as const).map(([k, label]) => handoverView[k] ? (
+                    <div key={k} className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3">
+                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide mb-0.5">{label}</p>
+                      <ReadMore text={handoverView[k]} limit={300} className="text-sm text-slate-700" />
+                    </div>
+                  ) : null)}
+                </div>
+              ) : (
+                <div className="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3"><ReadMore text={handoverView.content} limit={300} className="text-sm text-slate-700" /></div>
+              )}
+              {handoverView.voice_notes && Object.keys(handoverView.voice_notes).length > 0 && (
+                <div className="flex flex-wrap gap-3">
+                  {Object.entries(handoverView.voice_notes).map(([k, url]) => url ? <div key={k} className="text-[10px] text-slate-400"><span className="capitalize">{k.replace('_', ' ')}</span><audio controls src={String(url)} className="h-6 mt-0.5" /></div> : null)}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100 flex-shrink-0">
+              <button onClick={() => setHandoverView(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium bg-white">Close</button>
+              {canEditHandover(handoverView) && (
+                <button onClick={() => { setHandoverForm({ editingId: handoverView.id, priority: handoverView.priority || 'routine', flags: handoverView.flags || [], situation: handoverView.situation || '', background: handoverView.background || '', assessment: handoverView.assessment || '', recommendation: handoverView.recommendation || '', pending_tasks: handoverView.pending_tasks || '', contingency: handoverView.contingency || '', voice_notes: handoverView.voice_notes || {} }); setHandoverView(null) }} className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium"><Edit2 size={14} /> Edit</button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -2976,7 +3142,6 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
                 className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm bg-white focus:ring-2 focus:ring-primary outline-none">
                 <option value="general">General Note</option>
                 <option value="observation">Observation</option>
-                <option value="handover">Handover</option>
                 <option value="incident">Incident Report</option>
                 <option value="care_plan">Care Plan Update</option>
               </select>
@@ -2994,7 +3159,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
                 if (!noteContent.trim() || !patientId) return
                 setNoteSubmitting(true)
                 try {
-                  await api.post('/nurse-notes', { patient_id: patientId, staff_id: currentUser?.id, note_type: noteType, content: noteContent })
+                  await api.post('/nurse-notes', { patient_id: patientId, staff_id: currentUser?.id, note_type: noteType, content: noteContent, actor_role: role })
                   setShowNoteModal(false)
                   setNoteContent('')
                   const res = await api.get(`/nurse-notes?patient_id=${patientId}`)
@@ -3080,14 +3245,21 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
                       <span className="font-mono text-xs font-semibold text-slate-700">{r.referral_number}</span>
                       {r.priority === 'emergency' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold"><Zap size={10} /> EMERGENCY</span>}
                       {r.priority === 'urgent' && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-bold"><Zap size={10} /> URGENT</span>}
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
-                        r.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
-                        r.status === 'rejected' ? 'bg-rose-100 text-rose-700' :
-                        r.status === 'cancelled' ? 'bg-slate-100 text-slate-500' :
-                        r.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
-                        r.status === 'in_consultation' ? 'bg-violet-100 text-violet-700' :
-                        'bg-amber-100 text-amber-700'
-                      }`}>{r.status.replace('_', ' ')}</span>
+                      <span className="group relative inline-flex">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${
+                          r.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                          r.status === 'rejected' ? 'bg-rose-100 text-rose-700' :
+                          r.status === 'cancelled' ? 'bg-slate-100 text-slate-500' :
+                          r.status === 'accepted' ? 'bg-blue-100 text-blue-700' :
+                          r.status === 'in_consultation' ? 'bg-violet-100 text-violet-700' :
+                          'bg-amber-100 text-amber-700'
+                        }`}>{r.status.replace('_', ' ')}</span>
+                        {r.status === 'in_consultation' && (r.accepted_by_name || r.accepted_at) && (
+                          <span className="pointer-events-none absolute left-0 top-full mt-1 z-50 hidden group-hover:block whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-[10px] font-normal normal-case text-white shadow-lg">
+                            {[r.accepted_by_name ? `In consultation with ${r.accepted_by_name}` : null, r.accepted_at ? `Started ${new Date(r.accepted_at).toLocaleString()}` : null].filter(Boolean).join(' · ')}
+                          </span>
+                        )}
+                      </span>
                       <span className="text-xs text-slate-400">{new Date(r.created_at).toLocaleString()}</span>
                     </div>
                     {r.to_department_name && (
@@ -3287,7 +3459,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 text-center">
               <Baby size={48} className="text-slate-300 mx-auto mb-3" />
               <p className="text-sm text-slate-500 mb-4">No pregnancy record found</p>
-              {patient?.sex === 'Female' && (
+              {patient?.sex === 'Female' && ['Doctor', 'Nurse', 'Admin'].includes(role) && (
                 <button onClick={() => setShowMaternityBooking(true)}
                   className="px-6 py-2 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
                   Book Pregnancy
@@ -3381,11 +3553,17 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
               <button onClick={() => setShowMaternityBooking(false)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium">Cancel</button>
               <button onClick={async () => {
                 try {
-                  await fetch('/api/maternity-patients', {
+                  const res = await fetch('/api/maternity-patients', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
                     body: JSON.stringify({ ...maternityBookingForm, patient_id: patientId, booked_by: currentUser?.id }),
                   })
+                  if (!res.ok) {
+                    let message = 'Failed to book pregnancy'
+                    try { const data = await res.json(); if (data?.message) message = data.message } catch {}
+                    alert(message)
+                    return
+                  }
                   setShowMaternityBooking(false)
                   setMaternityBookingForm({})
                   window.location.reload()

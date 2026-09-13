@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import { printRadiologyReport } from '../utils/print'
 import DoctorComment from './DoctorComment'
-import ConsultantTag from './ConsultantTag'
+import SpecialistTag from './SpecialistTag'
 import {
   Scan, Loader2, FileText, X, Search, Clock, ArrowLeft, CheckCircle, FileImage, Printer,
 } from 'lucide-react'
@@ -144,8 +144,8 @@ export default function RadiologyResults() {
                 <div className="flex items-center gap-3 min-w-0 flex-1">
                   <Scan size={15} className="text-indigo-500 flex-shrink-0" />
                   <span className="text-sm font-semibold text-slate-800 truncate">{o.imaging_type}</span>
-                  {(o.is_consultation || o.doctor_role === 'Consultant') && (
-                    <ConsultantTag departmentName={o.department_name} />
+                  {(o.is_consultation || o.doctor_role === 'Specialist') && (
+                    <SpecialistTag departmentName={o.department_name} />
                   )}
                   <span className={`px-2 py-0.5 rounded-lg text-[10px] font-medium flex-shrink-0 bg-emerald-100 text-emerald-700`}>Completed</span>
                   {o.imaging_number && <span className="text-xs text-slate-400 font-mono flex-shrink-0">{o.imaging_number}</span>}
@@ -199,8 +199,8 @@ export default function RadiologyResults() {
                   <p className="text-xs text-slate-500 mb-1">Ordered By</p>
                   <p className="text-sm font-semibold">{detail.doctor_name || '—'}</p>
                   <p className="text-[10px] text-slate-400 mt-0.5">{new Date(detail.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-                  {(detail.is_consultation || detail.doctor_role === 'Consultant') && (
-                    <div className="mt-1.5"><ConsultantTag departmentName={detail.department_name} size="sm" /></div>
+                  {(detail.is_consultation || detail.doctor_role === 'Specialist') && (
+                    <div className="mt-1.5"><SpecialistTag departmentName={detail.department_name} size="sm" /></div>
                   )}
                 </div>
               </div>

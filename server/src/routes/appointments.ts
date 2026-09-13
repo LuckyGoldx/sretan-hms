@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
+import { parsePagination } from '../utils/pagination';
 
 const router = Router();
 
@@ -67,6 +68,9 @@ router.get('/api/appointments', async (req: Request, res: Response) => {
     if (date_to) { query += ` AND a.appointment_date <= $${idx}`; params.push(date_to); idx++; }
 
     query += ' ORDER BY a.appointment_date DESC';
+    const { limit, offset } = parsePagination(req.query);
+    query += ` LIMIT $${idx} OFFSET $${idx + 1}`;
+    params.push(limit, offset);
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err: any) {
@@ -83,7 +87,7 @@ router.get('/api/appointments/scheduled-count', async (req: Request, res: Respon
     let query = `SELECT COUNT(*)::int as count FROM appointments
                  WHERE tenant_id = $1 AND status = 'scheduled' AND appointment_date >= NOW()`;
     const params: any[] = [tenantId];
-    if (role === 'Doctor' || role === 'Consultant') {
+    if (role === 'Doctor' || role === 'Specialist') {
       if (!staffId) { res.json({ count: 0 }); return; }
       query += ` AND doctor_id = $2`;
       params.push(staffId);

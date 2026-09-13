@@ -92,7 +92,7 @@ const MODULES = [
   { key: 'module_triage', label: 'Triage' },
   { key: 'module_doctor', label: 'Doctor' },
   { key: 'module_nurses', label: 'Nurses' },
-  { key: 'module_consultants', label: 'Consultants' },
+  { key: 'module_consultants', label: 'Specialists' },
   { key: 'module_consultation', label: 'Consultation' },
   { key: 'module_laboratory', label: 'Laboratory' },
   { key: 'module_pharmacy', label: 'Pharmacy' },
@@ -107,11 +107,11 @@ const MODULES = [
   { key: 'module_store', label: 'Store / Walk-in Sales' },
 ]
 
-const ROLES = ['Doctor', 'Nurse', 'Lab Scientist', 'Pharmacist', 'Records', 'Paypoint', 'Admin', 'Finance', 'Radiology', 'Consultant']
+const ROLES = ['Doctor', 'Nurse', 'Lab Scientist', 'Pharmacist', 'Records', 'Paypoint', 'Admin', 'Finance', 'Radiology', 'Specialist']
 const TIERS = [
   { value: 'standard', label: 'Standard', desc: 'Core hospital modules — Records, Triage, Doctor, Nurses, Consultation.' },
   { value: 'premium', label: 'Premium', desc: 'Adds Laboratory, Pharmacy, Radiology, Paypoint, Finance/HMO and Store.' },
-  { value: 'enterprise', label: 'Enterprise', desc: 'Adds Maternity, Insurance, Referrals/Consultants, Appointments and Admissions.' },
+  { value: 'enterprise', label: 'Enterprise', desc: 'Adds Maternity, Insurance, Referrals/Specialists, Appointments and Admissions.' },
 ]
 const STATUSES = [
   { value: 'active', label: 'Active', desc: 'Hospital is fully operational and staff can log in.' },
@@ -209,6 +209,10 @@ export default function SuperAdminTenantDetail() {
   const [typedName, setTypedName] = useState('')
   const [masterCode, setMasterCode] = useState('')
   const [showMasterCode, setShowMasterCode] = useState(false)
+  // Deleting a hospital requires downloading a fresh backup first.
+  const [backupName, setBackupName] = useState('')
+  const [backupBusy, setBackupBusy] = useState(false)
+  const [backupDone, setBackupDone] = useState(false)
 
   async function fetchAll() {
     setLoading(true)
@@ -250,11 +254,54 @@ export default function SuperAdminTenantDetail() {
     }
   }
 
+  function resetDeleteFlow() {
+    setDeleteStep(1); setTypedName(''); setMasterCode('')
+    setBackupName(''); setBackupDone(false); setBackupBusy(false)
+  }
+
+  // Creates a fresh backup of the hospital and downloads it to the operator's
+  // machine. Deletion stays locked until this completes.
+  async function handleDownloadDeleteBackup() {
+    if (!tenant) return
+    setBackupBusy(true)
+    setMessage(null)
+    try {
+      const created = await api.post(`/superadmin/tenants/${tenant.id}/backup`)
+      const name: string = created.data?.name
+      if (!name) throw new Error('Backup was not created')
+      const token = localStorage.getItem('sretan_superadmin_token') || ''
+      const res = await fetch(`/api/superadmin/tenants/${tenant.id}/backups/${name}/download`, {
+        headers: { 'x-superadmin-token': token },
+      })
+      if (!res.ok) throw new Error('Backup download failed')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = name
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      setBackupName(name)
+      setBackupDone(true)
+      setMessage({ type: 'success', text: `Backup downloaded: ${name}` })
+    } catch (err: any) {
+      setMessage({ type: 'error', text: err.response?.data?.message || err.message || 'Backup download failed' })
+    } finally {
+      setBackupBusy(false)
+    }
+  }
+
   async function handleDelete() {
     if (!tenant) return
+    if (!backupDone || !backupName) {
+      setMessage({ type: 'error', text: 'Download a backup of this hospital before deleting it.' })
+      return
+    }
     setDeleting(true)
     try {
-      await api.delete(`/superadmin/tenants/${tenant.id}`, { data: { master_code: masterCode } })
+      await api.delete(`/superadmin/tenants/${tenant.id}`, { data: { master_code: masterCode, backup_name: backupName } })
       navigate('/superadmin/hospitals')
     } catch (err: any) {
       setMessage({ type: 'error', text: err.response?.data?.message || 'Delete failed' })
@@ -313,7 +360,7 @@ export default function SuperAdminTenantDetail() {
             {activating ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogIn className="w-4 h-4" />}
             Enter Hospital
           </button>
-          <button onClick={() => { setShowDeleteConfirm(true); setDeleteStep(1); setTypedName(''); setMasterCode('') }}
+          <button onClick={() => { resetDeleteFlow(); setShowDeleteConfirm(true) }}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-50 text-rose-600 text-sm font-medium hover:bg-rose-100 transition-all">
             <Trash2 className="w-4 h-4" />
             Delete
@@ -358,7 +405,7 @@ export default function SuperAdminTenantDetail() {
                 {deleteStep === 2 && 'Delete Hospital — Confirm Name'}
                 {deleteStep === 3 && 'Delete Hospital — Enter Master Code'}
               </h2>
-              <button onClick={() => { if (!deleting) { setShowDeleteConfirm(false); setDeleteStep(1); setTypedName(''); setMasterCode('') } }} className="p-1 rounded-lg hover:bg-slate-100">
+              <button onClick={() => { if (!deleting) { setShowDeleteConfirm(false); resetDeleteFlow() } }} className="p-1 rounded-lg hover:bg-slate-100">
                 <X className="w-5 h-5 text-slate-400" />
               </button>
             </div>
@@ -406,9 +453,42 @@ export default function SuperAdminTenantDetail() {
                   <div className="flex items-start gap-3 p-4 bg-amber-50 rounded-xl border border-amber-200">
                     <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
                     <p className="text-sm text-amber-800">
-                      Final step. Enter the superadmin master code to permanently delete this hospital.
+                      Final step. Download a backup of this hospital, then enter the superadmin master code to permanently delete it.
                     </p>
                   </div>
+
+                  {/* Mandatory backup download */}
+                  <div className={`rounded-xl border p-4 space-y-3 ${backupDone ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50'}`}>
+                    <div className="flex items-center gap-2">
+                      <Database className={`w-4 h-4 ${backupDone ? 'text-emerald-600' : 'text-slate-500'}`} />
+                      <p className="text-sm font-semibold text-slate-800">Step 1 · Download a backup</p>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      A complete backup of this hospital's data must be created and downloaded to your machine before deletion is allowed.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleDownloadDeleteBackup}
+                      disabled={backupBusy || deleting}
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all disabled:opacity-50 ${
+                        backupDone
+                          ? 'bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-100'
+                          : 'bg-slate-800 text-white hover:bg-slate-900'
+                      }`}
+                    >
+                      {backupBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      {backupBusy ? 'Preparing backup...' : backupDone ? 'Download backup again' : 'Download Backup'}
+                    </button>
+                    {backupDone ? (
+                      <p className="text-xs text-emerald-700 flex items-center gap-1.5">
+                        <CheckCircle className="w-3.5 h-3.5" /> Backup downloaded: <span className="font-mono">{backupName}</span>
+                      </p>
+                    ) : (
+                      <p className="text-xs text-amber-600">Deletion stays locked until the backup finishes downloading.</p>
+                    )}
+                  </div>
+
+                  <p className="text-sm font-semibold text-slate-800">Step 2 · Master code</p>
                   <div className="relative">
                     <input
                       type={showMasterCode ? 'text' : 'password'}
@@ -431,7 +511,7 @@ export default function SuperAdminTenantDetail() {
             <div className="flex items-center justify-end gap-3 px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl">
               <button
                 onClick={() => {
-                  if (deleteStep > 1) { setDeleteStep(deleteStep - 1) } else { setShowDeleteConfirm(false); setTypedName(''); setMasterCode('') }
+                  if (deleteStep > 1) { setDeleteStep(deleteStep - 1) } else { setShowDeleteConfirm(false); resetDeleteFlow() }
                 }}
                 disabled={deleting}
                 className="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition-all"
@@ -452,7 +532,8 @@ export default function SuperAdminTenantDetail() {
               ) : (
                 <button
                   onClick={handleDelete}
-                  disabled={deleting || !masterCode.trim()}
+                  disabled={deleting || !masterCode.trim() || !backupDone}
+                  title={!backupDone ? 'Download a backup before deleting' : undefined}
                   className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 transition-all duration-200 disabled:opacity-50"
                 >
                   {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}

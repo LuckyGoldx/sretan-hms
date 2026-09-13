@@ -1858,3 +1858,206 @@ client/src/components/DoctorConsultation.tsx — maternity info banner
 | `049_seed_consultant.sql` | Default consultant account (self-healing) |
 
 *End of Session Summary — August 26, 2026 (Consultant & Referral Module)*
+
+---
+
+## Session 2026-09-04 to 2026-09-10 - Admission Billing, Ward-Linked Inventory, Discharge Summaries, Audit Logs
+
+**Commit:** `f57ef84` (pushed to `origin/master`), preceded by `215ba10`.
+**Scope:** consultant dashboard sorting, insurance patient filters, two-part admission billing, ward-linked/keyed inventory, discharge summaries, cost snapshotting, finance profit, folder-fee inventory pricing, admin audit logs.
+
+### 1. Consultant Dashboard - Referrals sorted newest first
+- `ConsultantDashboard.tsx`: "Recent Referred Patients" and "Referrals I Sent" now sort newest-first (`referred_at`, `created_at`).
+- Emergency banner scans the **full** sorted queue (`queueAll`), so an older pending emergency is never hidden by the top-5 preview.
+
+### 2. Insurance Patients - date + provider filters
+- `server/src/routes/insuranceCases.ts` `GET /api/insurance/patients` accepts `provider_id`, `date_from`, `date_to`, `limit`.
+- Date filter matches the patient's **latest activity across insurance AND clinical records**: insurance cases, policies, visits, encounters (consultations), vitals, prescriptions, lab orders, radiology orders, treatments, fluid balance, nurse notes, admissions.
+- `GET /api/insurance/providers?with_patients=1` returns only providers that have patients (with `patient_count`).
+- `InsurancePatients.tsx`: date dropdown (All time / Today / This week / This month / Custom range), From-To pickers, provider dropdown, Clear, stale-response guard, "Last activity" line.
+
+### 3. Admission billing model (two-part, 24h from admission time)
+- **Admission Fee** = one-time hospital-wide processing fee (Inventory item, key `ADMISSION_FEE`). Paying it sets `admissions.is_paid = true`, which unlocks bed assignment.
+- **Bed Fee** = per-ward "..(Per Night)" Inventory item (key `BED_DAY`, linked to the ward by `ward_id`). Accrues one row per started 24h block anchored at the doctor-entered admission time, **Day 1..N**, stopping at discharge. Days already created keep their amount (price snapshot per day).
+- Exact-boundary rule: discharging exactly on a 24h boundary does not add the next day; any partial day counts as a full day.
+- Unpaid Admission Fee and bed days remain payable **after discharge** (pending queries no longer filter to active admissions).
+- Internal table: `admission_daily_charges` (unique `(admission_id, day_index)`, `amount` snapshot, `is_paid`, `payment_id`). Utility: `server/src/utils/admissionBilling.ts` (`billableBedDays`, `resolveWardPerNight`, `resolveOneTimeAdmissionFee`, `accrueBedCharges`).
+
+### 4. Admission workflow, permissions & UI
+- `POST /api/admissions` accepts `admitted_at` (future rejected). Only active **Doctor** or **Admin** may admit. A **Doctor may only admit a patient assigned to them or that they claimed** (`patients.assigned_doctor_id = admitted_by`); Admin may admit anyone; Nurse/others 403.
+- Discharge is not ownership-restricted - any Doctor/Admin can discharge any admission.
+- New shared `AdmitToWardModal.tsx`: date fixed to today, **time defaults to now but is adjustable**, ward select, shows the ward's bed rate, surfaces server errors inline.
+- Admit buttons added to: `MyPatients` cards, `DoctorConsultation` header (works for normal and maternity patients), and `AssignmentBoard` assigned rows **when consultation has started** (`visit_status === 'with_doctor'`). Admit shows only when NOT already in ward; otherwise Discharge from Ward shows.
+
+### 5. Discharge summary
+- Migrations `067`: `admissions.discharge_summary`, `admissions.discharge_instructions`.
+- `DischargeModal.tsx`: comprehensive modal - required Discharge Summary + optional Instructions/Follow-up; submits `PUT /api/admissions/:id/discharge`.
+- `DischargeSummaryModal.tsx`: read-only viewer used from the **Admission History** tab in `AdmissionsPage` (rows show a "Discharge Summary" button when present).
+- Used by `MyPatients`, `DoctorConsultation`, `AssignmentBoard`, `ActivePatients`, `AdmissionsPage`.
+
+### 6. Ward-linked / keyed inventory (rename-safe billing)
+- `inventory_items.ward_id` (FK -> wards) and `inventory_items.service_key` added; **unique index = one active linked bed item per ward**.
+- Keys: `BED_DAY` (per ward, by `ward_id`), `ADMISSION_FEE`, `FOLDER_ACTIVATION`.
+- Resolution order everywhere (paypoint pending, all-pending, cost snapshots, accrual): **key/link first, legacy name-search only as fallback**. Renaming wards or items is cosmetic and cannot break billing.
+- **Bug found and fixed:** substring linking matched "Female Ward.." to "Male Ward" (text "male ward" occurs inside "female ward"). Migrations `071`/`072` now use **prefix matching** (item name starts with ward name) plus a repair pass; all 8 wards verified linked to the correct item.
+
+### 7. Ward management UI (Admin)
+- `AdmissionsPage` "Wards & Bed Rates" panel: edit any ward's price-per-night and **Add Ward** (name, code, price).
+- Server: `GET /api/wards` now returns each ward's `bed_rate` from its linked item; `POST /api/wards` creates the ward **and its linked bed item** in one transaction (duplicate name -> 409); `PUT /api/wards/:id` updates the linked item's price (creates the linked item if missing) and writes an audit log.
+
+### 8. Cost / selling price snapshots and finance profit
+- Paypoint: every paid line in `payment_items` stores `unit_price` (selling price at sale) **and `cost_price`** resolved at payment time (prescription/lab/radiology source row, admission fee, bed day, folder, pharmacy/general).
+- OTC walk-in sales: `otc_sales.cost_price` added (migration `070`), captured at sale from Inventory.
+- Bed days: each day row stores its own selling price when it accrues (old days keep old price; new days use new price).
+- Finance: `GET /api/payments/revenue/stats` returns `total_cost`/`today_cost`/`total_profit`/`today_profit`; `GET /api/payments/revenue/by-service` returns `cost`/`profit`. All computed from **stored snapshots**, so later price changes never distort history. `FinanceDashboard` shows Profit/Gross Profit; `WalkInSales` shows Sales/Cost/Gross Profit chips.
+- Audit of inventory price/cost edits: `PUT /api/inventory/:id` writes an old->new `audit_logs` row when price/cost changes.
+
+### 9. Folder Activation Fee
+- No longer hard-coded NGN5,000. Read from the linked Inventory item (key `FOLDER_ACTIVATION`); if absent or priced 0 the Paypoint line shows price 0 with `needsPrice = true` ("no price set"). Raising the price in Inventory changes new pending charges immediately.
+
+### 10. Admin Audit Logs (new)
+- Server: `server/src/routes/audit.ts` `GET /api/audit-logs` (Admin only, tenant-scoped) with filters `table_name`, `action`, `search` (inside old/new data), `date_from`, `date_to`, `limit`.
+- Client: `AdminAuditLogs.tsx` route `/audit-logs`, sidebar **Administration -> Audit Logs** (Admin only); results table + Details popup showing before/after JSON.
+
+### 11. Migrations added (066-072)
+| File | Purpose |
+|------|---------|
+| `066_admission_bed_charges.sql` | `wards.daily_rate` (legacy) + `admission_daily_charges` table |
+| `067_discharge_summary.sql` | `admissions.discharge_summary`, `discharge_instructions` |
+| `068_ward_per_night_items.sql` | Seeds missing per-ward "..(Per Night)" inventory items |
+| `069_admission_processing_fee.sql` | Seeds hospital-wide one-time "Admission Fee" item |
+| `070_otc_cost_price.sql` | `otc_sales.cost_price` |
+| `071_ward_linked_inventory_keys.sql` | `inventory_items.ward_id` + `service_key`, unique active-per-ward index, canonical linking (prefix) |
+| `072_repair_ward_links.sql` | Repairs substring mislinks, re-links by prefix (idempotent) |
+
+Note: `wards.daily_rate` from `066` is now legacy/unused; the live source is the ward-linked Inventory item.
+
+### 12. Key files changed / added
+- **Server:** `routes/admissions.ts`, `routes/payments.ts`, `routes/insuranceCases.ts`, `routes/otcSales.ts`, `routes/pharmacy.ts`, `routes/audit.ts` (new), `utils/admissionBilling.ts` (new), `server.ts`.
+- **Client:** `AdmitToWardModal.tsx` (new), `DischargeModal.tsx` (new), `DischargeSummaryModal.tsx` (new), `AdminAuditLogs.tsx` (new), `App.tsx`, `MyPatients.tsx`, `DoctorConsultation.tsx`, `AssignmentBoard.tsx`, `ActivePatients.tsx`, `AdmissionsPage.tsx`, `FinanceDashboard.tsx`, `WalkInSales.tsx`, `PaypointPending.tsx`, `PaypointCheckout.tsx`, `PaypointPatients.tsx`.
+- Earlier in this window: `ConsultantDashboard.tsx`, `InsurancePatients.tsx`, insurance providers server route.
+
+### 13. Verification performed
+- Server + client `tsc --noEmit` and production builds pass throughout.
+- Live API tests (running local server + PostgreSQL): accrual day counts, two-part day-1/day-2 charges, payment marking, discharge stopping further accrual, ward create/update, duplicate ward rejection, rename-safety (ward item renamed to unrelated text -> rate still resolved), keyed admission/folder fee rename-safety, inventory price audit, insurance date/provider filters, finance profit delta, OTC cost snapshot.
+- All test rows/payments/admissions/audit entries were cleaned up; test ward deleted; prices restored.
+
+### 14. Caveats / notes for the next developer
+1. **Historical costs are zero** for payments recorded before snapshotting - their profit shows as full revenue. It cannot be reconstructed as "cost at time of sale"; only new payments are accurate.
+2. **Existing long-stay active admissions** accrue bed days retroactively once ward rates exist. This is intended "per started day" behavior.
+3. **Ward bed rates** are set per ward in Admissions -> Wards & Bed Rates (or in Inventory on the linked item). Keep one canonical linked item per ward - the unique index enforces it.
+4. **Inventory renames** are safe for linked/keyed items; for other service/drug items, Paypoint price/cost lookups still match by name (expected).
+5. The `daily_rate` column on `wards` is legacy and no longer read by billing.
+
+*End of Session Summary - September 10, 2026 (Admission Billing, Ward-Linked Inventory, Discharge Summaries, Audit Logs)*
+
+---
+
+## Session 2026-09-10 (cont.) — Performance Remediation (P0/P1/P2)
+
+**Source plan:** `PERFORMANCE_ANALYSIS.md` (full codebase performance review).
+**Scope:** Implement the report's prioritized P0 → P2 remediation: missing indexes, the `clockGuard` full-table scan, per-request config disk I/O, the sidebar polling storm, compression/asset caching, the heavy paypoint queries, N+1 writes, unbounded lists, bed-charge accrual, polling visibility, startup migrations, and notification push.
+**Status:** P0, P1 and P2 (except P2-12) implemented and verified on the live server/PostgreSQL. No commits made.
+
+### 1. Database indexes (P0-1)
+
+- `database/073_pg_trgm_extension.sql` — `CREATE EXTENSION IF NOT EXISTS pg_trgm;` (kept in its own file so a permission failure cannot abort the index file; migrations run one file per query).
+- `database/074_performance_indexes.sql` — ~45 idempotent indexes for the hot filter/join columns: patients, encounters, vitals, prescriptions, lab_orders, lab_results, radiology_orders, admissions, inventory_items (incl. GIN trigram on `drug_name`, `patients.full_name`, `patients.phone`, `lab_test_catalog.name`), payments, payment_items, appointments, visits, nurse_notes, treatments, treatment_doses, fluid_balance, audit_logs.
+- `database/075_clockguard_indexes.sql` — single-column `created_at`/`updated_at` btree indexes for the tables `clockGuard` is called on, so the guard's `MAX(...)` is an index read.
+- All three applied to the live DB; re-running is a clean no-op.
+
+### 2. `clockGuard` — no more full table scan (P0-2)
+
+- `server/src/middleware/clockGuard.ts`: replaced `SELECT GREATEST(MAX(created_at), MAX(updated_at)) FROM <table>` with two index-backed scalar subqueries. Added strict identifier validation (`^[A-Za-z_][A-Za-z0-9_]*$`) before the interpolated table name, and a warning log when a check is skipped due to a DB error. Security semantics (tamper flag + `ClockGuardError`) unchanged.
+
+### 3. Clinic profile cache (P0-3)
+
+- `server/src/config/reader.ts`: `readClinicProfile()` now serves a module-level cache (returning a shallow copy) instead of a blocking `fs.existsSync` + `readFileSync` + `JSON.parse` on every request. Added `invalidateClinicProfile()`; `writeProfile()` refreshes the cache, and the superadmin restore path (`superadmin.ts`) invalidates after copying `clinic_profile.json`. A best-effort `fs.watch` drops the cache on external edits.
+
+### 4. Sidebar polling storm (P0-4)
+
+- **New** `server/src/routes/dashboard.ts` — `GET /api/dashboard/sidebar-counts?staff_id=` returns every sidebar badge as a cheap indexed `COUNT`/`COUNT(DISTINCT)`: `pending_all_items`, `pending_patients`, `pending_rx`, `pending_lab`, `pending_lab_orders`, `pending_results`, `unread_lab`, `unread_radiology`. It uses the same 8-branch pending logic as the paypoint lists but computes counts only (no per-row price subqueries), and calls `accrueBedCharges` first.
+- `client/src/App.tsx` sidebar: replaced the 9-request fan-out (including `all-pending-items` and `pending-summary`) with this one call; kept the 3 already-cheap badge endpoints (`appointments/scheduled-count`, `consultants/result-notifications`, `consultants/completed-unviewed-count`). Removed the unused `completedLabCount` fetch.
+- Also removed the 1-second `localStorage` re-render interval (P2-13) in favor of a `storage` event listener.
+- Verified exact parity with the old endpoints on live data: `pending_all_items` = 529 = `all-pending-items` rows; `pending_patients` = 15 = `pending-summary` rows; every simple counter matched its list endpoint; doctor-scoped unread `15/6` matched the filtered list results.
+
+### 5. Compression + static caching (P0-5)
+
+- Added `compression` (+ `@types/compression`) and `app.use(compression())` in `server/src/server.ts`.
+- Vite `/assets` served with `maxAge: '1y', immutable: true`; `/uploads` with `7d`.
+- Verified: JS assets and large JSON return `Content-Encoding: gzip`; `/assets/*` returns `Cache-Control: public, max-age=31536000, immutable`.
+
+### 6. Paypoint pending queries (P1-6)
+
+- `server/src/routes/payments.ts`: removed the duplicated per-row `needs_price` subquery in `GET /api/payments/all-pending-items`; it is now derived once in the outer projection (`sub.unit_price <= 0`). Verified 0 mismatches against the old derivation and identical row count (529).
+- Added a shared 5s TTL cache (`server/src/utils/ttlCache.ts`) for `all-pending-items` and `pending-summary`, invalidated on `POST /api/payments`.
+
+### 7. N+1 batching + payment transaction (P1-7)
+
+- `GET /api/payments/pending/:patientId`: replaced the per-row inventory price/cost loop with `loadInventoryPriceMap()` — one `DISTINCT ON (lower(drug_name))` query per category (pharmacy/lab/radiology), preserving the raw value truthiness semantics of the old code.
+- `POST /api/payments`: all writes now run in a single transaction on a dedicated client. Line-item inserts share one commit, and "mark paid" updates are batched per source table (`UPDATE ... WHERE id = ANY($1)`), with folder activation/visit/referral updates batched too. Verified: a clean walk-in payment succeeds; a forced mid-cart failure rolls back with **no** partial payment row; test rows cleaned up.
+
+### 8. Pagination (P1-8)
+
+- **New** `server/src/utils/pagination.ts` (`parsePagination`, default 5000 / max 10000).
+- Applied a bounded default plus optional `?limit=&offset=` to previously unbounded lists: `/api/patients`, `/api/patients/active`, `/api/prescriptions`, `/api/prescriptions/unpaid`, `/api/lab-orders`, `/api/lab-results`, `/api/appointments`, `/api/visits`, `/api/inventory`. Verified `?limit=` returns the requested count and defaults still return full lists.
+- Also in `patients.ts`: removed the duplicated `search` predicate and the unnecessary `SELECT DISTINCT p.*`.
+
+### 9. Incremental bed-charge accrual (P1-9)
+
+- `server/src/utils/admissionBilling.ts`: fetch each active admission's highest billed `day_index` in one grouped query, then insert only missing days in one multi-row `INSERT ... ON CONFLICT DO NOTHING` per admission, with per-ward rate memoization. Verified: deleting day 96 of an active admission and calling an endpoint that accrues recreated it; totals otherwise stable.
+
+### 10. Visibility-aware polling (P1-10)
+
+- **New** `client/src/utils/visibilityPolling.ts` installs a single `window.setInterval` wrapper (from `main.tsx`) that skips callbacks while `document.hidden`. All component intervals are data refreshes, so this pauses ~15 pollers without editing each component. `setTimeout` is untouched.
+- The sidebar also refreshes on `visibilitychange` and polls every 60s instead of 30s.
+
+### 11. Startup & DB hardening (P2-11, P2-14)
+
+- `server/src/db/migrate.ts`: migrations are tracked in a new `schema_migrations` table; only pending files run. Files that apply cleanly (including ignorable "already exists") are recorded; genuinely failed files are retried next boot. Migrations run on a dedicated client with `statement_timeout = 0`.
+- `server/src/server.ts`: `ensureSchema()` still runs before `listen` (only pending migrations now), but `startSyncDaemon`, `startUpdateDaemon` and `detectSchemaChanges` now run **after** `app.listen` (fire-and-forget), so background work cannot delay startup.
+- `server/src/db/pool.ts`: added `statement_timeout = 15000` (env `PG_STATEMENT_TIMEOUT_MS`) and slow-query logging (`SLOW_QUERY_MS`, default 500ms) via a one-time `pool.query` wrapper. Verified `SHOW statement_timeout` = `15s`.
+
+### 12. SSE push notifications (P2-15)
+
+- `database/076_notification_notify.sql`: `AFTER INSERT` trigger on `notifications` → `pg_notify('sretan_notifications', <row json>)`.
+- **New** `server/src/notifications/stream.ts`: one dedicated, non-pooled `LISTEN` connection with subscriber map keyed by `tenant:recipient`, automatic reconnect while subscribers remain, and `notificationSubscriberCount()`.
+- `server/src/routes/notifications.ts`: `GET /api/notifications/stream?recipient_id=` returns `text/event-stream` with `Cache-Control: no-cache, no-transform` (so compression does not buffer it) and a 25s heartbeat.
+- `server/src/db/pool.ts`: exported `pgConfig` + `createListenerClient()`.
+- `client/src/components/NotificationBell.tsx`: opens an `EventSource`, refreshes on push (debounced 500ms), with a 60s polling fallback and focus refresh.
+- Verified end-to-end: stream emitted `event: ready`, then a DB `INSERT` produced `event: notification` with the row payload; test row deleted.
+
+### 13. Migrations added (073-076)
+
+| File | Purpose |
+|------|---------|
+| `073_pg_trgm_extension.sql` | Enable `pg_trgm` for GIN trigram indexes |
+| `074_performance_indexes.sql` | ~45 idempotent performance indexes across hot tables |
+| `075_clockguard_indexes.sql` | `created_at`/`updated_at` indexes for clockGuard tables |
+| `076_notification_notify.sql` | Notification `AFTER INSERT` NOTIFY trigger for SSE |
+
+### 14. Key files changed / added
+
+- **Server new:** `routes/dashboard.ts`, `notifications/stream.ts`, `utils/pagination.ts`, `utils/ttlCache.ts`.
+- **Server changed:** `server.ts`, `db/migrate.ts`, `db/pool.ts`, `config/reader.ts`, `middleware/clockGuard.ts`, `routes/payments.ts`, `routes/patients.ts`, `routes/prescriptions.ts`, `routes/lab.ts`, `routes/appointments.ts`, `routes/visits.ts`, `routes/pharmacy.ts`, `routes/notifications.ts`, `routes/superadmin.ts`, `utils/admissionBilling.ts`, `package.json`/`package-lock.json` (`compression`).
+- **Client new:** `utils/visibilityPolling.ts`.
+- **Client changed:** `App.tsx`, `main.tsx`, `components/NotificationBell.tsx`.
+
+### 15. Verification performed
+
+- Server and client `tsc --noEmit` clean; client production build (`npm run build`) succeeds after each change.
+- Applied all new migrations to the live DB and confirmed idempotency; `schema_migrations` populated (75 + 076).
+- Live endpoint smoke test: 20 key endpoints return 200.
+- Parity tests: sidebar counts vs the list endpoints they replaced; `all-pending-items` needs_price derivation; payment transaction rollback; partial-payment cleanup; incremental bed-day reinsertion; SSE push; gzip/immutable headers; `statement_timeout`.
+- All test rows (payments, notification) were cleaned up.
+
+### 16. Caveats / notes for the next developer
+
+1. **Index creation is not `CONCURRENTLY`.** `migrate.ts` runs each file as one implicit transaction, so `CREATE INDEX CONCURRENTLY` is not possible there. On a large production table, run the statements from `074`/`075` manually with `CONCURRENTLY` in a maintenance window (documented in the file header).
+2. **`statement_timeout = 15s`** applies to pooled queries. Migrations opt out via `SET statement_timeout = 0`. Long ad-hoc reports may need a higher `PG_STATEMENT_TIMEOUT_MS`.
+3. **Pending caches are 5s in-memory**, cleared on payment. Multi-process deployments would have per-process caches; this app is single-process.
+4. **Pagination default cap is 5000** (max 10000) purely as a safety bound; no client passes `limit` yet, so any screen that could exceed 5000 rows should add explicit paging.
+5. **SSE** holds one extra non-pooled DB connection while subscribers are connected; if it drops it reconnects automatically and clients still poll every 60s.
+6. **P2-12 (deferred):** splitting `PatientChart.tsx` (4,708 lines) into per-tab subcomponents, memoizing list rows, and virtualizing long lists. This is a dedicated UI refactor that needs interactive testing and was intentionally not bundled with the server changes.
+
+*End of Session Summary - September 10, 2026 (Performance Remediation)*

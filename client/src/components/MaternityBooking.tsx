@@ -64,7 +64,7 @@ export default function MaternityBooking() {
     if (!selectedPatient) return
     setSubmitting(true)
     try {
-      await fetch('/api/maternity-patients', {
+      const res = await fetch('/api/maternity-patients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-master-token': 'sretan-emr-master-token-2026' },
         body: JSON.stringify({
@@ -73,6 +73,12 @@ export default function MaternityBooking() {
           booked_by: staffId,
         }),
       })
+      if (!res.ok) {
+        let message = 'Booking failed'
+        try { const data = await res.json(); if (data?.message) message = data.message } catch {}
+        alert(message)
+        return
+      }
       setShowModal(false)
       setSelectedPatient(null)
       loadPatients()
@@ -86,7 +92,7 @@ export default function MaternityBooking() {
         <div className="w-10 h-10 rounded-xl bg-pink-100 flex items-center justify-center"><Baby size={22} className="text-pink-600" /></div>
         <div>
           <h1 className="text-xl font-bold text-slate-800">Book Pregnancy</h1>
-          <p className="text-sm text-slate-500">Register a female patient for antenatal care</p>
+          <p className="text-sm text-slate-500">Patients with an activated folder who paid Antenatal Care (Booking) at Paypoint appear here</p>
         </div>
       </div>
 
@@ -102,8 +108,8 @@ export default function MaternityBooking() {
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center py-20 text-slate-400">
           <Baby size={48} className="text-slate-300 mb-3" />
-          <p className="text-sm font-medium">No available female patients</p>
-          <p className="text-xs mt-1">All patients may already have an active pregnancy</p>
+          <p className="text-sm font-medium">No patients ready for booking</p>
+          <p className="text-xs mt-1 text-center max-w-sm">The patient must have an activated folder, pay the Antenatal Care (Booking) fee at Paypoint, and not already have an active pregnancy</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

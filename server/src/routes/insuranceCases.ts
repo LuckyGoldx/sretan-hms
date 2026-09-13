@@ -5,6 +5,7 @@ import { autoSyncClinicalServices } from '../utils/autoSyncServices';
 import { readClinicProfile } from '../config/reader';
 import { generateNumber } from '../utils/numbering';
 import { getCoverageForService, getPatientPrimaryInsurance } from '../utils/coverageLookup';
+import { resolveMaternityUnlock, getPaidMaternityEntitlement, createMaternityEntitlement } from '../utils/maternityEntitlement';
 
 const router = Router();
 
@@ -1103,6 +1104,37 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
     const tenantId = caseResult.rows[0].tenant_id;
     const src = source || 'paypoint';
 
+    // Antenatal booking billed through insurance follows the same rules as
+    // Paypoint: female-only, registered patient, and no existing unused
+    // entitlement. The entitlement is created once the charge is on the case.
+    let insuranceUnlock: Awaited<ReturnType<typeof resolveMaternityUnlock>> = null;
+    for (const item of items) {
+      const inv = await resolveMaternityUnlock(pool, tenantId, item);
+      if (inv) { insuranceUnlock = inv; break; }
+    }
+    if (insuranceUnlock) {
+      const sexRes = await pool.query('SELECT sex, folder_activated FROM patients WHERE id = $1 AND tenant_id = $2', [patientId, tenantId]);
+      if (sexRes.rows.length === 0) {
+        res.status(404).json({ error: true, message: 'Patient not found' });
+        return;
+      }
+      if (insuranceUnlock.gender_restriction && sexRes.rows[0].sex !== insuranceUnlock.gender_restriction) {
+        res.status(400).json({ error: true, message: `${insuranceUnlock.drug_name} can only be billed to ${insuranceUnlock.gender_restriction.toLowerCase()} patients.` });
+        return;
+      }
+      // Folder must be activated before booking; it may be included on the same bill.
+      const folderActivationInItems = items.some((i: any) => i.service_type === 'folder_activation');
+      if (sexRes.rows[0].folder_activated === false && !folderActivationInItems) {
+        res.status(400).json({ error: true, message: 'Patient folder is not activated. Bill and Activate folder first (add the Folder Activation fee to this bill).' });
+        return;
+      }
+      const existing = await getPaidMaternityEntitlement(pool, tenantId, patientId);
+      if (existing) {
+        res.status(409).json({ error: true, message: 'This patient already has a paid antenatal booking awaiting pregnancy booking.' });
+        return;
+      }
+    }
+
     const added: any[] = [];
     for (const item of items) {
       const serviceType = item.service_type || 'general';
@@ -1131,6 +1163,10 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
       if (item.service_type === 'referral_fee' && item.service_id) {
         await pool.query(`UPDATE referrals SET consultant_fee_status = 'insurance_authorized' WHERE id = $1`, [item.service_id]);
       }
+    }
+
+    if (insuranceUnlock) {
+      await createMaternityEntitlement(pool, tenantId, patientId, { source: 'insurance' });
     }
 
     // Update case total_billed

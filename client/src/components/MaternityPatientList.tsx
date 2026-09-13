@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Baby, Search, Loader2, UserPlus, ArrowLeft, HeartPulse, CalendarCheck, AlertTriangle, PenLine, Shield } from 'lucide-react'
+import { Baby, Search, Loader2, UserPlus, Users, ArrowLeft, HeartPulse, CalendarCheck, AlertTriangle, PenLine, Shield, Printer } from 'lucide-react'
+import { printMaternityRegister, printMaternityRecord } from '../utils/print'
 
 export default function MaternityPatientList() {
   const navigate = useNavigate()
@@ -36,6 +37,8 @@ export default function MaternityPatientList() {
       if (search) params.append('search', search)
       if (statusFilter) params.append('status', statusFilter)
       if (smartFilter) params.append('smart_filter', smartFilter)
+      // Closed postnatal pregnancies live in Postnatal History, not this list.
+      params.append('exclude_status', 'postnatal_closed')
       params.append('page', String(page))
       params.append('limit', String(limit))
       const res = await fetch(`/api/maternity-patients?${params.toString()}`, {
@@ -58,7 +61,26 @@ export default function MaternityPatientList() {
 
   function handleSearch() { setSmartFilter(''); setPage(1); fetchPatients() }
 
+  // Records: print the full filtered register, not just the current page.
+  async function printRegister() {
+    let rows = patients
+    try {
+      const params = new URLSearchParams()
+      if (search) params.append('search', search)
+      if (statusFilter) params.append('status', statusFilter)
+      if (smartFilter) params.append('smart_filter', smartFilter)
+      params.append('exclude_status', 'postnatal_closed')
+      params.append('page', '1'); params.append('limit', '1000')
+      const res = await fetch(`/api/maternity-patients?${params.toString()}`, { headers: { 'x-master-token': 'sretan-emr-master-token-2026' } })
+      const data = await res.json()
+      if (Array.isArray(data.rows) && data.rows.length) rows = data.rows
+    } catch {}
+    printMaternityRegister(rows, { subtitle: filterSubtitle || 'All maternity records' })
+  }
+
   const totalPages = Math.ceil(total / limit)
+  const isRecords = role === 'Records'
+  const filterSubtitle = [search && `search "${search}"`, statusFilter && `status ${statusFilter}`, smartFilter && smartFilter.replace(/_/g, ' ')].filter(Boolean).join(' · ')
 
   function gestAgeFromLMP(lmp: string): { weeks: number; days: number; text: string } {
     if (!lmp) return { weeks: 0, days: 0, text: '—' }
@@ -76,12 +98,20 @@ export default function MaternityPatientList() {
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
-        <button onClick={() => navigate('/maternity')} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
+        {!isRecords && (
+          <button onClick={() => navigate('/maternity')} className="p-2 rounded-xl hover:bg-slate-100"><ArrowLeft size={20} className="text-slate-500" /></button>
+        )}
         <div className="w-10 h-10 rounded-xl bg-pink-100 flex items-center justify-center"><Baby size={22} className="text-pink-600" /></div>
         <div>
-          <h1 className="text-xl font-bold text-slate-800">Maternity Patients</h1>
-          <p className="text-sm text-slate-500">Manage pregnancy records</p>
+          <h1 className="text-xl font-bold text-slate-800">{isRecords ? 'Maternity Records' : 'Maternity Patients'}</h1>
+          <p className="text-sm text-slate-500">{isRecords ? 'Pregnancy register — search, review and print maternity records' : 'Manage pregnancy records'}</p>
         </div>
+        {isRecords && (
+          <button onClick={printRegister}
+            className="ml-auto inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-sm font-medium hover:bg-slate-50">
+            <Printer size={14} /> Print Register
+          </button>
+        )}
       </div>
 
       {/* Stats */}
@@ -125,6 +155,47 @@ export default function MaternityPatientList() {
           </div>
         </button>
       </div>
+
+      {isRecords && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-red-100 flex items-center justify-center"><AlertTriangle size={18} className="text-red-600" /></div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{stats.high_risk_pregnancies ?? '—'}</p>
+                <p className="text-xs text-slate-400">High Risk</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-teal-100 flex items-center justify-center"><HeartPulse size={18} className="text-teal-600" /></div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{stats.deliveries_this_month ?? '—'}</p>
+                <p className="text-xs text-slate-400">Deliveries This Month</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-purple-100 flex items-center justify-center"><Baby size={18} className="text-purple-600" /></div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{stats.total_deliveries ?? '—'}</p>
+                <p className="text-xs text-slate-400">Total Deliveries</p>
+              </div>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center"><Users size={18} className="text-slate-600" /></div>
+              <div>
+                <p className="text-2xl font-bold text-slate-800">{total}</p>
+                <p className="text-xs text-slate-400">In Register (filtered)</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -174,6 +245,7 @@ export default function MaternityPatientList() {
                   <th className="text-left px-4 py-3 font-medium text-slate-500 text-xs">Risk</th>
                   <th className="text-left px-4 py-3 font-medium text-slate-500 text-xs">Status</th>
                   <th className="text-left px-4 py-3 font-medium text-slate-500 text-xs">Last Visit</th>
+                  {isRecords && <th className="text-left px-4 py-3 font-medium text-slate-500 text-xs">Next Visit</th>}
                   <th className="text-left px-4 py-3 font-medium text-slate-500 text-xs"></th>
                 </tr>
               </thead>
@@ -230,10 +302,15 @@ export default function MaternityPatientList() {
                         }`}>{p.status}</span>
                       </td>
                       <td className="px-4 py-3 text-slate-400 text-xs">{p.last_visit_date?.slice(0, 10) || '—'}</td>
+                      {isRecords && <td className="px-4 py-3 text-slate-400 text-xs">{p.next_appointment_date?.slice(0, 10) || '—'}</td>}
                       <td className="px-4 py-3">
                         <div className="flex gap-1.5">
                           <button onClick={() => navigate(`/maternity/patients/${p.id}`)}
                             className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium">Chart</button>
+                          {isRecords && (
+                            <button onClick={() => printMaternityRecord(p)}
+                              className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-600 text-xs font-medium hover:bg-slate-50 inline-flex items-center gap-1"><Printer size={11} /> Print</button>
+                          )}
                           {p.status === 'active' && (
                             role === 'Doctor' ? (
                               <button onClick={() => navigate(`/consultation/${p.patient_id}?type=maternity`)}
