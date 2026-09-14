@@ -4,6 +4,7 @@ import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { generateNumber } from '../utils/numbering';
 import { clockGuard } from '../middleware/clockGuard';
+import { getDefaultSpecialistFee } from '../utils/serviceCatalog';
 
 const router = Router();
 
@@ -18,15 +19,8 @@ const VALID_PRIORITIES = ['routine', 'urgent', 'emergency'];
  *   "Specialist Consultation" — falls back to 0 if not configured.
  */
 async function getDefaultConsultantFee(): Promise<number> {
-  try {
-    const res = await pool.query(
-      `SELECT price FROM inventory_items
-       WHERE drug_name ILIKE '%Specialist Consultation%' AND category = 'general' AND is_active = true
-       ORDER BY created_at DESC LIMIT 1`
-    );
-    if (res.rows.length > 0) return parseFloat(res.rows[0].price) || 0;
-  } catch {}
-  return 0;
+  // Keyed + tenant-scoped via the shared catalogue resolver.
+  try { return await getDefaultSpecialistFee(); } catch { return 0; }
 }
 
 // GET /api/referrals/consultant-fees -- configured specialist fee (for the refer UI).

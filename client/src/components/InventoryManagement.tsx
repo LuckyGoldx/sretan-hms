@@ -86,7 +86,7 @@ export default function InventoryManagement() {
 
   async function handleDelete(id: string) {
     if (!confirm('Delete this item?')) return
-    try { await api.delete(`/inventory/${id}`); setItems((prev) => prev.filter((i) => i.id !== id)) } catch {}
+    try { await api.delete(`/inventory/${id}`); setItems((prev) => prev.filter((i) => i.id !== id)) } catch (err: any) { alert(err?.response?.data?.message || 'Delete failed') }
   }
 
   async function handleToggleActive(item: any) {

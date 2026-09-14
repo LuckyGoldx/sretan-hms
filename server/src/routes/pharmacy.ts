@@ -4,6 +4,7 @@ import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { clockGuard } from '../middleware/clockGuard';
 import { parsePagination } from '../utils/pagination';
+import { isAdminRequest, actingUserId } from '../utils/authRole';
 
 const router = Router();
 
@@ -145,12 +146,54 @@ router.put('/api/inventory/:id', async (req: Request, res: Response) => {
 
 router.delete('/api/inventory/:id', async (req: Request, res: Response) => {
   try {
+    const tenantId = getTenantId();
+    if (!isAdminRequest(req)) {
+      res.status(403).json({ error: true, message: 'Only administrators can delete inventory items' });
+      return;
+    }
     const { id } = req.params;
-    const result = await pool.query('DELETE FROM inventory_items WHERE id = $1 RETURNING *', [id]);
-    if (result.rows.length === 0) {
+
+    const existing = await pool.query(
+      'SELECT * FROM inventory_items WHERE id = $1 AND tenant_id = $2',
+      [id, tenantId]
+    );
+    if (existing.rows.length === 0) {
       res.status(404).json({ error: true, message: 'Inventory item not found' });
       return;
     }
+    const item = existing.rows[0];
+
+    // Never leave dangling references: block the delete while the item is used
+    // by insurance coverage rules or the lab test catalogue. Deactivate instead.
+    const refs = await pool.query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM insurance_provider_coverage_rules WHERE inventory_item_id = $1) AS coverage_rules,
+         (SELECT COUNT(*)::int FROM lab_test_catalog WHERE inventory_item_id = $1) AS lab_catalog`,
+      [id]
+    );
+    const ref = refs.rows[0] || { coverage_rules: 0, lab_catalog: 0 };
+    if (ref.coverage_rules > 0 || ref.lab_catalog > 0) {
+      const parts: string[] = [];
+      if (ref.coverage_rules > 0) parts.push(`${ref.coverage_rules} insurance coverage rule(s)`);
+      if (ref.lab_catalog > 0) parts.push(`${ref.lab_catalog} lab catalogue test(s)`);
+      res.status(409).json({
+        error: true,
+        message: `This item is referenced by ${parts.join(' and ')}. Deactivate it (mark it Inactive) instead of deleting.`,
+      });
+      return;
+    }
+
+    await pool.query('DELETE FROM insurance_provider_coverage_rules WHERE inventory_item_id = $1', [id]);
+    const result = await pool.query(
+      'DELETE FROM inventory_items WHERE id = $1 AND tenant_id = $2 RETURNING *',
+      [id, tenantId]
+    );
+    // Audit the deletion (performed_by may be null when the header is absent).
+    await pool.query(
+      `INSERT INTO audit_logs (tenant_id, action, table_name, record_id, performed_by, old_data)
+       VALUES ($1, 'DELETE', 'inventory_items', $2, $3, $4)`,
+      [tenantId, id, actingUserId(req), JSON.stringify(item)]
+    ).catch(() => {});
     res.json({ success: true, deleted: result.rows[0] });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });

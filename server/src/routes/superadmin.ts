@@ -20,6 +20,7 @@ import {
   urlHasEmbeddedCredentials,
 } from '../utils/updateDaemon';
 import { resolveCloudCredentials } from '../sync/cloudCredentials';
+import { seedTenantDefaults } from '../utils/tenantDefaults';
 import axios from 'axios';
 
 const router = Router();
@@ -598,6 +599,10 @@ router.post('/api/superadmin/tenants', async (req: Request, res: Response) => {
 
       await insertDefaultDepartments(client, tenant.id);
       await insertWardsAndBeds(client, tenant.id, body.wards);
+      // Keyed fees (admission, folder activation, consultations, maternity
+      // booking) and the default HMO provider list, so billing and insurance
+      // work out of the box for a new hospital.
+      await seedTenantDefaults(client, tenant.id);
 
       const admin = body.create_admin;
       if (admin && admin.name && admin.email && admin.password) {

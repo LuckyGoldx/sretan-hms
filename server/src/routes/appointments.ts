@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { parsePagination } from '../utils/pagination';
+import { getDefaultConsultationFee } from '../utils/serviceCatalog';
 
 const router = Router();
 
@@ -12,23 +13,6 @@ function getTenantId(): string {
 
 const VALID_VISIT_TYPES = ['new', 'follow_up', 'review'];
 
-/** Default consultation fee from inventory for a visit type. */
-async function getDefaultConsultationFee(visitType: string): Promise<number> {
-  const isFollowUp = visitType === 'follow_up' || visitType === 'review';
-  const patterns = isFollowUp
-    ? ['General Consultation (Follow-up)', '%General Consultation (Follow-up)%', '%Consultation%Follow-up%']
-    : ['General Consultation (New)', '%General Consultation (New)%', '%General Consultation%'];
-  for (const pat of patterns) {
-    const res = await pool.query(
-      `SELECT price FROM inventory_items
-       WHERE drug_name ILIKE $1 AND category = 'general' AND is_active = true
-       ORDER BY created_at DESC LIMIT 1`,
-      [pat]
-    );
-    if (res.rows.length > 0) return parseFloat(res.rows[0].price) || 0;
-  }
-  return 0;
-}
 
 router.get('/api/appointments', async (req: Request, res: Response) => {
   try {

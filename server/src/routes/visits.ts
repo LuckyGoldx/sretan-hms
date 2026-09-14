@@ -4,6 +4,7 @@ import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { clockGuard } from '../middleware/clockGuard';
 import { parsePagination } from '../utils/pagination';
+import { getDefaultConsultationFee } from '../utils/serviceCatalog';
 
 const router = Router();
 
@@ -24,29 +25,6 @@ const VALID_VISIT_TYPES = ['new', 'follow_up', 'review'];
  */
 function computeVisitType(): string {
   return 'new';
-}
-
-/**
- * Default consultation fee from the inventory (category 'general'):
- *   new            -> "General Consultation (New)"      (first match wins)
- *   follow_up/review -> "General Consultation (Follow-up)"
- * Falls back to 0 if nothing is configured.
- */
-async function getDefaultConsultationFee(visitType: string): Promise<number> {
-  const isFollowUp = visitType === 'follow_up' || visitType === 'review';
-  const patterns = isFollowUp
-    ? ['General Consultation (Follow-up)', '%General Consultation (Follow-up)%', '%Consultation%Follow-up%']
-    : ['General Consultation (New)', '%General Consultation (New)%', '%General Consultation%'];
-  for (const pat of patterns) {
-    const res = await pool.query(
-      `SELECT price FROM inventory_items
-       WHERE drug_name ILIKE $1 AND category = 'general' AND is_active = true
-       ORDER BY created_at DESC LIMIT 1`,
-      [pat]
-    );
-    if (res.rows.length > 0) return parseFloat(res.rows[0].price) || 0;
-  }
-  return 0;
 }
 
 // GET /api/visits/consultation-fees -- configured default fees (for the assign UI).
