@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import { printPaymentReceipt } from '../utils/print'
+import { fetchActiveInsuranceCase, billToInsuranceAndCollect } from '../utils/insuranceBilling'
 import {
   Search, Loader2, CheckCircle, User, Package, Pill, FlaskConical, Scan, Home, Plus, X, ShoppingCart, Banknote, CreditCard, Landmark, Smartphone, Trash2, Printer, Clock, FileText, ArrowLeft, AlertTriangle, Shield, ChevronLeft, ChevronRight,
 } from 'lucide-react'
@@ -27,6 +28,7 @@ export default function PaypointPending() {
   const [showReceipt, setShowReceipt] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [insuranceInfo, setInsuranceInfo] = useState<any>(null)
+  const [insuranceInWindow, setInsuranceInWindow] = useState(true)
   const [insuranceLoading, setInsuranceLoading] = useState(false)
   const [billToInsurance, setBillToInsurance] = useState(false)
 
@@ -56,10 +58,11 @@ export default function PaypointPending() {
   async function fetchInsurance(patientId: string) {
     setInsuranceLoading(true)
     try {
-      const res = await api.get(`/insurance/active-case/${patientId}`)
-      setInsuranceInfo(res.data?.hasActiveCase ? res.data.case : null)
-      if (!res.data?.hasActiveCase) setBillToInsurance(false)
-    } catch { setInsuranceInfo(null); setBillToInsurance(false) } finally { setInsuranceLoading(false) }
+      const info = await fetchActiveInsuranceCase(patientId)
+      setInsuranceInfo(info.case)
+      setInsuranceInWindow(info.inWindow)
+      if (!info.hasActiveCase) setBillToInsurance(false)
+    } catch { setInsuranceInfo(null); setInsuranceInWindow(true); setBillToInsurance(false) } finally { setInsuranceLoading(false) }
   }
 
   function addToCart(item: any) {
@@ -85,20 +88,25 @@ export default function PaypointPending() {
     try {
       if (billToInsurance && insuranceInfo && cart[0]?.patient_id) {
         const items = cart.map((c) => ({ service_type: c.service_type, service_id: c.service_id, description: c.description, quantity: c.quantity, unit_price: c.unit_price }))
-        await api.post('/insurance/bill-to-insurance', {
+        // Bills only the insurer share (server applies the provider's coverage
+        // rules) and collects any patient co-pay.
+        const result = await billToInsuranceAndCollect({
           patientId: cart[0].patient_id,
           caseId: insuranceInfo.id,
+          caseNumber: insuranceInfo.case_number,
+          providerName: insuranceInfo.provider_name,
           items,
-          source: 'paypoint',
-          created_by: currentUser?.id,
+          paymentMethod,
+          createdBy: currentUser?.id,
         })
         setReceipt({
-          receipt_number: `INS-${insuranceInfo.case_number}`,
+          receipt_number: result.receipt_number,
           patient_name: cart[0]?.full_name || 'Patient',
           hospital_number: cart[0]?.hospital_number || null,
-          total_amount: total,
-          items: items.map((c: any) => ({ description: c.description, total_price: (c.quantity || 1) * (c.unit_price || 0) })),
-          payment_method: `Insurance: ${insuranceInfo.provider_name}`,
+          total_amount: result.insurer_total,
+          items: result.items.map((i) => ({ description: i.description, total_price: i.insurer_amount })),
+          payment_method: `Insurance: ${insuranceInfo.provider_name}` +
+            (result.patient_total > 0 ? ` · Co-pay ₦${result.patient_total.toLocaleString()} (${paymentMethod})` : ''),
           created_at: new Date().toISOString(),
         })
         setShowReceipt(true); setCart([]); setBillToInsurance(false); setInsuranceInfo(null)
@@ -266,6 +274,10 @@ export default function PaypointPending() {
               <div className="border-t border-slate-100 pt-4 mt-4 space-y-3">
                 {insuranceLoading ? (
                   <div className="flex items-center justify-center gap-2 py-1 text-xs text-slate-400"><Loader2 size={12} className="animate-spin" /> Checking insurance...</div>
+                ) : insuranceInfo && !insuranceInWindow ? (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+                    Coverage for {insuranceInfo.provider_name} is expired or outside its window — the insurer cannot be billed. Route to the insurance desk, or bill as self-pay.
+                  </div>
                 ) : insuranceInfo ? (
                   <button onClick={() => setBillToInsurance(!billToInsurance)}
                     className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-medium transition-all ${
@@ -347,6 +359,10 @@ export default function PaypointPending() {
               <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex-shrink-0 space-y-3">
                 {insuranceLoading ? (
                   <div className="flex items-center justify-center gap-2 py-1 text-xs text-slate-400"><Loader2 size={12} className="animate-spin" /> Checking insurance...</div>
+                ) : insuranceInfo && !insuranceInWindow ? (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+                    Coverage for {insuranceInfo.provider_name} is expired or outside its window — the insurer cannot be billed. Route to the insurance desk, or bill as self-pay.
+                  </div>
                 ) : insuranceInfo ? (
                   <button onClick={() => setBillToInsurance(!billToInsurance)}
                     className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-medium transition-all ${

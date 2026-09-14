@@ -1118,7 +1118,7 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
     // The case must exist, be active, belong to this patient, and be inside its
     // coverage window before anything can be billed to the payer.
     const caseResult = await pool.query(
-      'SELECT tenant_id, status, patient_id, coverage_start_date, coverage_end_date FROM insurance_cases WHERE id = $1',
+      'SELECT tenant_id, status, patient_id, provider_id, coverage_start_date, coverage_end_date FROM insurance_cases WHERE id = $1',
       [targetCaseId]
     );
     if (caseResult.rows.length === 0) {
@@ -1171,24 +1171,42 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
       }
     }
 
+    const caseProviderId = caseResult.rows[0].provider_id;
     const added: any[] = [];
+    let patientTotal = 0;
+
     for (const item of items) {
       const serviceType = item.service_type || 'general';
       const serviceName = item.description || 'Service';
       const qty = parseInt(item.quantity) || 1;
       const price = parseFloat(item.unit_price) || 0;
+      const lineTotal = Math.round(qty * price * 100) / 100;
       const id = crypto.randomUUID();
-      // Per-item split: when the client sends insurer_amount, bill only that portion to the
-      // case (the patient portion is collected as co-pay separately). Otherwise bill full line.
-      const total = item.insurer_amount !== undefined && item.insurer_amount !== null
-        ? parseFloat(item.insurer_amount) || 0
-        : qty * price;
+
+      // Per-item split. The insurer is only ever charged its covered share:
+      //  - an explicit insurer_amount from the coverage quote is respected, else
+      //  - the provider's coverage rules for this service are applied here, so a
+      //    caller that forgets to quote can never bill the full line to the payer.
+      let insurerAmount: number;
+      let coveragePct = 0;
+      if (item.insurer_amount !== undefined && item.insurer_amount !== null) {
+        insurerAmount = Math.max(0, Math.min(lineTotal, parseFloat(item.insurer_amount) || 0));
+        coveragePct = lineTotal > 0 ? Math.round((insurerAmount / lineTotal) * 10000) / 100 : 0;
+      } else {
+        try { coveragePct = await getCoverageForService(caseProviderId, serviceType, serviceName, item.service_id || null); } catch { coveragePct = 0; }
+        if (isNaN(coveragePct)) coveragePct = 0;
+        coveragePct = Math.max(0, Math.min(100, coveragePct));
+        insurerAmount = Math.round(lineTotal * coveragePct) / 100;
+      }
+      const patientAmount = Math.round((lineTotal - insurerAmount) * 100) / 100;
+      patientTotal = Math.round((patientTotal + patientAmount) * 100) / 100;
+
       const result = await pool.query(
         `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, source_type, source_id, added_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-        [id, tenantId, targetCaseId, serviceType, serviceName, qty, price, total, src, item.service_id || null, created_by || null]
+        [id, tenantId, targetCaseId, serviceType, serviceName, qty, price, insurerAmount, src, item.service_id || null, created_by || null]
       );
-      added.push(result.rows[0]);
+      added.push({ ...result.rows[0], coverage_pct: coveragePct, patient_amount: patientAmount, line_total: lineTotal });
       await markSourceOrderAsPaid(item.service_type, item.service_id || null);
       if (item.service_type === 'folder_activation' && patientId) {
         await pool.query('UPDATE patients SET folder_activated = true WHERE id = $1', [patientId]);
@@ -1215,11 +1233,14 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
       [targetCaseId]
     );
 
+    const insurerTotal = Math.round(added.reduce((s, a) => s + parseFloat(a.total_price || 0), 0) * 100) / 100;
     res.status(201).json({
       message: `${added.length} item(s) billed to insurance case ${targetCaseId}`,
       case_id: targetCaseId,
       added,
-      total_added: added.reduce((s, a) => s + parseFloat(a.total_price || 0), 0),
+      insurer_total: insurerTotal,
+      patient_total: patientTotal,
+      total_added: insurerTotal,
     });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });

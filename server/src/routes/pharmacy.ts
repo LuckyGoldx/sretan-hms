@@ -4,6 +4,7 @@ import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { clockGuard } from '../middleware/clockGuard';
 import { parsePagination } from '../utils/pagination';
+import { resolveBillingCase, isCaseInCoverageWindow, getCoverageForService } from '../utils/coverageLookup';
 
 const router = Router();
 
@@ -200,6 +201,9 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
       }
     } catch {}
 
+    // Patient co-pay for a bill-to-insurance dispense (collected at the counter).
+    let insurancePatientAmount = 0;
+
     // If billing to insurance, add drug charge to the active insurance case and allow dispensing without cash payment
     if (bill_to_insurance) {
       if (prescription.is_paid) {
@@ -212,16 +216,20 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
         res.status(400).json({ error: true, message: 'Could not determine patient for this prescription' });
         return;
       }
-      const activeCase = await pool.query(
-        `SELECT id, tenant_id FROM insurance_cases WHERE patient_id = $1 AND status = 'active' ORDER BY created_at DESC LIMIT 1`,
-        [patientId]
-      );
-      if (activeCase.rows.length === 0) {
+      // Same case resolver as paypoint: the active case of the primary policy
+      // provider, inside its coverage window.
+      const billingCase = await resolveBillingCase(patientId);
+      if (!billingCase) {
         res.status(400).json({ error: true, message: 'Patient has no active insurance case. Create one first.' });
         return;
       }
-      const caseId = activeCase.rows[0].id;
-      const caseTenant = activeCase.rows[0].tenant_id;
+      if (!billingCase.inWindow) {
+        res.status(400).json({ error: true, message: "Today is outside this case's coverage window. Route to the insurance desk." });
+        return;
+      }
+      const caseId = billingCase.caseId;
+      const caseTenantRes = await pool.query('SELECT tenant_id FROM insurance_cases WHERE id = $1', [caseId]);
+      const caseTenant = caseTenantRes.rows[0]?.tenant_id || tenantId;
       // Check if drug already added to this case (by source prescription)
       const exists = await pool.query(
         `SELECT id FROM insurance_case_services WHERE case_id = $1 AND source_type = 'prescription' AND source_id = $2`,
@@ -229,11 +237,18 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
       );
       if (exists.rows.length === 0) {
         const svcId = uuidv4();
-        const total = qty * drugUnitPrice;
+        const lineTotal = Math.round(qty * drugUnitPrice * 100) / 100;
+        // Bill only the insurer's covered share; the patient portion is the co-pay.
+        let coveragePct = 0;
+        try { coveragePct = await getCoverageForService(billingCase.providerId || '', 'pharmacy', prescription.drug_name, null); } catch { coveragePct = 0; }
+        if (isNaN(coveragePct)) coveragePct = 0;
+        coveragePct = Math.max(0, Math.min(100, coveragePct));
+        const insurerAmount = Math.round(lineTotal * coveragePct) / 100;
+        insurancePatientAmount = Math.round((lineTotal - insurerAmount) * 100) / 100;
         await pool.query(
           `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, source_type, source_id, added_by)
            VALUES ($1, $2, $3, 'pharmacy', $4, $5, $6, $7, 'prescription', $8, $9)`,
-          [svcId, caseTenant, caseId, prescription.drug_name, qty, drugUnitPrice, total, prescription_id, created_by || null]
+          [svcId, caseTenant, caseId, prescription.drug_name, qty, drugUnitPrice, insurerAmount, prescription_id, created_by || null]
         );
         await pool.query(
           'UPDATE insurance_cases SET total_billed = (SELECT COALESCE(SUM(total_price),0) FROM insurance_case_services WHERE case_id = $1) WHERE id = $1',
@@ -267,7 +282,7 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
       [prescription_id]
     );
 
-    res.json({ message: 'Medication dispensed', quantity_dispensed: qty - remaining });
+    res.json({ message: 'Medication dispensed', quantity_dispensed: qty - remaining, patient_amount: insurancePatientAmount });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }

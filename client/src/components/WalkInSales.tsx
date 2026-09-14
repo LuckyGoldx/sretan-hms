@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { buildReceiptHtml, generateReceiptNumber, openPrint, receiptDate, receiptTime } from '../utils/print'
+import { fetchActiveInsuranceCase, billToInsuranceAndCollect } from '../utils/insuranceBilling'
 
 const PAGE_SIZE = 30
 const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
@@ -38,6 +39,7 @@ interface Receipt {
   total: number
   discount: number
   date: string
+  co_pay_amount?: number
 }
 
 function isSameDay(iso: string): boolean {
@@ -78,6 +80,7 @@ export default function WalkInSales() {
   const [patientResults, setPatientResults] = useState<any[]>([])
   const [selectedPatient, setSelectedPatient] = useState<any>(null)
   const [insuranceInfo, setInsuranceInfo] = useState<any>(null)
+  const [insuranceInWindow, setInsuranceInWindow] = useState(true)
   const [insuranceLoading, setInsuranceLoading] = useState(false)
   const [billToInsurance, setBillToInsurance] = useState(false)
   const printWinRef = useRef<Window | null>(null)
@@ -121,10 +124,11 @@ export default function WalkInSales() {
   async function fetchInsurance(patientId: string) {
     setInsuranceLoading(true)
     try {
-      const res = await api.get(`/insurance/active-case/${patientId}`)
-      setInsuranceInfo(res.data?.hasActiveCase ? res.data.case : null)
-      if (!res.data?.hasActiveCase) setBillToInsurance(false)
-    } catch { setInsuranceInfo(null); setBillToInsurance(false) } finally { setInsuranceLoading(false) }
+      const info = await fetchActiveInsuranceCase(patientId)
+      setInsuranceInfo(info.case)
+      setInsuranceInWindow(info.inWindow)
+      if (!info.hasActiveCase) setBillToInsurance(false)
+    } catch { setInsuranceInfo(null); setInsuranceInWindow(true); setBillToInsurance(false) } finally { setInsuranceLoading(false) }
   }
 
   const filteredDrugs = inventory.filter((i: any) =>
@@ -194,18 +198,21 @@ export default function WalkInSales() {
     try {
       if (billToInsurance && insuranceInfo && selectedPatient) {
         const items = cart.map((i) => ({ service_type: 'pharmacy', service_id: null, description: i.drug_name, quantity: i.quantity, unit_price: i.unit_price }))
-        await api.post('/insurance/bill-to-insurance', {
+        const result = await billToInsuranceAndCollect({
           patientId: selectedPatient.id,
           caseId: insuranceInfo.id,
+          caseNumber: insuranceInfo.case_number,
+          providerName: insuranceInfo.provider_name,
           items,
-          source: 'paypoint',
-          created_by: currentUserId,
+          paymentMethod,
+          createdBy: currentUserId,
         })
         setReceipt({
           items: soldItems,
           customer: receiptCustomer || 'Walk-in Customer',
-          payment: receiptPayment,
-          total: cartTotal,
+          payment: `${receiptPayment}${result.patient_total > 0 ? ` · Co-pay ₦${result.patient_total.toLocaleString()}` : ''}`,
+          total: result.insurer_total,
+          co_pay_amount: result.patient_total,
           discount: discountApplied,
           date: new Date().toISOString(),
         })
@@ -403,6 +410,10 @@ export default function WalkInSales() {
         {selectedPatient && (
           insuranceLoading ? (
             <div className="flex items-center justify-center gap-2 py-1 text-xs text-slate-400"><Loader2 size={12} className="animate-spin" /> Checking insurance...</div>
+          ) : insuranceInfo && !insuranceInWindow ? (
+            <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
+              Coverage for {insuranceInfo.provider_name} is expired or outside its window — the insurer cannot be billed.
+            </div>
           ) : insuranceInfo ? (
             <button onClick={() => setBillToInsurance(!billToInsurance)}
               className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-medium transition-all ${
