@@ -127,6 +127,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
   const ancEncounterIdRef = useRef<string | null>(null)
   const [showAncModal, setShowAncModal] = useState(false)
   const [inventoryDrugs, setInventoryDrugs] = useState<string[]>([])
+  const [drugStock, setDrugStock] = useState<Record<string, number>>({})
   const [showDrugSuggestions, setShowDrugSuggestions] = useState(false)
   const [staffCache, setStaffCache] = useState<Record<string, string>>({})
   const [icdSearch, setIcdSearch] = useState('')
@@ -204,8 +205,15 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
 
   useEffect(() => {
     api.get<any[]>('/inventory?category=pharmacy').then((res) => {
-      const drugs = [...new Set((res.data || []).map((i: any) => i.drug_name).filter(Boolean))] as string[]
-      setInventoryDrugs(drugs)
+      // Only drugs that are actually in stock can be prescribed, and the
+      // quantity is capped at the available stock.
+      const stock: Record<string, number> = {}
+      for (const i of (res.data || [])) {
+        if (!i.drug_name) continue
+        stock[i.drug_name] = (stock[i.drug_name] || 0) + (Number(i.stock_count) || 0)
+      }
+      setDrugStock(stock)
+      setInventoryDrugs(Object.keys(stock).filter((n) => stock[n] > 0))
     }).catch(() => {})
   }, [])
 
@@ -589,6 +597,11 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
 
   const handlePrescriptionSubmit = async () => {
     if (!patientId || !prescription.drug_name.trim()) { showToast('Please enter a drug name', 'error'); return }
+    const drug = prescription.drug_name.trim()
+    const available = drugStock[drug] || 0
+    const qty = Number(prescription.quantity) || 0
+    if (available <= 0) { showToast(`${drug} is not in the pharmacy inventory`, 'error'); return }
+    if (qty > available) { showToast(`Only ${available} unit(s) of ${drug} in stock`, 'error'); return }
     setPrescriptionSubmitting(true)
     try {
       const encId = await ensureEncounter()
@@ -1117,9 +1130,17 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1.5">Quantity</label>
-                <input type="number" placeholder="30" value={prescription.quantity}
+                <input type="number" min={1}
+                  max={drugStock[prescription.drug_name.trim()] || undefined}
+                  placeholder="30" value={prescription.quantity}
                   onChange={(e) => setPrescription((prev) => ({ ...prev, quantity: e.target.value }))}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
+                {prescription.drug_name.trim() && drugStock[prescription.drug_name.trim()] !== undefined && (
+                  <p className={`text-[11px] mt-1 ${Number(prescription.quantity) > drugStock[prescription.drug_name.trim()] ? 'text-rose-600 font-medium' : 'text-slate-400'}`}>
+                    {drugStock[prescription.drug_name.trim()]} in stock
+                    {Number(prescription.quantity) > drugStock[prescription.drug_name.trim()] ? ' — quantity exceeds stock' : ''}
+                  </p>
+                )}
               </div>
             </div>
             <div>

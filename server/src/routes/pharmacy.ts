@@ -242,6 +242,20 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
       return;
     }
 
+    // Stock gate: never dispense more than is in stock.
+    const stockRes = await pool.query(
+      `SELECT COALESCE(SUM(stock_count), 0)::int AS available
+         FROM inventory_items
+        WHERE tenant_id = $1 AND category = 'pharmacy' AND is_active = true
+          AND lower(trim(drug_name)) = lower(trim($2))`,
+      [tenantId, prescription.drug_name]
+    );
+    const available = stockRes.rows[0]?.available || 0;
+    if (available < qty) {
+      res.status(400).json({ error: true, message: `Insufficient stock: only ${available} unit(s) of ${prescription.drug_name} available.` });
+      return;
+    }
+
     const inventoryResult = await pool.query(
       `SELECT * FROM inventory_items WHERE drug_name = $1 AND tenant_id = $2 AND category = 'pharmacy' AND stock_count > 0
        ORDER BY expiry_date ASC`,

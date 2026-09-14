@@ -96,6 +96,26 @@ router.post('/api/prescriptions', async (req: Request, res: Response) => {
       return;
     }
 
+    // Stock gate: the drug must exist in this hospital's pharmacy inventory and
+    // the ordered quantity must not exceed what is available.
+    const stockRes = await pool.query(
+      `SELECT COALESCE(SUM(stock_count), 0)::int AS available
+         FROM inventory_items
+        WHERE tenant_id = $1 AND category = 'pharmacy' AND is_active = true
+          AND lower(trim(drug_name)) = lower(trim($2))`,
+      [tenantId, drug_name]
+    );
+    const available = stockRes.rows[0]?.available || 0;
+    if (available <= 0) {
+      res.status(400).json({ error: true, message: `${drug_name} is not available in the pharmacy inventory.` });
+      return;
+    }
+    const requested = parseInt(String(quantity ?? 1), 10) || 1;
+    if (requested > available) {
+      res.status(400).json({ error: true, message: `Only ${available} unit(s) of ${drug_name} are in stock.` });
+      return;
+    }
+
     const id = uuidv4();
     const result = await pool.query(
       `INSERT INTO prescriptions (id, tenant_id, encounter_id, drug_name, dosage, quantity, instructions)
@@ -130,12 +150,26 @@ router.put('/api/prescriptions/:id/dispense', async (req: Request, res: Response
     const prescription = prescResult.rows[0];
 
     const inventoryResult = await pool.query(
-      `SELECT * FROM inventory_items WHERE drug_name = $1 AND tenant_id = $2 AND stock_count > 0
+      `SELECT * FROM inventory_items WHERE drug_name = $1 AND tenant_id = $2 AND category = 'pharmacy' AND stock_count > 0
        ORDER BY expiry_date ASC`,
       [prescription.drug_name, tenantId]
     );
 
     let qtyToDispense = prescription.quantity || 1;
+
+    // Stock gate: never dispense more than is in stock.
+    const stockRes = await pool.query(
+      `SELECT COALESCE(SUM(stock_count), 0)::int AS available
+         FROM inventory_items
+        WHERE tenant_id = $1 AND category = 'pharmacy' AND is_active = true
+          AND lower(trim(drug_name)) = lower(trim($2))`,
+      [tenantId, prescription.drug_name]
+    );
+    const available = stockRes.rows[0]?.available || 0;
+    if (available < qtyToDispense) {
+      res.status(400).json({ error: true, message: `Insufficient stock: only ${available} unit(s) of ${prescription.drug_name} available.` });
+      return;
+    }
 
     for (const item of inventoryResult.rows) {
       if (qtyToDispense <= 0) break;
