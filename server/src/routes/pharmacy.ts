@@ -4,7 +4,6 @@ import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { clockGuard } from '../middleware/clockGuard';
 import { parsePagination } from '../utils/pagination';
-import { resolveBillingCase, isCaseInCoverageWindow, getCoverageForService } from '../utils/coverageLookup';
 
 const router = Router();
 
@@ -162,7 +161,7 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
     await clockGuard(pool, 'inventory_items');
 
     const tenantId = getTenantId();
-    const { prescription_id, quantity_dispensed, bill_to_insurance, created_by } = req.body;
+    const { prescription_id, quantity_dispensed } = req.body;
 
     if (!prescription_id) {
       res.status(400).json({ error: true, message: 'prescription_id is required' });
@@ -188,86 +187,14 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
 
     const qty = quantity_dispensed || prescription.quantity || 1;
 
-    // Determine drug unit price for insurance billing
-    let drugUnitPrice = 0;
-    try {
-      const priceRes = await pool.query(
-        `SELECT price FROM inventory_items WHERE drug_name = $1 AND tenant_id = $2 AND category = 'pharmacy' ORDER BY created_at DESC LIMIT 1`,
-        [prescription.drug_name, tenantId]
-      );
-      if (priceRes.rows.length > 0) {
-        drugUnitPrice = parseFloat(priceRes.rows[0].price ?? 0) || 0;
-      }
-    } catch {}
-
-    // If billing to insurance, add drug charge to the active insurance case and allow dispensing without cash payment
-    if (bill_to_insurance) {
-      if (prescription.is_paid) {
-        res.status(400).json({ error: true, message: 'Prescription is already paid — it cannot be billed to insurance again' });
-        return;
-      }
-      const encounterRes = await pool.query('SELECT patient_id FROM encounters WHERE id = $1', [prescription.encounter_id]);
-      const patientId = encounterRes.rows[0]?.patient_id;
-      if (!patientId) {
-        res.status(400).json({ error: true, message: 'Could not determine patient for this prescription' });
-        return;
-      }
-      // Same case resolver as paypoint: the active case of the primary policy
-      // provider, inside its coverage window.
-      const billingCase = await resolveBillingCase(patientId);
-      if (!billingCase) {
-        res.status(400).json({ error: true, message: 'Patient has no active insurance case. Create one first.' });
-        return;
-      }
-      if (!billingCase.inWindow) {
-        res.status(400).json({ error: true, message: "Today is outside this case's coverage window. Route to the insurance desk." });
-        return;
-      }
-      const caseId = billingCase.caseId;
-      const caseTenantRes = await pool.query('SELECT tenant_id FROM insurance_cases WHERE id = $1', [caseId]);
-      const caseTenant = caseTenantRes.rows[0]?.tenant_id || tenantId;
-
-      const lineTotal = Math.round(qty * drugUnitPrice * 100) / 100;
-      let coveragePct = 0;
-      try { coveragePct = await getCoverageForService(billingCase.providerId || '', 'pharmacy', prescription.drug_name, null); } catch { coveragePct = 0; }
-      if (isNaN(coveragePct)) coveragePct = 0;
-      coveragePct = Math.max(0, Math.min(100, coveragePct));
-      const insurerAmount = Math.round(lineTotal * coveragePct) / 100;
-      const patientAmount = Math.round((lineTotal - insurerAmount) * 100) / 100;
-
-      // Pharmacy does not collect cash co-pays. A drug with a patient share must
-      // be billed to insurance at Paypoint (where the co-pay is collected and the
-      // prescription is marked paid); only fully covered drugs are billed here.
-      if (patientAmount > 0) {
-        res.status(402).json({
-          error: true,
-          message: `Patient co-pay of ₦${patientAmount.toLocaleString()} must be collected at Paypoint first. Bill this prescription to insurance at Paypoint, then dispense.`,
-          patient_amount: patientAmount,
-          insurer_amount: insurerAmount,
-          coverage_pct: coveragePct,
-        });
-        return;
-      }
-
-      // Check if drug already added to this case (by source prescription)
-      const exists = await pool.query(
-        `SELECT id FROM insurance_case_services WHERE case_id = $1 AND source_type = 'prescription' AND source_id = $2`,
-        [caseId, prescription_id]
-      );
-      if (exists.rows.length === 0) {
-        const svcId = uuidv4();
-        await pool.query(
-          `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, source_type, source_id, added_by)
-           VALUES ($1, $2, $3, 'pharmacy', $4, $5, $6, $7, 'prescription', $8, $9)`,
-          [svcId, caseTenant, caseId, prescription.drug_name, qty, drugUnitPrice, insurerAmount, prescription_id, created_by || null]
-        );
-        await pool.query(
-          'UPDATE insurance_cases SET total_billed = (SELECT COALESCE(SUM(total_price),0) FROM insurance_case_services WHERE case_id = $1) WHERE id = $1',
-          [caseId]
-        );
-      }
-    } else if (!prescription.is_paid) {
-      res.status(402).json({ error: true, message: 'Payment required: Prescription has not been paid for' });
+    // Pharmacy only dispenses prescriptions that are already settled. Cash and
+    // insurance billing (including any co-pay) happen at Paypoint before the
+    // patient reaches the pharmacy, so there is no bill-to-insurance here.
+    if (!prescription.is_paid) {
+      res.status(402).json({
+        error: true,
+        message: 'Payment required: this prescription has not been paid or billed at Paypoint yet.',
+      });
       return;
     }
 
@@ -289,7 +216,7 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
     }
 
     await pool.query(
-      `UPDATE prescriptions SET status = 'dispensed'${bill_to_insurance ? ', is_paid = true' : ''} WHERE id = $1`,
+      `UPDATE prescriptions SET status = 'dispensed' WHERE id = $1`,
       [prescription_id]
     );
 

@@ -2,9 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import api from '../hooks/useAxios'
 import type { Prescription } from '../types'
 import SpecialistTag from './SpecialistTag'
-import { fetchActiveInsuranceCase } from '../utils/insuranceBilling'
 import {
-  Pill, ClipboardList, CheckCircle, Loader2, AlertTriangle, X, ArrowLeft, Stethoscope, Shield, Search, ChevronLeft, ChevronRight,
+  Pill, ClipboardList, CheckCircle, Loader2, AlertTriangle, X, ArrowLeft, Stethoscope, Search, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 
@@ -33,10 +32,6 @@ export default function Dispensing() {
   })
   const [dispensing, setDispensing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [insuranceInfo, setInsuranceInfo] = useState<any>(null)
-  const [insuranceInWindow, setInsuranceInWindow] = useState(true)
-  const [billToInsurance, setBillToInsurance] = useState(false)
-  const [insuranceLoading, setInsuranceLoading] = useState(false)
 
   const fetch = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -86,32 +81,21 @@ export default function Dispensing() {
   const safePage = Math.min(page, totalPages - 1)
   const paged = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
-  async function openDispenseModal(rx: PendingPrescription) {
+  function openDispenseModal(rx: PendingPrescription) {
     setModal({ open: true, rx, quantity: rx.quantity })
     setError(null)
-    setBillToInsurance(false)
-    setInsuranceInfo(null)
-    if (rx.patient_id) {
-      setInsuranceLoading(true)
-      try {
-        const info = await fetchActiveInsuranceCase(rx.patient_id)
-        setInsuranceInfo(info.case)
-        setInsuranceInWindow(info.inWindow)
-      } catch { setInsuranceInfo(null); setInsuranceInWindow(true) }
-      finally { setInsuranceLoading(false) }
-    }
   }
 
   async function handleDispense() {
     if (!modal.rx || modal.quantity <= 0) { setError('Quantity must be greater than 0'); return }
     setDispensing(true); setError(null)
     try {
-      const payload: any = { prescription_id: modal.rx.id, quantity_dispensed: modal.quantity }
-      if (billToInsurance && !modal.rx.is_paid) payload.bill_to_insurance = true
-      await api.post('/dispense', payload)
+      // Only paid prescriptions reach the pharmacy. Insurance billing (with any
+      // co-pay) is settled at Paypoint before dispensing — the pharmacy never
+      // bills the insurer itself.
+      await api.post('/dispense', { prescription_id: modal.rx.id, quantity_dispensed: modal.quantity })
       setPrescriptions((prev) => prev.filter((p) => p.id !== modal.rx!.id))
       setModal({ open: false, rx: null, quantity: 0 })
-      setInsuranceInfo(null); setBillToInsurance(false)
     } catch (err: any) {
       setError(err.response?.data?.message || 'Dispense failed')
     } finally { setDispensing(false) }
@@ -236,32 +220,9 @@ export default function Dispensing() {
                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
                 <p className="text-xs text-slate-400 mt-1">Prescribed quantity: {modal.rx.quantity}</p>
               </div>
-              {modal.rx.is_paid ? (
-                <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle size={12} /> {modal.rx.billed_to_insurance ? 'Billed to insurance' : 'Already paid at Paypoint'}</p>
-              ) : insuranceLoading ? (
-                <div className="flex items-center gap-2 text-xs text-slate-400"><Loader2 size={12} className="animate-spin" /> Checking insurance...</div>
-              ) : insuranceInfo && !insuranceInWindow ? (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">
-                  Coverage for {insuranceInfo.provider_name} is expired or outside its window — the insurer cannot be billed.
-                </div>
-              ) : insuranceInfo ? (
-                <button onClick={() => setBillToInsurance(!billToInsurance)}
-                  className={`w-full flex items-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-medium transition-all ${
-                    billToInsurance
-                      ? 'bg-emerald-600 text-white border-emerald-600'
-                      : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                  }`}>
-                  <Shield size={14} />
-                  {billToInsurance ? `Billing to ${insuranceInfo.provider_name}` : `Bill to Insurance (${insuranceInfo.provider_name})`}
-                </button>
-              ) : (
-                <p className="text-xs text-slate-400 flex items-center gap-1"><Shield size={12} /> No active insurance case</p>
-              )}
-              {billToInsurance && (
-                <p className="text-xs text-emerald-600">
-                  Only fully covered drugs are billed at the pharmacy. If the patient has a co-pay, the prescription must be billed to insurance at <strong>Paypoint</strong> (co-pay collected there) before dispensing.
-                </p>
-              )}
+              <p className="text-xs text-emerald-600 flex items-center gap-1">
+                <CheckCircle size={12} /> {modal.rx.billed_to_insurance ? 'Billed to insurance at Paypoint' : 'Paid at Paypoint'}
+              </p>
               {error && <p className="text-xs text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> {error}</p>}
             </div>
             <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-3">
