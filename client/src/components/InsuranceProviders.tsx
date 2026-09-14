@@ -511,7 +511,11 @@ export default function InsuranceProviders() {
               {/* Non-inventory categories (consultation, admission, maternity, procedure, fluid, folder_activation) */}
               {!['lab', 'pharmacy', 'radiology', 'general'].includes(coverageTab) && (
                 <div className="space-y-4">
-                  <p className="text-sm text-slate-500">{coverageTab.replace('_', ' ')} services are set at the category level only.</p>
+                  <p className="text-sm text-slate-500">
+                    {coverageTab === 'admission'
+                      ? 'The admission processing fee is set at the category level; each ward\u2019s bed-night can be configured below.'
+                      : `${coverageTab.replace('_', ' ')} services are set at the category level only.`}
+                  </p>
                   <div className="flex items-center gap-4">
                     <label className="text-sm font-medium text-slate-600">Coverage %</label>
                     <input type="number" min="0" max="100"
@@ -531,6 +535,58 @@ export default function InsuranceProviders() {
                       className="w-20 px-2 py-1 rounded-lg border border-slate-200 text-sm text-center" />
                     <span className="text-xs text-slate-400">% (blank = uses provider default: {coverageData.provider?.default_coverage_pct}%)</span>
                   </div>
+
+                  {/* Admission: per-ward bed-night coverage */}
+                  {coverageTab === 'admission' && (
+                    <div>
+                      <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Per-ward bed-night coverage</h4>
+                      {(coverageData.wards || []).length === 0 ? (
+                        <p className="text-xs text-slate-400 italic">No wards configured yet.</p>
+                      ) : (
+                        <div className="border border-slate-200 rounded-xl overflow-hidden max-h-96 overflow-y-auto">
+                          <table className="w-full text-sm">
+                            <thead><tr className="bg-slate-50 sticky top-0">
+                              <th className="text-left py-2 px-3 font-medium text-slate-600 text-xs">Ward</th>
+                              <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Beds</th>
+                              <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Coverage %</th>
+                            </tr></thead>
+                            <tbody>
+                              {(coverageData.wards || []).map((w: any) => {
+                                const override = w.bed_day_item_id
+                                  ? coverageRules.find((r: any) => r.service_type === 'admission' && r.inventory_item_id === w.bed_day_item_id)
+                                  : null
+                                return (
+                                  <tr key={w.id} className="border-t border-slate-100 hover:bg-slate-50">
+                                    <td className="py-2 px-3 text-xs font-medium">{w.name}{w.code ? ` (${w.code})` : ''}</td>
+                                    <td className="py-2 px-3 text-center text-xs text-slate-500">{w.bed_count}</td>
+                                    <td className="py-2 px-3 text-center">
+                                      {w.bed_day_item_id ? (
+                                        <input type="number" min="0" max="100"
+                                          value={override?.coverage_percentage ?? ''}
+                                          placeholder="—"
+                                          onChange={e => {
+                                            const v = e.target.value === '' ? null : parseInt(e.target.value)
+                                            setCoverageRules((prev: any) => {
+                                              const rest = prev.filter((r: any) => r.inventory_item_id !== w.bed_day_item_id)
+                                              if (v !== null && !isNaN(v) && v >= 0 && v <= 100) return [...rest, { service_type: 'admission', inventory_item_id: w.bed_day_item_id, coverage_percentage: v }]
+                                              return rest
+                                            })
+                                          }}
+                                          className="w-20 px-2 py-1 rounded-lg border border-slate-200 text-xs text-center" />
+                                      ) : (
+                                        <span className="text-[10px] text-slate-400">No nightly rate item</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                      <p className="text-[11px] text-slate-400 mt-1">Blank uses the admission category rule (or the provider default).</p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

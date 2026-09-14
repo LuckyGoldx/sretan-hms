@@ -97,7 +97,7 @@ export default function BillingPage() {
     if (!billToInsurance || !selectedPatient || cart.length === 0) { setQuote(null); return }
     let cancelled = false
     setQuoteLoading(true)
-    const items = cart.map((c: any) => ({ service_type: c.service_type || 'billing', service_id: c.service_id || null, description: c.description, quantity: c.quantity, unit_price: c.unit_price }))
+    const items = cart.map((c: any) => ({ service_type: c.service_type || 'billing', service_id: c.service_id || null, coverage_item_id: c.coverage_item_id || null, description: c.description, quantity: c.quantity, unit_price: c.unit_price }))
     api.get('/insurance/coverage-quote', { params: { patientId: selectedPatient.id, items: JSON.stringify(items) } })
       .then((r) => { if (!cancelled) setQuote(r.data) })
       .catch(() => { if (!cancelled) setQuote(null) })
@@ -184,6 +184,7 @@ export default function BillingPage() {
           return {
             service_type: c.service_type || 'billing',
             service_id: c.service_id || null,
+            coverage_item_id: c.coverage_item_id || null,
             description: c.description,
             quantity: c.quantity,
             unit_price: c.unit_price,

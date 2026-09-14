@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import pool from '../db/pool';
-import { getCoverageForService, getPatientPrimaryInsurance } from '../utils/coverageLookup';
+import { getCoverageForService, getPatientPrimaryInsurance, resolveBillingCase } from '../utils/coverageLookup';
 import { readClinicProfile } from '../config/reader';
 import { generateNumber } from '../utils/numbering';
 import { accrueBedCharges, resolveWardPerNight } from '../utils/admissionBilling';
@@ -168,7 +168,10 @@ router.get('/api/payments/pending/:patientId', async (req: Request, res: Respons
     let insuredCoverage: any = { active: false };
     try {
       insuredCoverage = (await getPatientPrimaryInsurance(String(patientId))) || { active: false };
-      if (insuredCoverage.active && insuredCoverage.caseId) {
+      // Only apply coverage while the case is inside its coverage window.
+      const billingCase = await resolveBillingCase(String(patientId));
+      const inWindow = billingCase ? billingCase.inWindow : false;
+      if (insuredCoverage.active && insuredCoverage.caseId && inWindow) {
         const cid = insuredCoverage.caseId;
         const caseTenant = await pool.query('SELECT tenant_id FROM insurance_cases WHERE id = $1', [cid]);
         const tenantId = caseTenant.rows[0]?.tenant_id || '00000000-0000-0000-0000-000000000000';
@@ -176,8 +179,12 @@ router.get('/api/payments/pending/:patientId', async (req: Request, res: Respons
         const filteredItems: any[] = [];
         for (const item of items) {
           const itemName = item.description?.split(': ')[1]?.split(' ×')[0] || item.description || '';
+          // Storage keeps the original service_type; coverage for bed-day
+          // charges prices against the ward's admission rule.
           const svcType = item.service_type === 'prescription' ? 'pharmacy' : item.service_type;
-          const coveragePct = await getCoverageForService(insuredCoverage.providerId, svcType, itemName);
+          const coverageType = item.service_type === 'bed_day' ? 'admission' : svcType;
+          const coverageItemId = item.coverage_item_id || item.service_id || null;
+          const coveragePct = await getCoverageForService(insuredCoverage.providerId, coverageType, itemName, coverageItemId);
           const totalPrice = (item.unit_price || 0) * (item.quantity || 1);
           const insurancePortion = Math.round(totalPrice * coveragePct) / 100;
           const patientPortion = Math.round((totalPrice - insurancePortion) * 100) / 100;

@@ -87,7 +87,7 @@ export default function PaypointPending() {
     setSubmitting(true)
     try {
       if (billToInsurance && insuranceInfo && cart[0]?.patient_id) {
-        const items = cart.map((c) => ({ service_type: c.service_type, service_id: c.service_id, description: c.description, quantity: c.quantity, unit_price: c.unit_price }))
+        const items = cart.map((c) => ({ service_type: c.service_type, service_id: c.service_id, coverage_item_id: c.coverage_item_id || null, description: c.description, quantity: c.quantity, unit_price: c.unit_price }))
         // Bills only the insurer share (server applies the provider's coverage
         // rules) and collects any patient co-pay.
         const result = await billToInsuranceAndCollect({

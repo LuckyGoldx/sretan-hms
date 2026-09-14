@@ -9,6 +9,7 @@ import {
 interface CartItem {
   service_type: string
   service_id: string | null
+  coverage_item_id?: string | null
   description: string
   quantity: number
   unit_price: number
@@ -126,7 +127,7 @@ export default function PaypointCheckout() {
     if (!selectedPatient || items.length === 0) { setCoverageQuote(null); return }
     setQuoteLoading(true)
     try {
-      const payload = items.map((c) => ({ service_type: c.service_type, unit_price: c.unit_price, quantity: c.quantity, description: c.description }))
+      const payload = items.map((c) => ({ service_type: c.service_type, service_id: c.service_id, coverage_item_id: c.coverage_item_id || null, unit_price: c.unit_price, quantity: c.quantity, description: c.description }))
       const res = await api.get(`/insurance/coverage-quote?patientId=${selectedPatient.id}&items=${encodeURIComponent(JSON.stringify(payload))}`)
       setCoverageQuote(res.data || null)
     } catch { setCoverageQuote(null) } finally { setQuoteLoading(false) }
@@ -154,6 +155,7 @@ export default function PaypointCheckout() {
         const items = cart.map((c, i) => ({
           service_type: c.service_type,
           service_id: c.service_id,
+          coverage_item_id: c.coverage_item_id || null,
           description: c.description,
           quantity: c.quantity,
           unit_price: c.unit_price,

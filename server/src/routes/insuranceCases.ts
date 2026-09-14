@@ -1052,12 +1052,16 @@ router.get('/api/insurance/coverage-quote', async (req: Request, res: Response) 
       const lineTotal = Math.round(unitPrice * qty * 100) / 100;
       const svcType = item.service_type === 'prescription' ? 'pharmacy' : (item.service_type || 'general');
       const itemName = item.description || '';
+      // Bed-day charges are priced by the ADMISSION rule for the ward's nightly
+      // item (sent as coverage_item_id), not by the daily-charge id.
+      const coverageType = item.service_type === 'bed_day' ? 'admission' : svcType;
+      const coverageItemId = item.coverage_item_id || item.service_id || null;
 
       // Fail closed: an unconfigured service is 0% covered, and nothing is
       // covered at all outside the case's coverage window.
       let coveragePct = 0;
       if (inWindow) {
-        try { coveragePct = await getCoverageForService(billingCase.providerId, svcType, itemName, item.service_id || null); } catch { coveragePct = 0; }
+        try { coveragePct = await getCoverageForService(billingCase.providerId, coverageType, itemName, coverageItemId); } catch { coveragePct = 0; }
       }
       if (isNaN(coveragePct)) coveragePct = 0;
       coveragePct = Math.max(0, Math.min(100, coveragePct));
@@ -1193,7 +1197,10 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
         insurerAmount = Math.max(0, Math.min(lineTotal, parseFloat(item.insurer_amount) || 0));
         coveragePct = lineTotal > 0 ? Math.round((insurerAmount / lineTotal) * 10000) / 100 : 0;
       } else {
-        try { coveragePct = await getCoverageForService(caseProviderId, serviceType, serviceName, item.service_id || null); } catch { coveragePct = 0; }
+        // Bed-day charges price against the ward's admission rule.
+        const coverageType = serviceType === 'bed_day' ? 'admission' : serviceType;
+        const coverageItemId = item.coverage_item_id || item.service_id || null;
+        try { coveragePct = await getCoverageForService(caseProviderId, coverageType, serviceName, coverageItemId); } catch { coveragePct = 0; }
         if (isNaN(coveragePct)) coveragePct = 0;
         coveragePct = Math.max(0, Math.min(100, coveragePct));
         insurerAmount = Math.round(lineTotal * coveragePct) / 100;

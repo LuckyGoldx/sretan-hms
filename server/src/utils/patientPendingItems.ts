@@ -15,6 +15,9 @@ import { resolveOneTimeAdmissionFee } from './admissionBilling';
 export interface PendingItem {
   service_type: string;
   service_id: string | null;
+  /** Insurance coverage lookup override (e.g. a ward's BED_DAY item for bed days). */
+  coverage_type?: string;
+  coverage_item_id?: string | null;
   description: string;
   quantity: number;
   unit_price: number;
@@ -139,7 +142,10 @@ export async function buildBasePendingItems(
   }
 
   const bedDaysRes = await pool.query(
-    `SELECT dc.id, dc.day_index, dc.amount, dc.period_start, w.name as ward_name
+    `SELECT dc.id, dc.day_index, dc.amount, dc.period_start, w.name as ward_name,
+            (SELECT i.id FROM inventory_items i
+              WHERE i.ward_id = COALESCE(dc.ward_id, a.ward_id) AND i.service_key = 'BED_DAY' AND i.is_active = true
+              ORDER BY i.created_at DESC LIMIT 1) AS bed_day_item_id
      FROM admission_daily_charges dc
      JOIN admissions a ON a.id = dc.admission_id
      LEFT JOIN wards w ON w.id = COALESCE(dc.ward_id, a.ward_id)
@@ -149,7 +155,9 @@ export async function buildBasePendingItems(
   );
   for (const b of (bedDaysRes.rows || [])) {
     const bedPrice = parseFloat(b.amount) || 0;
-    items.push({ service_type: 'bed_day', service_id: b.id, description: `Bed Fee: ${b.ward_name || 'Ward'} (Day ${b.day_index})`, quantity: 1, unit_price: bedPrice, needsPrice: !(bedPrice > 0) });
+    // coverage_type/coverage_item_id let insurance price the ward's own nightly
+    // rate rule (service_type 'admission' on the ward's BED_DAY item).
+    items.push({ service_type: 'bed_day', service_id: b.id, coverage_type: 'admission', coverage_item_id: b.bed_day_item_id || null, description: `Bed Fee: ${b.ward_name || 'Ward'} (Day ${b.day_index})`, quantity: 1, unit_price: bedPrice, needsPrice: !(bedPrice > 0) });
   }
 
   (visitsRes.rows || []).forEach((r: any) => {

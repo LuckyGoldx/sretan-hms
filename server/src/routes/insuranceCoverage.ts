@@ -37,10 +37,26 @@ router.get('/api/insurance/providers/:id/coverage', async (req: Request, res: Re
       [providerId]
     );
 
-    // All inventory items grouped by category (for the UI)
+    // All inventory items grouped by category (for the UI). New items added to
+    // inventory appear here automatically, under their category.
     const inventoryItems = await pool.query(
-      `SELECT id, drug_name, category, price, is_active
-       FROM inventory_items WHERE is_active = true ORDER BY category, drug_name`
+      `SELECT id, drug_name, category, price, is_active, stock_count
+       FROM inventory_items WHERE tenant_id = $1 AND is_active = true ORDER BY category, drug_name`,
+      [getTenantId()]
+    );
+
+    // Wards with their bed count and the per-night inventory item that carries
+    // the ward's nightly rate, so admission coverage can be set per ward/bed.
+    const wards = await pool.query(
+      `SELECT w.id, w.name, w.code,
+              (SELECT COUNT(*)::int FROM beds b WHERE b.ward_id = w.id) AS bed_count,
+              (SELECT i.id FROM inventory_items i
+                WHERE i.ward_id = w.id AND i.service_key = 'BED_DAY' AND i.is_active = true
+                ORDER BY i.created_at DESC LIMIT 1) AS bed_day_item_id
+         FROM wards w
+        WHERE w.tenant_id = $1
+        ORDER BY w.name`,
+      [getTenantId()]
     );
 
     // For non-inventory services, create synthetic items
@@ -58,6 +74,7 @@ router.get('/api/insurance/providers/:id/coverage', async (req: Request, res: Re
       provider: prov.rows[0],
       rules: rules.rows,
       inventoryItems: inventoryItems.rows,
+      wards: wards.rows,
       nonInventoryServices,
       categories: SERVICE_CATEGORIES,
     });
