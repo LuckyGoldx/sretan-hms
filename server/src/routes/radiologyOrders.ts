@@ -78,6 +78,20 @@ router.post('/api/radiology-orders', async (req: Request, res: Response) => {
       return;
     }
 
+    // Availability gate: imaging can only be ordered when the radiology
+    // inventory item exists and has stock.
+    const availRes = await pool.query(
+      `SELECT COALESCE(SUM(stock_count), 0)::int AS available
+         FROM inventory_items
+        WHERE tenant_id = $1 AND category = 'radiology' AND is_active = true
+          AND lower(trim(drug_name)) = lower(trim($2))`,
+      [tenantId, imaging_type]
+    );
+    if ((availRes.rows[0]?.available || 0) <= 0) {
+      res.status(400).json({ error: true, message: `${imaging_type} is not available in the radiology inventory.` });
+      return;
+    }
+
     const id = uuidv4();
     const imgNum = await autoImagingNumber(tenantId);
     const result = await pool.query(

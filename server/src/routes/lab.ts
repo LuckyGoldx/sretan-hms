@@ -118,6 +118,20 @@ router.post('/api/lab-orders', async (req: Request, res: Response) => {
       return;
     }
 
+    // Availability gate: a test can only be ordered when its laboratory
+    // inventory item exists and has stock.
+    const availRes = await pool.query(
+      `SELECT COALESCE(SUM(stock_count), 0)::int AS available
+         FROM inventory_items
+        WHERE tenant_id = $1 AND category = 'lab' AND is_active = true
+          AND lower(trim(drug_name)) = lower(trim($2))`,
+      [tenantId, test_name]
+    );
+    if ((availRes.rows[0]?.available || 0) <= 0) {
+      res.status(400).json({ error: true, message: `${test_name} is not available in the laboratory inventory.` });
+      return;
+    }
+
     let labNumber = providedLabNumber
     if (!labNumber) {
       labNumber = await generateNumber(tenantId, 'lab', { prefix: 'LAB' });

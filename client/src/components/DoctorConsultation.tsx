@@ -26,7 +26,6 @@ type ModalType = 'lab' | 'radiology' | null
 import { ICD11_CODES } from '../data/icd11Codes'
 const icd11Codes = ICD11_CODES.map((c) => ({ code: c.code, label: c.label }))
 const PER_PAGE = 15
-const fallbackImagingTypes = ['X-Ray', 'Ultrasound', 'CT', 'MRI']
 const emptySoap: SoapForm = { subjective: '', objective: '', assessment: '', plan: '', notes: '' }
 
 type TabId = 'soap' | 'orders' | 'prescribe' | 'icd'
@@ -135,7 +134,6 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
   const [icdOpen, setIcdOpen] = useState(false)
   const [labSubmitting, setLabSubmitting] = useState(false)
   const [labTestCatalog, setLabTestCatalog] = useState<any[]>([])
-  const [labInventoryItems, setLabInventoryItems] = useState<any[]>([])
   const [radiologyInventoryItems, setRadiologyInventoryItems] = useState<any[]>([])
   const [labTestSearch, setLabTestSearch] = useState('')
   const [showLabTestDropdown, setShowLabTestDropdown] = useState(false)
@@ -199,7 +197,6 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
 
   useEffect(() => {
     api.get<any[]>('/lab-test-catalog').then((res) => setLabTestCatalog(res.data || [])).catch(() => {})
-    api.get<any[]>('/inventory?category=lab').then((res) => setLabInventoryItems(res.data || [])).catch(() => {})
     api.get<any[]>('/inventory?category=radiology').then((res) => setRadiologyInventoryItems(res.data || [])).catch(() => {})
   }, [])
 
@@ -570,7 +567,10 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
   }
 
   const handleLabSubmit = async () => {
-    if (!patientId || !labForm.test_name.trim()) { showToast('Please enter a test name', 'error'); return }
+    if (!patientId || !labForm.test_name.trim()) { showToast('Please select a test', 'error'); return }
+    if (!mergedLabTests.some((t: any) => t.name.toLowerCase() === labForm.test_name.trim().toLowerCase())) {
+      showToast(`${labForm.test_name.trim()} is not available in the laboratory inventory`, 'error'); return
+    }
     setLabSubmitting(true)
     try {
       const encId = await ensureEncounter()
@@ -583,6 +583,9 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
 
   const handleRadiologySubmit = async () => {
     if (!patientId || !radiologyForm.imaging_type) { showToast('Please select an imaging type', 'error'); return }
+    if (!radiologyImagingTypes.some((t: string) => t.toLowerCase() === radiologyForm.imaging_type.trim().toLowerCase())) {
+      showToast(`${radiologyForm.imaging_type} is not available in the radiology inventory`, 'error'); return
+    }
     setRadiologySubmitting(true)
     try {
       const encId = await ensureEncounter()
@@ -613,22 +616,15 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
     } catch { showToast('Failed to create prescription', 'error') } finally { setPrescriptionSubmitting(false) }
   }
 
-  const mergedLabTests = (() => {
-    const catalogNames = new Set(labTestCatalog.map((t: any) => t.name.toLowerCase()))
-    const inventoryNames = labInventoryItems.filter((i: any) => i.stock_count > 0).map((i: any) => i.drug_name).filter(Boolean)
-    const extraNames = inventoryNames.filter((n: string) => !catalogNames.has(n.toLowerCase()))
-    const result = [
-      ...labTestCatalog.map((t: any) => ({ name: t.name, category: t.category || 'catalog', source: 'catalog' })),
-      ...extraNames.map((n: string) => ({ name: n, category: 'lab', source: 'inventory' })),
-    ]
-    return result
-  })()
+  // Only tests whose laboratory inventory item is in stock can be ordered.
+  const mergedLabTests = labTestCatalog
+    .filter((t: any) => Number(t.inventory_stock) > 0)
+    .map((t: any) => ({ name: t.name, category: t.category || 'catalog', source: 'catalog' }))
 
-  const radiologyImagingTypes = (() => {
-    const fromInventory = radiologyInventoryItems.filter((i: any) => i.stock_count > 0).map((i: any) => i.drug_name).filter(Boolean)
-    const uniqueFromInventory = [...new Set(fromInventory)]
-    return uniqueFromInventory.length > 0 ? [...new Set([...fallbackImagingTypes, ...uniqueFromInventory])] : fallbackImagingTypes
-  })()
+  // Only imaging types present in the radiology inventory with stock.
+  const radiologyImagingTypes = [...new Set(
+    radiologyInventoryItems.filter((i: any) => i.stock_count > 0).map((i: any) => i.drug_name).filter(Boolean)
+  )]
 
   const filteredIcd = icdSearch ? icd11Codes.filter((c) => c.code.toLowerCase().includes(icdSearch.toLowerCase()) || c.label.toLowerCase().includes(icdSearch.toLowerCase())) : icd11Codes
   const sortedEncounters = [...encounters].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
