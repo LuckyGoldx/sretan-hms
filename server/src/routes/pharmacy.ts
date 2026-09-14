@@ -4,7 +4,6 @@ import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { clockGuard } from '../middleware/clockGuard';
 import { parsePagination } from '../utils/pagination';
-import { nextInventoryCode } from '../utils/inventoryCode';
 
 const router = Router();
 
@@ -66,12 +65,11 @@ router.post('/api/inventory', async (req: Request, res: Response) => {
     }
 
     const id = uuidv4();
-    const cat = category || 'pharmacy';
-    const code = await nextInventoryCode(tenantId, cat);
+    // The category-prefixed unique code is assigned by a database trigger.
     const result = await pool.query(
-      `INSERT INTO inventory_items (id, tenant_id, drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, price, amount_type, code)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-      [id, tenantId, drug_name, batch_number || null, stock_count || 0, reorder_level || 10, expiry_date || null, supplier || null, cat, unit_price || 0, amount_type || 'units', code]
+      `INSERT INTO inventory_items (id, tenant_id, drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, price, amount_type)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [id, tenantId, drug_name, batch_number || null, stock_count || 0, reorder_level || 10, expiry_date || null, supplier || null, category || 'pharmacy', unit_price || 0, amount_type || 'units']
     );
 
     res.status(201).json(result.rows[0]);

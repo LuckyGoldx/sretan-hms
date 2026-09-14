@@ -20,7 +20,6 @@ import {
   urlHasEmbeddedCredentials,
 } from '../utils/updateDaemon';
 import { resolveCloudCredentials } from '../sync/cloudCredentials';
-import { nextInventoryCode } from '../utils/inventoryCode';
 import axios from 'axios';
 
 const router = Router();
@@ -402,9 +401,9 @@ async function insertWardsAndBeds(client: any, tenantId: string, wards: any): Pr
     );
     if (inserted.rows.length === 0) continue; // ward already present for this tenant
     await client.query(
-      `INSERT INTO inventory_items (id, tenant_id, drug_name, category, price, cost_price, amount_type, is_active, ward_id, service_key, code)
-       VALUES ($1, $2, $3, 'general', $4, 0, 'units', true, $5, 'BED_DAY', $6)`,
-      [uuidv4(), tenantId, `${name} Admission (Per Night)`, isNaN(price) ? 0 : price, wardId, await nextInventoryCode(tenantId, 'general')]
+      `INSERT INTO inventory_items (id, tenant_id, drug_name, category, price, cost_price, amount_type, is_active, ward_id, service_key)
+       VALUES ($1, $2, $3, 'general', $4, 0, 'units', true, $5, 'BED_DAY')`,
+      [uuidv4(), tenantId, `${name} Admission (Per Night)`, isNaN(price) ? 0 : price, wardId]
     );
     for (let i = 1; i <= bedCount; i++) {
       await client.query(

@@ -5,7 +5,6 @@ import { readClinicProfile } from "../config/reader";
 import { accrueBedCharges } from "../utils/admissionBilling";
 import { getAdmissionBalance, evaluateClearance, settleOutstandingItems, applyHeldDeposits, applyHeldDepositsToItems } from "../utils/patientBalance";
 import { generateNumber } from "../utils/numbering";
-import { nextInventoryCode } from "../utils/inventoryCode";
 
 const router = Router();
 
@@ -102,9 +101,9 @@ router.post("/api/wards", async (req: Request, res: Response) => {
         [wardId, tenantId, cleanName, code || null, description || null]
       );
       await client.query(
-        `INSERT INTO inventory_items (id, tenant_id, drug_name, category, price, cost_price, amount_type, is_active, ward_id, service_key, code)
-         VALUES ($1, $2, $3, 'general', $4, 0, 'units', true, $5, 'BED_DAY', $6)`,
-        [itemId, tenantId, `${cleanName} Admission (Per Night)`, rate, wardId, await nextInventoryCode(tenantId, "general")]
+        `INSERT INTO inventory_items (id, tenant_id, drug_name, category, price, cost_price, amount_type, is_active, ward_id, service_key)
+         VALUES ($1, $2, $3, 'general', $4, 0, 'units', true, $5, 'BED_DAY')`,
+        [itemId, tenantId, `${cleanName} Admission (Per Night)`, rate, wardId]
       );
       await client.query("COMMIT");
     } catch (e) {
@@ -164,9 +163,9 @@ router.put("/api/wards/:id", async (req: Request, res: Response) => {
       await pool.query("UPDATE inventory_items SET price = $1 WHERE id = $2", [rate, linked.rows[0].id]);
     } else {
       await pool.query(
-        `INSERT INTO inventory_items (id, tenant_id, drug_name, category, price, cost_price, amount_type, is_active, ward_id, service_key, code)
-         VALUES ($1, $2, $3, 'general', $4, 0, 'units', true, $5, 'BED_DAY', $6)`,
-        [uuidv4(), tenantId, `${oldWard.name} Admission (Per Night)`, rate, wardId, await nextInventoryCode(tenantId, "general")]
+        `INSERT INTO inventory_items (id, tenant_id, drug_name, category, price, cost_price, amount_type, is_active, ward_id, service_key)
+         VALUES ($1, $2, $3, 'general', $4, 0, 'units', true, $5, 'BED_DAY')`,
+        [uuidv4(), tenantId, `${oldWard.name} Admission (Per Night)`, rate, wardId]
       );
     }
 
