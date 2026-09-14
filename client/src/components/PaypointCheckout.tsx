@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import { printPaymentReceipt, printDepositReceipt } from '../utils/print'
 import {
-  Search, X, Loader2, Receipt, Plus, Trash2, Printer, CreditCard, Building2, Landmark, Smartphone, CheckCircle, ArrowLeft, User, Banknote, FileText, Clock, Package, FlaskConical, Scan, Pill, Home, ShoppingCart, Shield, ChevronLeft, ChevronRight,
+  Search, X, Loader2, Receipt, Plus, Trash2, Printer, CreditCard, Building2, Landmark, Smartphone, CheckCircle, ArrowLeft, User, Banknote, FileText, Clock, Package, FlaskConical, Scan, Pill, Home, ShoppingCart, Shield, ChevronLeft, ChevronRight, AlertTriangle,
 } from 'lucide-react'
 
 interface CartItem {
@@ -51,6 +51,7 @@ export default function PaypointCheckout() {
   const [showCartModal, setShowCartModal] = useState(false)
   const [ordersPage, setOrdersPage] = useState(0)
   const [insuranceInfo, setInsuranceInfo] = useState<any>(null)
+  const [insuranceInWindow, setInsuranceInWindow] = useState(true)
   const [billToInsurance, setBillToInsurance] = useState(false)
   const [coPayAmount, setCoPayAmount] = useState(0)
   const [coPayLoading, setCoPayLoading] = useState(false)
@@ -91,6 +92,8 @@ export default function PaypointCheckout() {
       try {
         const insRes = await api.get(`/insurance/active-case/${p.id}`)
         setInsuranceInfo(insRes.data?.hasActiveCase ? insRes.data.case : null)
+        setInsuranceInWindow(insRes.data?.inWindow !== false)
+        if (!insRes.data?.hasActiveCase) setBillToInsurance(false)
         // Fetch co-pay amount
         if (insRes.data?.hasActiveCase) {
           try {
@@ -98,7 +101,7 @@ export default function PaypointCheckout() {
             setCoPayAmount(coRes.data?.co_pay_amount || 0)
           } catch { setCoPayAmount(0) }
         }
-      } catch { setInsuranceInfo(null); setCoPayAmount(0) }
+      } catch { setInsuranceInfo(null); setInsuranceInWindow(true); setCoPayAmount(0) }
       const res = await api.get(`/payments/pending/${p.id}`)
       var items = res.data?.items || []
       setInsuredCoverage(res.data?.insured || null)
@@ -312,7 +315,11 @@ export default function PaypointCheckout() {
                       <p className="text-xs text-slate-400">{selectedPatient.hospital_number}</p>
                     </div>
                   </div>
-                  {insuranceInfo && (
+                  {insuranceInfo && !insuranceInWindow ? (
+                    <span className="flex items-center gap-2 px-3 py-2 rounded-xl border border-rose-200 bg-rose-50 text-xs text-rose-700">
+                      <AlertTriangle size={13} /> Coverage expired — cannot bill {insuranceInfo.provider_name}
+                    </span>
+                  ) : insuranceInfo && (
                     <button onClick={() => setBillToInsurance(!billToInsurance)}
                       className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-medium transition-all ${
                         billToInsurance

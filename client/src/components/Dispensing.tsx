@@ -108,25 +108,7 @@ export default function Dispensing() {
     try {
       const payload: any = { prescription_id: modal.rx.id, quantity_dispensed: modal.quantity }
       if (billToInsurance && !modal.rx.is_paid) payload.bill_to_insurance = true
-      const res = await api.post('/dispense', payload)
-      // Collect the patient's co-pay for a bill-to-insurance dispense.
-      const patientAmount = Number(res.data?.patient_amount || 0)
-      if (billToInsurance && patientAmount > 0 && modal.rx.patient_id && insuranceInfo?.id) {
-        try {
-          await api.post('/insurance/co-pay/pay', {
-            patientId: modal.rx.patient_id,
-            caseId: insuranceInfo.id,
-            amount: patientAmount,
-            paymentMethod: 'cash',
-          })
-        } catch (err: any) {
-          setError(`Dispensed, but co-pay collection failed: ${err.response?.data?.message || err.message}`)
-          setPrescriptions((prev) => prev.filter((p) => p.id !== modal.rx!.id))
-          setModal({ open: false, rx: null, quantity: 0 })
-          setInsuranceInfo(null); setBillToInsurance(false)
-          return
-        }
-      }
+      await api.post('/dispense', payload)
       setPrescriptions((prev) => prev.filter((p) => p.id !== modal.rx!.id))
       setModal({ open: false, rx: null, quantity: 0 })
       setInsuranceInfo(null); setBillToInsurance(false)
@@ -276,7 +258,9 @@ export default function Dispensing() {
                 <p className="text-xs text-slate-400 flex items-center gap-1"><Shield size={12} /> No active insurance case</p>
               )}
               {billToInsurance && (
-                <p className="text-xs text-emerald-600">This drug will be billed to {insuranceInfo?.provider_name} — patient will not be charged cash at pharmacy.</p>
+                <p className="text-xs text-emerald-600">
+                  Only fully covered drugs are billed at the pharmacy. If the patient has a co-pay, the prescription must be billed to insurance at <strong>Paypoint</strong> (co-pay collected there) before dispensing.
+                </p>
               )}
               {error && <p className="text-xs text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> {error}</p>}
             </div>

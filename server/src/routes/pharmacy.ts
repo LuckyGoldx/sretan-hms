@@ -192,17 +192,13 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
     let drugUnitPrice = 0;
     try {
       const priceRes = await pool.query(
-        `SELECT price, selling_price FROM inventory_items WHERE drug_name = $1 AND tenant_id = $2 AND category = 'pharmacy' LIMIT 1`,
+        `SELECT price FROM inventory_items WHERE drug_name = $1 AND tenant_id = $2 AND category = 'pharmacy' ORDER BY created_at DESC LIMIT 1`,
         [prescription.drug_name, tenantId]
       );
       if (priceRes.rows.length > 0) {
-        const item = priceRes.rows[0];
-        drugUnitPrice = parseFloat(item.selling_price ?? item.price ?? 0) || 0;
+        drugUnitPrice = parseFloat(priceRes.rows[0].price ?? 0) || 0;
       }
     } catch {}
-
-    // Patient co-pay for a bill-to-insurance dispense (collected at the counter).
-    let insurancePatientAmount = 0;
 
     // If billing to insurance, add drug charge to the active insurance case and allow dispensing without cash payment
     if (bill_to_insurance) {
@@ -230,6 +226,29 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
       const caseId = billingCase.caseId;
       const caseTenantRes = await pool.query('SELECT tenant_id FROM insurance_cases WHERE id = $1', [caseId]);
       const caseTenant = caseTenantRes.rows[0]?.tenant_id || tenantId;
+
+      const lineTotal = Math.round(qty * drugUnitPrice * 100) / 100;
+      let coveragePct = 0;
+      try { coveragePct = await getCoverageForService(billingCase.providerId || '', 'pharmacy', prescription.drug_name, null); } catch { coveragePct = 0; }
+      if (isNaN(coveragePct)) coveragePct = 0;
+      coveragePct = Math.max(0, Math.min(100, coveragePct));
+      const insurerAmount = Math.round(lineTotal * coveragePct) / 100;
+      const patientAmount = Math.round((lineTotal - insurerAmount) * 100) / 100;
+
+      // Pharmacy does not collect cash co-pays. A drug with a patient share must
+      // be billed to insurance at Paypoint (where the co-pay is collected and the
+      // prescription is marked paid); only fully covered drugs are billed here.
+      if (patientAmount > 0) {
+        res.status(402).json({
+          error: true,
+          message: `Patient co-pay of ₦${patientAmount.toLocaleString()} must be collected at Paypoint first. Bill this prescription to insurance at Paypoint, then dispense.`,
+          patient_amount: patientAmount,
+          insurer_amount: insurerAmount,
+          coverage_pct: coveragePct,
+        });
+        return;
+      }
+
       // Check if drug already added to this case (by source prescription)
       const exists = await pool.query(
         `SELECT id FROM insurance_case_services WHERE case_id = $1 AND source_type = 'prescription' AND source_id = $2`,
@@ -237,14 +256,6 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
       );
       if (exists.rows.length === 0) {
         const svcId = uuidv4();
-        const lineTotal = Math.round(qty * drugUnitPrice * 100) / 100;
-        // Bill only the insurer's covered share; the patient portion is the co-pay.
-        let coveragePct = 0;
-        try { coveragePct = await getCoverageForService(billingCase.providerId || '', 'pharmacy', prescription.drug_name, null); } catch { coveragePct = 0; }
-        if (isNaN(coveragePct)) coveragePct = 0;
-        coveragePct = Math.max(0, Math.min(100, coveragePct));
-        const insurerAmount = Math.round(lineTotal * coveragePct) / 100;
-        insurancePatientAmount = Math.round((lineTotal - insurerAmount) * 100) / 100;
         await pool.query(
           `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, source_type, source_id, added_by)
            VALUES ($1, $2, $3, 'pharmacy', $4, $5, $6, $7, 'prescription', $8, $9)`,
@@ -282,7 +293,7 @@ router.post('/api/dispense', async (req: Request, res: Response) => {
       [prescription_id]
     );
 
-    res.json({ message: 'Medication dispensed', quantity_dispensed: qty - remaining, patient_amount: insurancePatientAmount });
+    res.json({ message: 'Medication dispensed', quantity_dispensed: qty - remaining });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }
