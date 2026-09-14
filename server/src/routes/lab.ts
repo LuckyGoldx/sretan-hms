@@ -4,6 +4,7 @@ import pool from '../db/pool';
 import { readClinicProfile } from '../config/reader';
 import { generateNumber } from '../utils/numbering';
 import { parsePagination } from '../utils/pagination';
+import { ensureLabInventoryItem } from '../utils/inventoryCode';
 
 const router = Router();
 
@@ -583,15 +584,21 @@ router.get('/api/lab-test-catalog', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const { search } = req.query;
-    let query = 'SELECT * FROM lab_test_catalog WHERE tenant_id = $1';
+    // Price/code come from the single inventory catalogue (the catalog row only
+    // holds clinical metadata), so editing either place shows the same value.
+    let query = `SELECT c.*, COALESCE(i.price, c.price) AS price,
+                        i.code AS inventory_code, i.stock_count AS inventory_stock, i.is_active AS inventory_active
+                   FROM lab_test_catalog c
+                   LEFT JOIN inventory_items i ON i.id = c.inventory_item_id
+                  WHERE c.tenant_id = $1`;
     const params: any[] = [tenantId];
 
     if (search) {
-      query += ` AND name ILIKE $2`;
+      query += ` AND c.name ILIKE $2`;
       params.push(`%${search}%`);
     }
 
-    query += ' ORDER BY name';
+    query += ' ORDER BY c.name';
     const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (err: any) {
@@ -635,7 +642,10 @@ router.post('/api/lab-test-catalog', async (req: Request, res: Response) => {
       [tenantId, name, category || null, price || 0, specimen_type || null, description || null, reference_range_low || null, reference_range_high || null, reference_range_text || null,
        rtype, unit || null, allowed_values ? JSON.stringify(allowed_values) : null, abnormal_values ? JSON.stringify(abnormal_values) : null, !!is_panel, loinc || null]
     );
-    res.status(201).json(result.rows[0]);
+    // Link (or create) the shared inventory item so price/stock live in one place.
+    const invItemId = await ensureLabInventoryItem(tenantId, name, price || 0);
+    await pool.query('UPDATE lab_test_catalog SET inventory_item_id = $1 WHERE id = $2', [invItemId, result.rows[0].id]);
+    res.status(201).json({ ...result.rows[0], inventory_item_id: invItemId });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }
@@ -665,7 +675,19 @@ router.put('/api/lab-test-catalog/:id', async (req: Request, res: Response) => {
        is_panel !== undefined ? !!is_panel : undefined, loinc, id, tenantId]
     );
     if (result.rows.length === 0) { res.status(404).json({ error: true, message: 'Test not found' }); return; }
-    res.json(result.rows[0]);
+    // Keep the single inventory item in step: rename and re-price it here so the
+    // lab catalog and inventory never disagree.
+    const row = result.rows[0];
+    let invItemId = row.inventory_item_id;
+    if (!invItemId) {
+      invItemId = await ensureLabInventoryItem(tenantId, row.name, row.price);
+    } else {
+      const newName = name !== undefined && name !== null ? name : row.name;
+      const newPrice = price !== undefined && price !== null ? (parseFloat(price) || 0) : row.price;
+      await pool.query('UPDATE inventory_items SET drug_name = $1, price = $2 WHERE id = $3', [newName, newPrice, invItemId]);
+      await pool.query('UPDATE lab_test_catalog SET inventory_item_id = $1 WHERE id = $2 AND inventory_item_id IS NULL', [invItemId, id]);
+    }
+    res.json({ ...row, inventory_item_id: invItemId });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }

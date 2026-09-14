@@ -135,7 +135,7 @@ export default function InventoryManager({ category, title, icon: Icon, backPath
                   const margin = cost > 0 ? ((sell - cost) / cost * 100).toFixed(1) : '—'
                   return (
                     <tr key={item.id} className={`${item.stock_count <= item.reorder_level ? 'bg-rose-50' : ''} hover:bg-slate-50`}>
-                      <td className="px-5 py-3.5 font-medium text-slate-800">{item.drug_name}</td>
+                      <td className="px-5 py-3.5 font-medium text-slate-800">{item.drug_name}{item.code && <span className="ml-2 font-mono text-[10px] text-slate-400">{item.code}</span>}</td>
                       <td className="px-5 py-3.5">
                         <div className="flex items-center gap-1">
                           <span className={`px-2 py-0.5 rounded-lg text-xs font-semibold ${item.stock_count <= item.reorder_level ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{item.stock_count}</span>

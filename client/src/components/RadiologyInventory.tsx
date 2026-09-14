@@ -182,6 +182,7 @@ export default function RadiologyInventory() {
                     <tr key={item.id} className={`${isInactive ? 'opacity-50 bg-slate-50' : item.stock_count <= item.reorder_level ? 'bg-rose-50' : ''} hover:bg-slate-50`}>
                       <td className="px-5 py-3.5 font-medium text-slate-800">
                         {item.drug_name}
+                        {item.code && <span className="ml-2 font-mono text-[10px] text-slate-400">{item.code}</span>}
                         {isInactive && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-500">INACTIVE</span>}
                       </td>
                       <td className="px-5 py-3.5">

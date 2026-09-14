@@ -472,7 +472,10 @@ export default function InsuranceProviders() {
                               const override = coverageRules.find((r: any) => r.inventory_item_id === item.id)
                               return (
                                 <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50">
-                                  <td className="py-2 px-3 text-xs font-medium">{item.drug_name}</td>
+                                  <td className="py-2 px-3 text-xs font-medium">
+                                    {item.drug_name}
+                                    {item.code && <span className="ml-2 font-mono text-[10px] text-slate-400">{item.code}</span>}
+                                  </td>
                                   <td className="py-2 px-3 text-center">
                                     <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${item.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
                                       {item.is_active ? 'Active' : 'Inactive'}

@@ -171,6 +171,7 @@ export default function ServiceInventory() {
                     <tr key={item.id} className={`${isInactive ? 'opacity-50 bg-slate-50' : ''} hover:bg-slate-50`}>
                       <td className="px-5 py-3.5 font-medium text-slate-800">
                         {item.drug_name}
+                        {item.code && <span className="ml-2 font-mono text-[10px] text-slate-400">{item.code}</span>}
                         {isInactive && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-500">INACTIVE</span>}
                       </td>
                       <td className="px-5 py-3.5"><span className="px-2 py-0.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600">{item.stock_count}</span></td>
