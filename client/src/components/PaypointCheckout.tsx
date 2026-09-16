@@ -350,7 +350,7 @@ export default function PaypointCheckout() {
                       <div key={i} className={`px-4 py-3 rounded-xl border ${item.coverage_pct > 0 ? 'bg-emerald-50/50 border-emerald-200' : 'bg-slate-50 border-slate-100'}`}>
                         <div className="flex items-center justify-between">
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-slate-700 truncate">{item.description}</p>
+                            <p className="text-sm font-medium text-slate-700 break-words" title={item.description}>{item.description}</p>
                             <p className="text-xs text-slate-400 capitalize">
                               {item.service_type.replace('_', ' ')}
                               {item.unit_price > 0 ? ` · ₦${Number(item.unit_price).toLocaleString()}` : ''}
@@ -400,7 +400,7 @@ export default function PaypointCheckout() {
                   {cart.map((item, i) => (
                     <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
                       <div className="flex items-start justify-between gap-2 mb-2">
-                        <p className="text-xs font-medium text-slate-700 flex-1 truncate">{item.description}</p>
+                        <p className="text-xs font-medium text-slate-700 flex-1 break-words" title={item.description}>{item.description}</p>
                         <button onClick={() => removeFromCart(i)} className="p-0.5 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-500 flex-shrink-0"><X size={12} /></button>
                       </div>
                       <div className="flex items-center gap-2">
@@ -561,9 +561,9 @@ export default function PaypointCheckout() {
               )}
               <div className="space-y-2">
                 {((receipt.is_deposit ? receipt.covered_items : receipt.items) || []).map((item: any, i: number) => (
-                  <div key={i} className="flex justify-between text-sm">
-                    <span className="text-slate-600 flex-1 truncate">{item.description}</span>
-                    <span className="font-medium text-slate-800 ml-4">₦{Number(item.total_price ?? item.amount ?? 0).toLocaleString()}</span>
+                  <div key={i} className="flex justify-between text-sm gap-3">
+                    <span className="text-slate-600 flex-1 break-words">{item.description}</span>
+                    <span className="font-medium text-slate-800 ml-4 flex-shrink-0">₦{Number(item.total_price ?? item.amount ?? 0).toLocaleString()}</span>
                   </div>
                 ))}
                 {receipt.is_deposit && (receipt.covered_items || []).length === 0 && (

@@ -205,7 +205,7 @@ export default function PaypointPending() {
                               <Icon size={10} />{item.service_type.replace('_', ' ')}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-slate-600 max-w-[180px] truncate">{item.description}</td>
+                          <td className="px-4 py-3 text-slate-600 max-w-[360px] whitespace-normal break-words align-top" title={item.description}>{item.description}</td>
                           <td className="px-4 py-3 font-medium text-slate-800">{item.unit_price > 0 ? `₦${Number(item.unit_price).toLocaleString()}` : '—'}</td>
                           <td className="px-4 py-3 text-right">
                             <button onClick={() => addToCart(item)}
@@ -251,7 +251,7 @@ export default function PaypointPending() {
                 {cart.map((item, i) => (
                   <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
                     <div className="flex items-start justify-between gap-2 mb-2">
-                      <p className="text-xs font-medium text-slate-700 flex-1 truncate">{item.description}</p>
+                      <p className="text-xs font-medium text-slate-700 flex-1 break-words" title={item.description}>{item.description}</p>
                       <button onClick={() => removeFromCart(i)} className="p-0.5 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-500 flex-shrink-0"><X size={12} /></button>
                     </div>
                     <div className="flex items-center gap-2">

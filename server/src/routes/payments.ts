@@ -717,7 +717,13 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       ),
       pharm_bill_items AS (
         SELECT b.patient_id, p.full_name, p.hospital_number, p.phone, 'pharmacy_bill' as service_type,
-               b.id as service_id, ('Pharmacy Bill ' || COALESCE(b.bill_number, '')) as description,
+               b.id as service_id,
+               ('Pharmacy Bill ' || COALESCE(b.bill_number, '') ||
+                 COALESCE(': ' || (SELECT string_agg(
+                            pbi.quantity || ' ' || COALESCE(NULLIF(pbi.unit, ''), 'unit') || ' ' || COALESCE(pbi.drug_name, '') ||
+                            ' @ ₦' || to_char(pbi.unit_price, 'FM999999990.00') ||
+                            ' = ₦' || to_char(pbi.total_price, 'FM999999990.00'), '; ')
+                          FROM pharmacy_bill_items pbi WHERE pbi.bill_id = b.id), '')) as description,
                1 as quantity, b.total::numeric as unit_price,
                b.created_at
         FROM pharmacy_bills b JOIN patients p ON p.id = b.patient_id

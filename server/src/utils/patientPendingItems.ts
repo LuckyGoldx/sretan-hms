@@ -92,8 +92,15 @@ export async function buildBasePendingItems(
     pool.query(`SELECT r.id, r.referral_number, r.consultant_fee, r.consultant_fee_status, r.created_at
       FROM referrals r WHERE r.patient_id = $1 AND r.consultant_fee_status = 'pending' AND COALESCE(r.consultant_fee, 0) > 0
       ORDER BY r.created_at DESC`, [patientId]),
-    // Pharmacy bills the pharmacist has quantified and sent to Paypoint.
-    pool.query(`SELECT b.id, b.bill_number, b.total, b.created_at
+    // Pharmacy bills the pharmacist has quantified and sent to Paypoint. The
+    // description lists every line (quantity, unit, unit price and amount) so
+    // the receipt itemises what is being paid for.
+    pool.query(`SELECT b.id, b.bill_number, b.total, b.created_at,
+              (SELECT string_agg(
+                        pbi.quantity || ' ' || COALESCE(NULLIF(pbi.unit, ''), 'unit') || ' ' || COALESCE(pbi.drug_name, '') ||
+                        ' @ ₦' || to_char(pbi.unit_price, 'FM999999990.00') ||
+                        ' = ₦' || to_char(pbi.total_price, 'FM999999990.00'), '; ')
+                 FROM pharmacy_bill_items pbi WHERE pbi.bill_id = b.id) AS items_desc
       FROM pharmacy_bills b
       WHERE b.tenant_id = $1 AND b.patient_id = $2 AND b.status = 'awaiting_payment'
       ORDER BY b.created_at DESC`, [tenantId, patientId]),
@@ -129,12 +136,13 @@ export async function buildBasePendingItems(
     items.push({ service_type: 'prescription', service_id: r.id, description: `Prescription: ${r.drug_name} ${r.dosage || ''} × ${r.quantity || ''}`, quantity: r.quantity || 1, unit_price: rxPrice, cost_price: rxCost, needsPrice: !rxPrice });
   }
 
-  // Quantified pharmacy bills awaiting payment (one line per bill).
+  // Quantified pharmacy bills awaiting payment (one line per bill, itemised).
   for (const b of (pharmacyBillsRes.rows || [])) {
+    const label = `Pharmacy Bill ${b.bill_number}`;
     items.push({
       service_type: 'pharmacy_bill',
       service_id: b.id,
-      description: `Pharmacy Bill ${b.bill_number}`,
+      description: b.items_desc ? `${label}: ${b.items_desc}` : label,
       quantity: 1,
       unit_price: parseFloat(b.total) || 0,
       needsPrice: false,
