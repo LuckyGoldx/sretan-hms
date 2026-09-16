@@ -698,6 +698,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       WITH       folder AS (
         SELECT id as patient_id, full_name, hospital_number, phone,
                'folder_activation'::text as service_type, NULL::uuid as service_id,
+               NULL::uuid as line_id,
                'Folder Activation / Registration Fee'::text as description,
                1::int as quantity,
                COALESCE((SELECT i.price FROM inventory_items i
@@ -711,7 +712,8 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       ),
       rx_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, p.phone, 'prescription' as service_type,
-               pr.id as service_id, (pr.drug_name || COALESCE(' ' || pr.dosage, '') || ' × ' || COALESCE(pr.quantity::text, '1')) as description,
+               pr.id as service_id, NULL::uuid as line_id,
+               (pr.drug_name || COALESCE(' ' || pr.dosage, '') || ' × ' || COALESCE(pr.quantity::text, '1')) as description,
                pr.quantity, (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE pr.drug_name AND ii.category = 'pharmacy' AND ii.is_active = true) as unit_price,
                pr.created_at
         FROM prescriptions pr JOIN encounters enc ON enc.id = pr.encounter_id
@@ -733,7 +735,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       ),
       lab_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, p.phone, 'lab' as service_type,
-               l.id as service_id, l.test_name as description,
+               l.id as service_id, NULL::uuid as line_id, l.test_name as description,
                1 as quantity, (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE l.test_name AND ii.category = 'lab' AND ii.is_active = true) as unit_price,
                l.created_at
         FROM lab_orders l JOIN encounters enc ON enc.id = l.encounter_id
@@ -742,7 +744,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       ),
       rad_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, p.phone, 'radiology' as service_type,
-               r.id as service_id, r.imaging_type as description,
+               r.id as service_id, NULL::uuid as line_id, r.imaging_type as description,
                1 as quantity, (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE r.imaging_type AND ii.category = 'radiology' AND ii.is_active = true) as unit_price,
                r.created_at
         FROM radiology_orders r JOIN encounters enc ON enc.id = r.encounter_id
@@ -751,7 +753,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       ),
       adm_items AS (
         SELECT a.patient_id, p.full_name, p.hospital_number, p.phone, 'admission' as service_type,
-               a.id as service_id,
+               a.id as service_id, NULL::uuid as line_id,
                'Admission Fee' as description,
                1 as quantity,
                COALESCE((SELECT i.price FROM inventory_items i
@@ -771,7 +773,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       ),
       bed_items AS (
         SELECT dc.patient_id, p.full_name, p.hospital_number, p.phone, 'bed_day' as service_type,
-               dc.id as service_id,
+               dc.id as service_id, NULL::uuid as line_id,
                ('Bed Fee (Day ' || dc.day_index || ')' || CASE WHEN w.name IS NOT NULL THEN ' — ' || w.name ELSE '' END) as description,
                1 as quantity, dc.amount::numeric as unit_price,
                dc.period_start as created_at
@@ -783,7 +785,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       ),
       consult_items AS (
         SELECT v.patient_id, p.full_name, p.hospital_number, p.phone, 'consultation' as service_type,
-               v.id as service_id,
+               v.id as service_id, NULL::uuid as line_id,
                ('Consultation (' || CASE v.visit_type WHEN 'follow_up' THEN 'follow-up' WHEN 'review' THEN 'review' ELSE 'new' END || ' visit)' ||
                 CASE WHEN v.remarks IS NOT NULL THEN ' — ' || v.remarks ELSE '' END) as description,
                 1 as quantity, COALESCE(v.consultation_fee, 0)::numeric as unit_price,
@@ -793,7 +795,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       ),
       ref_fee_items AS (
         SELECT r.patient_id, p.full_name, p.hospital_number, p.phone, 'referral_fee' as service_type,
-               r.id as service_id,
+               r.id as service_id, NULL::uuid as line_id,
                ('Specialist Fee — ' || r.referral_number) as description,
                 1 as quantity, COALESCE(r.consultant_fee, 0)::numeric as unit_price,
                 r.created_at
