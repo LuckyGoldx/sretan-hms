@@ -199,9 +199,48 @@ router.get('/api/pharmacy-bills', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const { status, patient_id } = req.query;
+    // Doctor / note / dosage come from the linked prescription when the bill has
+    // one; older bills have no per-line link, so fall back to the patient's
+    // prescription with the same drug name.
     let q = `SELECT b.*, p.full_name AS patient_name, p.hospital_number, p.phone AS patient_phone,
-                    e.staff_id AS doctor_id, su.name AS doctor_name,
-                    (SELECT json_agg(row_to_json(i)) FROM pharmacy_bill_items i WHERE i.bill_id = b.id) AS items
+                    e.staff_id AS doctor_id,
+                    COALESCE(
+                      su.name,
+                      (SELECT su2.name FROM pharmacy_bill_items i3
+                         JOIN prescriptions pr3 ON pr3.id = i3.prescription_id
+                         JOIN encounters e3 ON e3.id = pr3.encounter_id
+                         JOIN staff_users su2 ON su2.id = e3.staff_id
+                        WHERE i3.bill_id = b.id LIMIT 1),
+                      (SELECT su4.name FROM pharmacy_bill_items i4
+                         JOIN prescriptions pr4 ON lower(trim(pr4.drug_name)) = lower(trim(i4.drug_name))
+                         JOIN encounters e4 ON e4.id = pr4.encounter_id AND e4.patient_id = b.patient_id
+                         JOIN staff_users su4 ON su4.id = e4.staff_id
+                        WHERE i4.bill_id = b.id LIMIT 1)
+                    ) AS doctor_name,
+                    COALESCE(
+                      (SELECT string_agg(DISTINCT pr.instructions, '; ')
+                         FROM pharmacy_bill_items i
+                         JOIN prescriptions pr ON pr.id = i.prescription_id
+                        WHERE i.bill_id = b.id AND COALESCE(pr.instructions, '') <> ''),
+                      (SELECT string_agg(DISTINCT pr5.instructions, '; ')
+                         FROM pharmacy_bill_items i5
+                         JOIN prescriptions pr5 ON lower(trim(pr5.drug_name)) = lower(trim(i5.drug_name))
+                         JOIN encounters e5 ON e5.id = pr5.encounter_id AND e5.patient_id = b.patient_id
+                        WHERE i5.bill_id = b.id AND COALESCE(pr5.instructions, '') <> '')
+                    ) AS doctor_notes,
+                    (SELECT json_agg(json_build_object(
+                              'id', i.id, 'drug_name', i.drug_name, 'unit', i.unit, 'quantity', i.quantity,
+                              'unit_price', i.unit_price, 'total_price', i.total_price,
+                              'dosage', COALESCE(pr.dosage,
+                                          (SELECT pr6.dosage FROM prescriptions pr6
+                                             JOIN encounters e6 ON e6.id = pr6.encounter_id
+                                            WHERE e6.patient_id = b.patient_id
+                                              AND lower(trim(pr6.drug_name)) = lower(trim(i.drug_name))
+                                            ORDER BY pr6.created_at DESC LIMIT 1)))
+                            ORDER BY i.created_at)
+                       FROM pharmacy_bill_items i
+                       LEFT JOIN prescriptions pr ON pr.id = i.prescription_id
+                      WHERE i.bill_id = b.id) AS items
                FROM pharmacy_bills b
                JOIN patients p ON p.id = b.patient_id
                LEFT JOIN encounters e ON e.id = b.encounter_id

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import api from '../hooks/useAxios'
 import {
-  ClipboardList, Loader2, Plus, Trash2, X, CheckCircle, XCircle, Pill, Clock, Banknote, Send, AlertTriangle, Search, ChevronLeft, ChevronRight,
+  ClipboardList, Loader2, Plus, Trash2, X, CheckCircle, XCircle, Pill, Clock, Banknote, Send, AlertTriangle, Search, ChevronLeft, ChevronRight, Stethoscope,
 } from 'lucide-react'
 
 const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
@@ -284,14 +284,39 @@ export default function PharmacyBills() {
             <div className="px-5 py-4 space-y-4">
               <div className="space-y-1">
                 <p className="text-sm text-slate-600"><span className="font-semibold">Bill:</span> {dispenseModal.bill_number}</p>
+                {(dispenseModal.items || []).length === 1 ? (
+                  <>
+                    <p className="text-sm text-slate-600"><span className="font-semibold">Drug:</span> {dispenseModal.items[0].drug_name}</p>
+                    <p className="text-sm text-slate-600"><span className="font-semibold">Dosage:</span> {dispenseModal.items[0].dosage || '—'}</p>
+                  </>
+                ) : (
+                  <div className="text-sm text-slate-600">
+                    <span className="font-semibold">Drugs:</span>
+                    <div className="mt-0.5 space-y-0.5">
+                      {(dispenseModal.items || []).map((li: any) => (
+                        <p key={li.id} className="text-xs text-slate-600">{li.drug_name}{li.dosage ? ` · ${li.dosage}` : ''}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <p className="text-sm text-slate-600"><span className="font-semibold">Patient:</span> {dispenseModal.patient_name || 'Unknown'}{dispenseModal.hospital_number ? ` · ${dispenseModal.hospital_number}` : ''}</p>
-                {dispenseModal.doctor_name && <p className="text-sm text-slate-600"><span className="font-semibold">Doctor:</span> {dispenseModal.doctor_name}</p>}
+                {dispenseModal.doctor_name && <p className="text-sm text-slate-600 flex items-center gap-1"><Stethoscope size={14} className="text-slate-400" /><span className="font-semibold">Prescribed by:</span> {dispenseModal.doctor_name}</p>}
               </div>
               <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3 text-center">
-                <p className="text-[11px] uppercase tracking-wide text-emerald-700">Quantified items</p>
-                <p className="text-2xl font-bold text-emerald-800">{(dispenseModal.items || []).length}</p>
+                <p className="text-[11px] uppercase tracking-wide text-emerald-700">Quantified quantity</p>
+                <p className="text-2xl font-bold text-emerald-800">
+                  {(dispenseModal.items || []).length === 1
+                    ? ((dispenseModal.items[0].quantity ?? '—'))
+                    : (dispenseModal.items || []).length}
+                </p>
                 <p className="text-[11px] text-emerald-600 mt-1">Paid at Paypoint — dispensing will deduct the stock.</p>
               </div>
+              {dispenseModal.doctor_notes && (
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1"><ClipboardList size={12} /> Doctor's Note</p>
+                  <div className="rounded-xl bg-slate-50 border border-slate-100 px-3.5 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">{dispenseModal.doctor_notes}</div>
+                </div>
+              )}
               <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
                 {(dispenseModal.items || []).map((li: any) => (
                   <div key={li.id} className="flex items-center justify-between px-3.5 py-2.5 text-sm">

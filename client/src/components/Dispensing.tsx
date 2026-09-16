@@ -66,7 +66,17 @@ export default function Dispensing() {
         } catch { return { ...rx, patient_name: 'Unknown', doctor_name: '' } }
       }))
 
-      const rxItems: ReadyItem[] = enriched.map((rx) => ({ kind: 'rx', id: rx.id, date: rx.created_at || '', rx }))
+      // A billed prescription is dispensed through its bill, so don't list it
+      // separately (avoids the same drug showing twice).
+      const billedKeys = new Set<string>()
+      for (const b of (billRes.data || [])) {
+        for (const li of (b.items || [])) {
+          billedKeys.add(`${b.patient_id}:${String(li.drug_name || '').trim().toLowerCase()}`)
+        }
+      }
+      const rxItems: ReadyItem[] = enriched
+        .filter((rx) => !billedKeys.has(`${rx.patient_id}:${String(rx.drug_name || '').trim().toLowerCase()}`))
+        .map((rx) => ({ kind: 'rx', id: rx.id, date: rx.created_at || '', rx }))
       const billItems: ReadyItem[] = (billRes.data || []).map((b) => ({ kind: 'bill', id: b.id, date: b.created_at || '', bill: b }))
 
       const merged = [...rxItems, ...billItems].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
