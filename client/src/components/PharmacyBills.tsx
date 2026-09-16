@@ -28,6 +28,14 @@ function priceForTier(item: any, unit: string): number {
   }
   return base
 }
+// First two names, capped at ~50 characters; "see more" opens the full list.
+function conciseNames(names: Array<string | null | undefined>): { text: string; hasMore: boolean } {
+  const clean = names.map((n) => String(n || '').trim()).filter(Boolean)
+  const firstTwo = clean.slice(0, 2).join(', ')
+  const text = firstTwo.length > 50 ? firstTwo.slice(0, 50) : firstTwo
+  return { text, hasMore: clean.length > 2 || firstTwo.length > 50 }
+}
+
 function tiers(item: any): string[] {
   const list = [item?.base_unit || 'unit']
   if (item?.pack_label && Math.max(1, Number(item.units_per_pack) || 1) > 1) list.push(item.pack_label)
@@ -44,6 +52,7 @@ export default function PharmacyBills() {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
 
+  const [itemsModal, setItemsModal] = useState<{ title: string; items: any[] } | null>(null)
   const [quantifyRx, setQuantifyRx] = useState<any | null>(null)
   const [lines, setLines] = useState<QLine[]>([])
   const [pickItemId, setPickItemId] = useState('')
@@ -118,6 +127,20 @@ export default function PharmacyBills() {
 
   const shown = bills.filter((b) => tab === 'awaiting' ? b.status === 'awaiting_payment' : tab === 'paid' ? b.status === 'paid' : true)
 
+  // Item names only (no unit), first two / 50 chars, with a "see more" popup.
+  function renderItemNames(items: any[], title: string) {
+    const { text, hasMore } = conciseNames(items.map((i) => i.drug_name))
+    if (!text) return <span className="text-xs text-slate-400 italic">—</span>
+    return (
+      <span className="text-xs text-slate-600">
+        {text}{hasMore ? '… ' : ''}
+        {hasMore && (
+          <button onClick={() => setItemsModal({ title, items })} className="text-indigo-600 hover:underline font-medium">see more</button>
+        )}
+      </span>
+    )
+  }
+
   return (
     <div className="max-w-6xl mx-auto space-y-5">
       <div className="flex items-center gap-3">
@@ -154,12 +177,8 @@ export default function PharmacyBills() {
                       <p className="text-[11px] text-slate-400 font-mono">{g.hospital_number}</p>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="space-y-0.5">
-                        {(g.prescriptions || []).map((rx: any) => (
-                          <p key={rx.id} className="text-slate-700 text-xs">{rx.drug_name}{rx.dosage ? ` · ${rx.dosage}` : ''}</p>
-                        ))}
-                      </div>
-                      <span className="text-[10px] text-slate-400">{(g.prescriptions || []).length} item(s)</span>
+                      {renderItemNames(g.prescriptions || [], `${g.patient_name} — prescribed`)}
+                      <span className="text-[10px] text-slate-400 ml-1">({(g.prescriptions || []).length})</span>
                     </td>
                     <td className="px-4 py-3 text-slate-400 text-xs">{new Date(g.created_at).toLocaleString()}</td>
                     <td className="px-4 py-3 text-right">
@@ -185,7 +204,7 @@ export default function PharmacyBills() {
                   <tr key={b.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-mono text-xs text-slate-600">{b.bill_number}</td>
                     <td className="px-4 py-3"><p className="font-medium text-slate-800">{b.patient_name}</p><p className="text-[11px] text-slate-400 font-mono">{b.hospital_number}</p></td>
-                    <td className="px-4 py-3 text-xs text-slate-500">{(b.items || []).map((i: any) => `${i.quantity} ${i.unit} ${i.drug_name}`).join(', ')}</td>
+                    <td className="px-4 py-3">{renderItemNames(b.items || [], `Bill ${b.bill_number}`)}</td>
                     <td className="px-4 py-3 font-semibold text-slate-800">₦{Number(b.total).toLocaleString()}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
@@ -278,6 +297,31 @@ export default function PharmacyBills() {
       )}
 
       <p className="text-[11px] text-slate-400 flex items-center gap-1"><Banknote size={12} /> Stock is held when the bill is created and released if it is cancelled. Dispense only after Paypoint payment.</p>
+
+      {/* Full item list popup (see more) */}
+      {itemsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setItemsModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <h3 className="text-sm font-semibold text-slate-800">{itemsModal.title}</h3>
+              <button onClick={() => setItemsModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-5 space-y-2.5">
+              {itemsModal.items.map((i: any, idx: number) => (
+                <div key={i.id || i.line_id || idx} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-slate-700">{i.drug_name}{i.dosage ? ` · ${i.dosage}` : ''}</span>
+                  {i.quantity != null && (
+                    <span className="text-xs text-slate-400 flex-shrink-0">
+                      {i.quantity}{i.unit ? ` ${i.unit}` : ''}{i.unit_price != null ? ` @ ₦${Number(i.unit_price).toLocaleString()}` : ''}
+                    </span>
+                  )}
+                </div>
+              ))}
+              {itemsModal.items.length === 0 && <p className="text-sm text-slate-400 italic">No items.</p>}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

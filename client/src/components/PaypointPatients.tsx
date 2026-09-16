@@ -15,7 +15,7 @@ function expandPendingItem(item: any): any[] {
     return item.bill_items.map((bi: any) => ({
       ...item,
       line_id: bi.line_id,
-      description: `${bi.drug_name || 'Item'}${bi.unit ? ` (${bi.unit})` : ''} — ${item.description || 'Pharmacy Bill'}`,
+      description: `${bi.drug_name || 'Item'}${bi.unit ? ` (${bi.unit})` : ''}`,
       quantity: Number(bi.quantity) || 1,
       unit_price: Number(bi.unit_price) || 0,
     }))
