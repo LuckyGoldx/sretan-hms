@@ -69,13 +69,15 @@ export default function Dispensing() {
       // A billed prescription is dispensed through its bill, so don't list it
       // separately (avoids the same drug showing twice).
       const billedKeys = new Set<string>()
+      const billedRxIds = new Set<string>()
       for (const b of (billRes.data || [])) {
         for (const li of (b.items || [])) {
           billedKeys.add(`${b.patient_id}:${String(li.drug_name || '').trim().toLowerCase()}`)
+          if (li.prescription_id) billedRxIds.add(String(li.prescription_id))
         }
       }
       const rxItems: ReadyItem[] = enriched
-        .filter((rx) => !billedKeys.has(`${rx.patient_id}:${String(rx.drug_name || '').trim().toLowerCase()}`))
+        .filter((rx) => !billedRxIds.has(String(rx.id)) && !billedKeys.has(`${rx.patient_id}:${String(rx.drug_name || '').trim().toLowerCase()}`))
         .map((rx) => ({ kind: 'rx', id: rx.id, date: rx.created_at || '', rx }))
       const billItems: ReadyItem[] = (billRes.data || []).map((b) => ({ kind: 'bill', id: b.id, date: b.created_at || '', bill: b }))
 

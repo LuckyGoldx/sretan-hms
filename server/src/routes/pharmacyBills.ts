@@ -229,7 +229,8 @@ router.get('/api/pharmacy-bills', async (req: Request, res: Response) => {
                         WHERE i5.bill_id = b.id AND COALESCE(pr5.instructions, '') <> '')
                     ) AS doctor_notes,
                     (SELECT json_agg(json_build_object(
-                              'id', i.id, 'drug_name', i.drug_name, 'unit', i.unit, 'quantity', i.quantity,
+                              'id', i.id, 'prescription_id', i.prescription_id, 'drug_name', i.drug_name,
+                              'unit', i.unit, 'quantity', i.quantity,
                               'unit_price', i.unit_price, 'total_price', i.total_price,
                               'dosage', COALESCE(pr.dosage,
                                           (SELECT pr6.dosage FROM prescriptions pr6
