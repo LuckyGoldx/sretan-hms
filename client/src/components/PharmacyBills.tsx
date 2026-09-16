@@ -287,6 +287,11 @@ export default function PharmacyBills() {
                 <p className="text-sm text-slate-600"><span className="font-semibold">Patient:</span> {dispenseModal.patient_name || 'Unknown'}{dispenseModal.hospital_number ? ` · ${dispenseModal.hospital_number}` : ''}</p>
                 {dispenseModal.doctor_name && <p className="text-sm text-slate-600"><span className="font-semibold">Doctor:</span> {dispenseModal.doctor_name}</p>}
               </div>
+              <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3 text-center">
+                <p className="text-[11px] uppercase tracking-wide text-emerald-700">Quantified items</p>
+                <p className="text-2xl font-bold text-emerald-800">{(dispenseModal.items || []).length}</p>
+                <p className="text-[11px] text-emerald-600 mt-1">Paid at Paypoint — dispensing will deduct the stock.</p>
+              </div>
               <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
                 {(dispenseModal.items || []).map((li: any) => (
                   <div key={li.id} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
@@ -306,7 +311,7 @@ export default function PharmacyBills() {
             <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-3">
               <button onClick={() => setDispenseModal(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
               <button onClick={async () => { await dispense(dispenseModal); setDispenseModal(null) }} disabled={busy === dispenseModal.id}
-                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-50">
                 {busy === dispenseModal.id ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />} Confirm Dispense
               </button>
             </div>

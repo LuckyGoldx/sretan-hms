@@ -241,7 +241,8 @@ export default function Dispensing() {
                   </div>
                   <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3 text-center">
                     <p className="text-[11px] uppercase tracking-wide text-emerald-700">Quantified quantity</p>
-                    <p className="text-2xl font-bold text-emerald-800">{modal.rx.quantity}</p>
+                    <p className="text-2xl font-bold text-emerald-800">{modal.rx.quantity != null && Number(modal.rx.quantity) > 0 ? modal.rx.quantity : '—'}</p>
+                    <p className="text-[11px] text-emerald-600 mt-1">Paid at Paypoint — dispensing will deduct the stock.</p>
                   </div>
                   {modal.rx.instructions && (
                     <div>
@@ -273,12 +274,14 @@ export default function Dispensing() {
                   </div>
                 </>
               )}
-              <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle size={12} /> Paid at Paypoint — dispensing will deduct the stock.</p>
+              {modal.kind === 'rx' && !(Number(modal.rx.quantity) > 0) && (
+                <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle size={12} /> No quantified quantity — bill this at Pharmacy Bills first.</p>
+              )}
               {error && <p className="text-xs text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> {error}</p>}
             </div>
             <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-3">
               <button onClick={() => setModal(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-              <button onClick={handleDispense} disabled={dispensing}
+              <button onClick={handleDispense} disabled={dispensing || (modal.kind === 'rx' && !(Number(modal.rx.quantity) > 0))}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-50">
                 {dispensing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />} Confirm Dispense
               </button>
