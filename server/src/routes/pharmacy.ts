@@ -58,7 +58,8 @@ router.post('/api/inventory', async (req: Request, res: Response) => {
     await clockGuard(pool, 'inventory_items');
 
     const tenantId = getTenantId();
-    const { drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, unit_price, amount_type } = req.body;
+    const { drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, unit_price, amount_type,
+            base_unit, pack_label, units_per_pack, pack_price } = req.body;
 
     if (!drug_name) {
       res.status(400).json({ error: true, message: 'drug_name is required' });
@@ -68,9 +69,12 @@ router.post('/api/inventory', async (req: Request, res: Response) => {
     const id = uuidv4();
     // The category-prefixed unique code is assigned by a database trigger.
     const result = await pool.query(
-      `INSERT INTO inventory_items (id, tenant_id, drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, price, amount_type)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-      [id, tenantId, drug_name, batch_number || null, stock_count || 0, reorder_level || 10, expiry_date || null, supplier || null, category || 'pharmacy', unit_price || 0, amount_type || 'units']
+      `INSERT INTO inventory_items (id, tenant_id, drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, price, amount_type, base_unit, pack_label, units_per_pack, pack_price)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+      [id, tenantId, drug_name, batch_number || null, stock_count || 0, reorder_level || 10, expiry_date || null, supplier || null, category || 'pharmacy', unit_price || 0, amount_type || 'units',
+       base_unit || null, pack_label || null,
+       units_per_pack !== undefined && units_per_pack !== null ? Math.max(1, parseInt(String(units_per_pack), 10) || 1) : 1,
+       pack_price !== undefined && pack_price !== null && pack_price !== '' ? pack_price : null]
     );
 
     res.status(201).json(result.rows[0]);
@@ -85,7 +89,8 @@ router.put('/api/inventory/:id', async (req: Request, res: Response) => {
 
     const tenantId = getTenantId();
     const { id } = req.params;
-    const { stock_count, stock_count_delta, drug_name, batch_number, reorder_level, expiry_date, supplier, unit_price, cost_price, amount_type, is_active } = req.body;
+    const { stock_count, stock_count_delta, drug_name, batch_number, reorder_level, expiry_date, supplier, unit_price, cost_price, amount_type, is_active,
+            base_unit, pack_label, units_per_pack, pack_price } = req.body;
 
     const existing = await pool.query(
       'SELECT * FROM inventory_items WHERE id = $1 AND tenant_id = $2',
@@ -113,11 +118,19 @@ router.put('/api/inventory/:id', async (req: Request, res: Response) => {
         price = COALESCE($7, price),
         cost_price = COALESCE($8, cost_price),
         amount_type = COALESCE($9, amount_type),
-        is_active = COALESCE($10, is_active)
-       WHERE id = $11 AND tenant_id = $12
+        is_active = COALESCE($10, is_active),
+        base_unit = COALESCE($11, base_unit),
+        pack_label = COALESCE($12, pack_label),
+        units_per_pack = COALESCE($13, units_per_pack),
+        pack_price = COALESCE($14, pack_price)
+       WHERE id = $15 AND tenant_id = $16
        RETURNING *`,
       [drug_name || null, batch_number || null, finalStock !== undefined ? finalStock : null, reorder_level || null, expiry_date || null, supplier || null,
-       unit_price !== undefined ? unit_price : null, cost_price !== undefined ? cost_price : null, amount_type || null, is_active !== undefined ? is_active : null, id, tenantId]
+       unit_price !== undefined ? unit_price : null, cost_price !== undefined ? cost_price : null, amount_type || null, is_active !== undefined ? is_active : null,
+       base_unit || null, pack_label || null,
+       units_per_pack !== undefined && units_per_pack !== null ? Math.max(1, parseInt(String(units_per_pack), 10) || 1) : null,
+       pack_price !== undefined && pack_price !== null && pack_price !== '' ? pack_price : null,
+       id, tenantId]
     );
 
     const oldItem = existing.rows[0];

@@ -7,7 +7,7 @@ type SortKey = 'drug_name' | 'batch_number' | 'stock_count' | 'reorder_level' | 
 
 const currentRole: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role } catch {} return null })()
 
-const emptyForm = { drug_name: '', batch_number: '', stock_count: '', reorder_level: '10', supplier: '', unit_price: '', cost_price: '', amount_type: 'units', expiry_date: '' }
+const emptyForm = { drug_name: '', batch_number: '', stock_count: '', reorder_level: '10', supplier: '', unit_price: '', cost_price: '', amount_type: 'units', expiry_date: '', base_unit: 'tablet', pack_label: '', units_per_pack: '1', pack_price: '' }
 
 export default function InventoryManagement() {
   const navigate = useNavigate()
@@ -71,9 +71,13 @@ export default function InventoryManagement() {
         drug_name: form.drug_name.trim(), batch_number: form.batch_number.trim() || undefined,
         stock_count: parseInt(form.stock_count) || 0, reorder_level: parseInt(form.reorder_level) || 10,
         supplier: form.supplier.trim() || undefined, category: 'pharmacy', amount_type: form.amount_type,
-        unit_price: form.unit_price ? parseFloat(form.unit_price) : undefined,
-        cost_price: form.cost_price ? parseFloat(form.cost_price) : undefined,
-        expiry_date: form.expiry_date || undefined,
+      unit_price: form.unit_price ? parseFloat(form.unit_price) : undefined,
+      cost_price: form.cost_price ? parseFloat(form.cost_price) : undefined,
+      expiry_date: form.expiry_date || undefined,
+      base_unit: form.base_unit || undefined,
+      pack_label: form.pack_label.trim() || undefined,
+      units_per_pack: Math.max(1, parseInt(form.units_per_pack) || 1),
+      pack_price: form.pack_price ? parseFloat(form.pack_price) : undefined,
       }
       if (editItem) {
         await api.put(`/inventory/${editItem.id}`, payload)
@@ -111,6 +115,8 @@ export default function InventoryManagement() {
       supplier: item.supplier || '', unit_price: String(item.price ?? ''),
       cost_price: String(item.cost_price ?? ''), amount_type: item.amount_type || 'units',
       expiry_date: item.expiry_date ? item.expiry_date.split('T')[0] : '',
+      base_unit: item.base_unit || 'tablet', pack_label: item.pack_label || '',
+      units_per_pack: String(item.units_per_pack ?? 1), pack_price: item.pack_price != null ? String(item.pack_price) : '',
     })
     setShowAdd(true)
   }
@@ -256,6 +262,36 @@ export default function InventoryManagement() {
                   className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none">
                   <option value="units">Units</option><option value="mL">mL</option><option value="L">L</option><option value="mg">mg</option><option value="g">g</option><option value="tests">Tests</option><option value="packs">Packs</option>
                 </select>
+              </div>
+              <div className="rounded-xl border border-slate-200 p-3 space-y-3 bg-slate-50/60">
+                <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Dispensing units</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Base unit</label>
+                    <select value={form.base_unit} onChange={(e) => setForm((p) => ({ ...p, base_unit: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-primary outline-none">
+                      {['tablet', 'capsule', 'unit', 'mL', 'sachet', 'vial'].map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Pack label</label>
+                    <input value={form.pack_label} onChange={(e) => setForm((p) => ({ ...p, pack_label: e.target.value }))}
+                      placeholder="pack / bottle"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Units / pack</label>
+                    <input type="number" min={1} value={form.units_per_pack} onChange={(e) => setForm((p) => ({ ...p, units_per_pack: e.target.value }))}
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Pack price (₦) — blank = base price × units per pack</label>
+                  <input type="number" min={0} step="0.01" value={form.pack_price} onChange={(e) => setForm((p) => ({ ...p, pack_price: e.target.value }))}
+                    placeholder="e.g. 4500"
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                </div>
+                <p className="text-[11px] text-slate-400">Stock is counted in the base unit. Selling a pack deducts units-per-pack base units.</p>
               </div>
               {error && <p className="text-xs text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> {error}</p>}
             </div>

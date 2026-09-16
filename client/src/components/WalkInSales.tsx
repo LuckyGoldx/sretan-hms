@@ -16,6 +16,15 @@ interface CartItem {
   quantity: number
   unit_price: number
   stock_count: number
+  // Unit handling: stock is in base units; a line may be sold in base units or
+  // in packs (base_quantity = quantity * units_per_pack).
+  base_unit?: string
+  pack_label?: string | null
+  units_per_pack?: number
+  base_price?: number
+  pack_price?: number | null
+  base_quantity?: number
+  unit?: string
 }
 
 interface Sale {
@@ -157,33 +166,80 @@ export default function WalkInSales() {
   const safeSalesPage = Math.min(salesPage, totalSalesPages - 1)
   const pagedSales = filteredSales.slice(safeSalesPage * PAGE_SIZE, (safeSalesPage + 1) * PAGE_SIZE)
 
+  // Base units deducted for a line given the unit it is sold in.
+  function lineBaseQty(c: CartItem): number {
+    const perPack = Math.max(1, Number(c.units_per_pack) || 1)
+    const isPack = !!c.pack_label && c.unit === c.pack_label
+    return Math.round(c.quantity * (isPack ? perPack : 1))
+  }
+
+  function unitPriceFor(unit: string, c: { base_price?: number; pack_price?: number | null; units_per_pack?: number; pack_label?: string | null }): number {
+    const perPack = Math.max(1, Number(c.units_per_pack) || 1)
+    const basePrice = Number(c.base_price) || 0
+    if (unit && c.pack_label && unit === c.pack_label) {
+      if (c.pack_price !== undefined && c.pack_price !== null) return Number(c.pack_price) || 0
+      return Math.round(basePrice * perPack * 100) / 100
+    }
+    return basePrice
+  }
+
   function addToCart(drug: any) {
     setCart((prev) => {
-      const existing = prev.find((c) => c.drug_name === drug.drug_name)
+      const baseUnit = drug.base_unit || 'unit'
+      const existing = prev.find((c) => c.drug_name === drug.drug_name && c.unit === baseUnit)
       if (existing) {
-        if (existing.quantity >= drug.stock_count) return prev
-        return prev.map((c) => c.drug_name === drug.drug_name ? { ...c, quantity: c.quantity + 1 } : c)
+        if (lineBaseQty(existing) + 1 > (Number(drug.stock_count) || 0)) return prev
+        return prev.map((c) => c.unit === baseUnit && c.drug_name === drug.drug_name ? { ...c, quantity: c.quantity + 1, base_quantity: lineBaseQty({ ...c, quantity: c.quantity + 1 }) } : c)
       }
-      return [...prev, { drug_name: drug.drug_name, quantity: 1, unit_price: parseFloat(drug.price) || 0, stock_count: drug.stock_count }]
+      const basePrice = parseFloat(drug.price) || 0
+      return [...prev, {
+        drug_name: drug.drug_name,
+        quantity: 1,
+        unit_price: basePrice,
+        stock_count: Number(drug.stock_count) || 0,
+        base_unit: baseUnit,
+        pack_label: drug.pack_label || null,
+        units_per_pack: Math.max(1, Number(drug.units_per_pack) || 1),
+        base_price: basePrice,
+        pack_price: drug.pack_price ?? null,
+        base_quantity: 1,
+        unit: baseUnit,
+      }]
     })
   }
 
-  function updateQty(name: string, delta: number) {
+  function updateQty(name: string, unit: string, delta: number) {
     setCart((prev) => prev.map((c) => {
-      if (c.drug_name !== name) return c
+      if (c.drug_name !== name || c.unit !== unit) return c
       const newQty = c.quantity + delta
       if (newQty <= 0) return null as any
-      if (newQty > c.stock_count) return c
-      return { ...c, quantity: newQty }
+      const perPack = Math.max(1, Number(c.units_per_pack) || 1)
+      const isPack = unit === c.pack_label
+      if (Math.round(newQty * (isPack ? perPack : 1)) > (Number(c.stock_count) || 0)) return c
+      return { ...c, quantity: newQty, base_quantity: Math.round(newQty * (isPack ? perPack : 1)) }
     }).filter(Boolean) as CartItem[])
   }
 
-  function removeFromCart(name: string) {
-    setCart((prev) => prev.filter((c) => c.drug_name !== name))
+  function removeFromCart(name: string, unit: string) {
+    setCart((prev) => prev.filter((c) => !(c.drug_name === name && c.unit === unit)))
   }
 
-  function updatePrice(name: string, price: number) {
-    setCart((prev) => prev.map((c) => c.drug_name === name ? { ...c, unit_price: price } : c))
+  function updateUnit(name: string, oldUnit: string, newUnit: string) {
+    setCart((prev) => prev.map((c) => {
+      if (c.drug_name !== name || c.unit !== oldUnit) return c
+      const perPack = Math.max(1, Number(c.units_per_pack) || 1)
+      const isPack = !!c.pack_label && newUnit === c.pack_label
+      // Re-price and re-cap so the base quantity never exceeds stock.
+      const unitPrice = unitPriceFor(newUnit, c)
+      let qty = c.quantity
+      const maxUnits = isPack ? Math.floor((Number(c.stock_count) || 0) / perPack) : (Number(c.stock_count) || 0)
+      if (qty > Math.max(1, maxUnits)) qty = Math.max(1, maxUnits)
+      return { ...c, unit: newUnit, unit_price: unitPrice, quantity: qty, base_quantity: Math.round(qty * (isPack ? perPack : 1)) }
+    }))
+  }
+
+  function updatePrice(name: string, unit: string, price: number) {
+    setCart((prev) => prev.map((c) => (c.drug_name === name && c.unit === unit) ? { ...c, unit_price: price } : c))
   }
 
   function clearCart() { setCart([]); setCustomerName(''); setPaymentMethod('cash'); setError(''); setDiscountState(0); setShowDiscount(false); setSelectedPatient(null); setPatientSearch(''); setPatientResults([]); setInsuranceInfo(null); setBillToInsurance(false) }
@@ -197,7 +253,11 @@ export default function WalkInSales() {
     const factor = cartSubtotal > 0 ? cartTotal / cartSubtotal : 1
     try {
       if (billToInsurance && insuranceInfo && selectedPatient) {
-        const items = cart.map((i) => ({ service_type: 'pharmacy', service_id: null, description: i.drug_name, quantity: i.quantity, unit_price: i.unit_price }))
+        const items = cart.map((i) => ({
+          service_type: 'pharmacy', service_id: null,
+          description: `${i.drug_name}${i.unit && i.pack_label && i.unit === i.pack_label ? ` (${i.quantity} ${i.pack_label})` : i.unit ? ` (${i.quantity} ${i.unit})` : ''}`,
+          quantity: i.quantity, unit_price: i.unit_price, unit: i.unit || null, base_quantity: i.base_quantity ?? i.quantity,
+        }))
         const result = await billToInsuranceAndCollect({
           patientId: selectedPatient.id,
           caseId: insuranceInfo.id,
@@ -228,6 +288,9 @@ export default function WalkInSales() {
           drug_name: item.drug_name,
           quantity: item.quantity,
           unit_price: adjustedUnit,
+          unit: item.unit || null,
+          // Base units to deduct (quantity x pack size when sold in packs).
+          base_quantity: item.base_quantity ?? item.quantity,
           customer_name: receiptCustomer || null,
           payment_method: receiptPayment,
           notes: null,
@@ -244,7 +307,7 @@ export default function WalkInSales() {
 
   function reAddSale(sale: Sale) {
     var inv = inventory.find((i: any) => i.drug_name === sale.drug_name)
-    addToCart({ drug_name: sale.drug_name, price: Number(sale.unit_price), stock_count: inv ? inv.stock_count : 9999 })
+    addToCart({ ...(inv || {}), drug_name: sale.drug_name, price: Number(sale.unit_price), stock_count: inv ? inv.stock_count : 9999, base_unit: inv?.base_unit, pack_label: inv?.pack_label, units_per_pack: inv?.units_per_pack, pack_price: inv?.pack_price })
   }
 
   function printThermal(sale: Sale) {
@@ -322,28 +385,46 @@ export default function WalkInSales() {
         <p className="text-xs mt-1">Add drugs from inventory or scan</p>
       </div>
     )
-    return cart.map((item) => (
-      <div key={item.drug_name} className="px-5 py-2">
+    return cart.map((item) => {
+      const unit = item.unit || item.base_unit || 'unit'
+      const perPack = Math.max(1, Number(item.units_per_pack) || 1)
+      const isPack = !!item.pack_label && unit === item.pack_label
+      const baseQty = item.base_quantity ?? (isPack ? item.quantity * perPack : item.quantity)
+      const atMax = baseQty + (isPack ? perPack : 1) > (Number(item.stock_count) || 0)
+      const units = [item.base_unit || 'unit']
+      if (item.pack_label && perPack > 1) units.push(item.pack_label)
+      return (
+      <div key={`${item.drug_name}-${unit}`} className="px-5 py-2">
         <div className="flex items-center justify-between">
           <p className="text-sm font-medium text-slate-800 truncate flex-1">{item.drug_name}</p>
-          <button onClick={() => removeFromCart(item.drug_name)} className="p-1 rounded hover:bg-slate-100 text-slate-300 hover:text-rose-500 transition-colors ml-2"><X size={14} /></button>
+          <button onClick={() => removeFromCart(item.drug_name, unit)} className="p-1 rounded hover:bg-slate-100 text-slate-300 hover:text-rose-500 transition-colors ml-2"><X size={14} /></button>
         </div>
         <div className="flex items-center gap-3 mt-1.5">
           <div className="flex items-center gap-1">
-            <button onClick={() => updateQty(item.drug_name, -1)} className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"><Minus size={12} /></button>
+            <button onClick={() => updateQty(item.drug_name, unit, -1)} className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors"><Minus size={12} /></button>
             <span className="w-8 text-center text-sm font-semibold text-slate-800">{item.quantity}</span>
-            <button onClick={() => updateQty(item.drug_name, 1)} disabled={item.quantity >= item.stock_count}
+            <button onClick={() => updateQty(item.drug_name, unit, 1)} disabled={atMax}
               className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center hover:bg-slate-200 transition-colors disabled:opacity-30"><Plus size={12} /></button>
           </div>
+          {units.length > 1 ? (
+            <select value={unit} onChange={(e) => updateUnit(item.drug_name, unit, e.target.value)}
+              className="rounded-lg border border-slate-200 px-2 py-1 text-xs bg-white focus:ring-2 focus:ring-primary outline-none">
+              {units.map((u) => <option key={u} value={u}>{u}</option>)}
+            </select>
+          ) : (
+            <span className="text-xs text-slate-400">{unit}</span>
+          )}
           <div className="flex items-center gap-1 ml-auto">
             <input type="number" step="0.01" min={0} value={item.unit_price}
-              onChange={(e) => updatePrice(item.drug_name, parseFloat(e.target.value) || 0)}
+              onChange={(e) => updatePrice(item.drug_name, unit, parseFloat(e.target.value) || 0)}
               className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs text-right focus:ring-2 focus:ring-primary outline-none" />
           </div>
           <span className="text-sm font-bold text-slate-800 w-16 text-right">₦{(item.unit_price * item.quantity).toFixed(2)}</span>
         </div>
+        {isPack && <p className="text-[10px] text-slate-400 mt-0.5">{item.quantity} {item.pack_label} = {baseQty} {item.base_unit} · {item.stock_count} {item.base_unit} in stock</p>}
       </div>
-    ))
+      )
+    })
   }
 
   function CartFooter() {
