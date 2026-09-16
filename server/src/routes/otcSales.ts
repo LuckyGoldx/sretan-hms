@@ -33,7 +33,7 @@ router.get('/api/otc-sales', async (req: Request, res: Response) => {
 router.post('/api/otc-sales', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
-    const { drug_name, quantity, unit_price, customer_name, payment_method, notes, sold_by, unit, base_quantity } = req.body;
+    const { drug_name, quantity, unit_price, customer_name, payment_method, notes, sold_by, unit, case_service_id } = req.body;
 
     if (!drug_name || !quantity || quantity <= 0) {
       res.status(400).json({ error: true, message: 'drug_name and quantity > 0 are required' });
@@ -43,7 +43,7 @@ router.post('/api/otc-sales', async (req: Request, res: Response) => {
     // Resolve the inventory batches (FEFO) so we can convert the sold unit to
     // BASE units for stock, and snapshot the cost price at the moment of sale.
     const invRes = await pool.query(
-      `SELECT id, cost_price, stock_count, units_per_pack, pack_label
+      `SELECT id, cost_price, stock_count, units_per_pack, pack_label, units_per_carton, carton_label
          FROM inventory_items
         WHERE tenant_id = $1 AND category = 'pharmacy' AND is_active = true
           AND lower(trim(drug_name)) = lower(trim($2))
@@ -56,11 +56,15 @@ router.post('/api/otc-sales', async (req: Request, res: Response) => {
     }
     const batches = invRes.rows;
     const totalStock = batches.reduce((s: number, r: any) => s + (Number(r.stock_count) || 0), 0);
-    const unitsPerPack = Math.max(1, Number(batches[0].units_per_pack) || 1);
-    const isPack = unit && batches[0].pack_label && String(unit).toLowerCase() === String(batches[0].pack_label).toLowerCase();
-    const baseQty = Number(base_quantity) > 0
-      ? Math.round(Number(base_quantity))
-      : (isPack ? Math.round(Number(quantity) * unitsPerPack) : Math.round(Number(quantity)));
+    // Server decides the conversion (never trust the client's base quantity):
+    // carton and pack map to their base-unit multiple.
+    const u = String(unit || '').toLowerCase();
+    const isCarton = !!batches[0].carton_label && u === String(batches[0].carton_label).toLowerCase();
+    const isPack = !!batches[0].pack_label && u === String(batches[0].pack_label).toLowerCase();
+    const unitsPer = isCarton ? Math.max(1, Number(batches[0].units_per_carton) || 1)
+      : isPack ? Math.max(1, Number(batches[0].units_per_pack) || 1)
+      : 1;
+    const baseQty = Math.round(Number(quantity) * unitsPer);
 
     if (baseQty > totalStock) {
       res.status(400).json({ error: true, message: `Insufficient stock: only ${totalStock} base unit(s) of ${drug_name} available.` });
@@ -72,10 +76,10 @@ router.post('/api/otc-sales', async (req: Request, res: Response) => {
     const costPrice = parseFloat(batches[0].cost_price) || 0;
 
     const result = await pool.query(
-      `INSERT INTO otc_sales (id, tenant_id, drug_name, quantity, unit_price, total_amount, cost_price, customer_name, payment_method, notes, sold_by, unit, base_quantity)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      `INSERT INTO otc_sales (id, tenant_id, drug_name, quantity, unit_price, total_amount, cost_price, customer_name, payment_method, notes, sold_by, unit, base_quantity, case_service_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
       [id, tenantId, drug_name, quantity, unit_price || 0, totalAmount, costPrice, customer_name || null, payment_method || 'cash', notes || null, sold_by || null,
-       unit || null, baseQty]
+       unit || null, baseQty, case_service_id || null]
     );
 
     // Deduct the BASE quantity across batches, first-expiry-first-out.
@@ -135,7 +139,20 @@ router.put('/api/otc-sales/:id/void', async (req: Request, res: Response) => {
       await pool.query('UPDATE inventory_items SET stock_count = stock_count + $1 WHERE id = $2', [restoreQty, batch.rows[0].id]);
     }
 
-    res.json({ success: true, message: 'Sale voided and stock restored' });
+    // If it was billed to insurance, also reverse the claim line and the case total.
+    if (sale.case_service_id) {
+      const svc = await pool.query('SELECT case_id, total_price FROM insurance_case_services WHERE id = $1', [sale.case_service_id]);
+      if (svc.rows[0]) {
+        const caseId = svc.rows[0].case_id;
+        await pool.query('DELETE FROM insurance_case_services WHERE id = $1', [sale.case_service_id]);
+        await pool.query(
+          'UPDATE insurance_cases SET total_billed = (SELECT COALESCE(SUM(total_price),0) FROM insurance_case_services WHERE case_id = $1) WHERE id = $1',
+          [caseId]
+        );
+      }
+    }
+
+    res.json({ success: true, message: 'Sale voided, stock restored and insurance line reversed' });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }

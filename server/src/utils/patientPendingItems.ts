@@ -65,11 +65,14 @@ export async function buildBasePendingItems(
   patientId: string,
   tenantId: string
 ): Promise<{ items: PendingItem[]; folderActivated: boolean }> {
-  const [folderRes, prescriptionsRes, labRes, radiologyRes, admissionsRes, visitsRes, referralsRes] = await Promise.all([
+  const [folderRes, prescriptionsRes, labRes, radiologyRes, admissionsRes, visitsRes, referralsRes, pharmacyBillsRes] = await Promise.all([
     pool.query('SELECT folder_activated FROM patients WHERE id = $1', [patientId]),
+    // Only QUANTIFIED prescriptions bill at Paypoint. An un-quantified order is
+    // priced by the pharmacist first and then appears as a pharmacy bill.
     pool.query(`SELECT pr.id, pr.drug_name, pr.dosage, pr.quantity, pr.created_at
       FROM prescriptions pr JOIN encounters enc ON enc.id = pr.encounter_id
       WHERE enc.patient_id = $1 AND COALESCE(pr.is_paid, false) = false AND pr.status != $2
+        AND COALESCE(pr.quantity, 0) > 0
       ORDER BY pr.created_at DESC`, [patientId, 'cancelled']),
     pool.query(`SELECT l.id, l.test_name, l.status, l.created_at
       FROM lab_orders l JOIN encounters enc ON enc.id = l.encounter_id
@@ -89,6 +92,11 @@ export async function buildBasePendingItems(
     pool.query(`SELECT r.id, r.referral_number, r.consultant_fee, r.consultant_fee_status, r.created_at
       FROM referrals r WHERE r.patient_id = $1 AND r.consultant_fee_status = 'pending' AND COALESCE(r.consultant_fee, 0) > 0
       ORDER BY r.created_at DESC`, [patientId]),
+    // Pharmacy bills the pharmacist has quantified and sent to Paypoint.
+    pool.query(`SELECT b.id, b.bill_number, b.total, b.created_at
+      FROM pharmacy_bills b
+      WHERE b.tenant_id = $1 AND b.patient_id = $2 AND b.status = 'awaiting_payment'
+      ORDER BY b.created_at DESC`, [tenantId, patientId]),
   ]);
 
   const patient = folderRes.rows[0];
@@ -119,6 +127,18 @@ export async function buildBasePendingItems(
     const rxPrice = hit ? parseFloat(hit.price) || 0 : 0;
     const rxCost = hit ? parseFloat(hit.cost) || 0 : 0;
     items.push({ service_type: 'prescription', service_id: r.id, description: `Prescription: ${r.drug_name} ${r.dosage || ''} × ${r.quantity || ''}`, quantity: r.quantity || 1, unit_price: rxPrice, cost_price: rxCost, needsPrice: !rxPrice });
+  }
+
+  // Quantified pharmacy bills awaiting payment (one line per bill).
+  for (const b of (pharmacyBillsRes.rows || [])) {
+    items.push({
+      service_type: 'pharmacy_bill',
+      service_id: b.id,
+      description: `Pharmacy Bill ${b.bill_number}`,
+      quantity: 1,
+      unit_price: parseFloat(b.total) || 0,
+      needsPrice: false,
+    });
   }
 
   for (const r of (labRes.rows || [])) {

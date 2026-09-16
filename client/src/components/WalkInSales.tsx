@@ -25,6 +25,16 @@ interface CartItem {
   pack_price?: number | null
   base_quantity?: number
   unit?: string
+  carton_label?: string | null
+  units_per_carton?: number
+  carton_price?: number | null
+}
+
+// Base units deducted for one sale unit of an item (unit=1, pack, carton).
+function unitsPerSaleUnit(c: { unit?: string; pack_label?: string | null; units_per_pack?: number; carton_label?: string | null; units_per_carton?: number }): number {
+  if (c.unit && c.carton_label && c.unit === c.carton_label) return Math.max(1, Number(c.units_per_carton) || 1)
+  if (c.unit && c.pack_label && c.unit === c.pack_label) return Math.max(1, Number(c.units_per_pack) || 1)
+  return 1
 }
 
 interface Sale {
@@ -168,14 +178,19 @@ export default function WalkInSales() {
 
   // Base units deducted for a line given the unit it is sold in.
   function lineBaseQty(c: CartItem): number {
-    const perPack = Math.max(1, Number(c.units_per_pack) || 1)
-    const isPack = !!c.pack_label && c.unit === c.pack_label
-    return Math.round(c.quantity * (isPack ? perPack : 1))
+    return Math.round(c.quantity * unitsPerSaleUnit(c))
   }
 
-  function unitPriceFor(unit: string, c: { base_price?: number; pack_price?: number | null; units_per_pack?: number; pack_label?: string | null }): number {
-    const perPack = Math.max(1, Number(c.units_per_pack) || 1)
+  // Price for the chosen tier: carton price, else pack price, else base x multiple.
+  function unitPriceFor(unit: string, c: CartItem): number {
     const basePrice = Number(c.base_price) || 0
+    const perPack = Math.max(1, Number(c.units_per_pack) || 1)
+    const perCarton = Math.max(1, Number(c.units_per_carton) || 1)
+    if (unit && c.carton_label && unit === c.carton_label) {
+      if (c.carton_price !== undefined && c.carton_price !== null) return Number(c.carton_price) || 0
+      if (c.pack_price !== undefined && c.pack_price !== null) return Math.round((Number(c.pack_price) * (perCarton / perPack)) * 100) / 100
+      return Math.round(basePrice * perCarton * 100) / 100
+    }
     if (unit && c.pack_label && unit === c.pack_label) {
       if (c.pack_price !== undefined && c.pack_price !== null) return Number(c.pack_price) || 0
       return Math.round(basePrice * perPack * 100) / 100
@@ -202,6 +217,9 @@ export default function WalkInSales() {
         units_per_pack: Math.max(1, Number(drug.units_per_pack) || 1),
         base_price: basePrice,
         pack_price: drug.pack_price ?? null,
+        carton_label: drug.carton_label || null,
+        units_per_carton: drug.units_per_carton ? Math.max(1, Number(drug.units_per_carton)) : undefined,
+        carton_price: drug.carton_price ?? null,
         base_quantity: 1,
         unit: baseUnit,
       }]
@@ -213,10 +231,9 @@ export default function WalkInSales() {
       if (c.drug_name !== name || c.unit !== unit) return c
       const newQty = c.quantity + delta
       if (newQty <= 0) return null as any
-      const perPack = Math.max(1, Number(c.units_per_pack) || 1)
-      const isPack = unit === c.pack_label
-      if (Math.round(newQty * (isPack ? perPack : 1)) > (Number(c.stock_count) || 0)) return c
-      return { ...c, quantity: newQty, base_quantity: Math.round(newQty * (isPack ? perPack : 1)) }
+      const per = unitsPerSaleUnit({ ...c, unit })
+      if (Math.round(newQty * per) > (Number(c.stock_count) || 0)) return c
+      return { ...c, quantity: newQty, base_quantity: Math.round(newQty * per) }
     }).filter(Boolean) as CartItem[])
   }
 
@@ -227,14 +244,13 @@ export default function WalkInSales() {
   function updateUnit(name: string, oldUnit: string, newUnit: string) {
     setCart((prev) => prev.map((c) => {
       if (c.drug_name !== name || c.unit !== oldUnit) return c
-      const perPack = Math.max(1, Number(c.units_per_pack) || 1)
-      const isPack = !!c.pack_label && newUnit === c.pack_label
+      const per = unitsPerSaleUnit({ ...c, unit: newUnit })
       // Re-price and re-cap so the base quantity never exceeds stock.
       const unitPrice = unitPriceFor(newUnit, c)
       let qty = c.quantity
-      const maxUnits = isPack ? Math.floor((Number(c.stock_count) || 0) / perPack) : (Number(c.stock_count) || 0)
+      const maxUnits = Math.floor((Number(c.stock_count) || 0) / per)
       if (qty > Math.max(1, maxUnits)) qty = Math.max(1, maxUnits)
-      return { ...c, unit: newUnit, unit_price: unitPrice, quantity: qty, base_quantity: Math.round(qty * (isPack ? perPack : 1)) }
+      return { ...c, unit: newUnit, unit_price: unitPrice, quantity: qty, base_quantity: Math.round(qty * per) }
     }))
   }
 
@@ -255,7 +271,7 @@ export default function WalkInSales() {
       if (billToInsurance && insuranceInfo && selectedPatient) {
         const items = cart.map((i) => ({
           service_type: 'pharmacy', service_id: null,
-          description: `${i.drug_name}${i.unit && i.pack_label && i.unit === i.pack_label ? ` (${i.quantity} ${i.pack_label})` : i.unit ? ` (${i.quantity} ${i.unit})` : ''}`,
+          description: `${i.drug_name}${i.unit && i.unit !== (i.base_unit || 'unit') ? ` (${i.quantity} ${i.unit})` : ''}`,
           quantity: i.quantity, unit_price: i.unit_price, unit: i.unit || null, base_quantity: i.base_quantity ?? i.quantity,
         }))
         const result = await billToInsuranceAndCollect({
@@ -270,7 +286,8 @@ export default function WalkInSales() {
         // The case service records the money; otc_sales records the stock
         // movement (base units) and the cost/profit for the pharmacy log.
         const stockErrors: string[] = []
-        for (const item of cart) {
+        for (let idx = 0; idx < cart.length; idx++) {
+          const item = cart[idx]
           try {
             await api.post('/otc-sales', {
               drug_name: item.drug_name,
@@ -278,6 +295,9 @@ export default function WalkInSales() {
               unit_price: item.unit_price,
               unit: item.unit || null,
               base_quantity: item.base_quantity ?? item.quantity,
+              // Links this sale to its insurance claim line so a void can
+              // reverse both the stock and the claim.
+              case_service_id: result.case_service_ids?.[idx] || null,
               customer_name: receiptCustomer || null,
               payment_method: receiptPayment,
               notes: 'Insurance-billed OTC sale',
@@ -328,7 +348,7 @@ export default function WalkInSales() {
 
   function reAddSale(sale: Sale) {
     var inv = inventory.find((i: any) => i.drug_name === sale.drug_name)
-    addToCart({ ...(inv || {}), drug_name: sale.drug_name, price: Number(sale.unit_price), stock_count: inv ? inv.stock_count : 9999, base_unit: inv?.base_unit, pack_label: inv?.pack_label, units_per_pack: inv?.units_per_pack, pack_price: inv?.pack_price })
+    addToCart({ ...(inv || {}), drug_name: sale.drug_name, price: Number(sale.unit_price), stock_count: inv ? inv.stock_count : 9999, base_unit: inv?.base_unit, pack_label: inv?.pack_label, units_per_pack: inv?.units_per_pack, pack_price: inv?.pack_price, carton_label: inv?.carton_label, units_per_carton: inv?.units_per_carton, carton_price: inv?.carton_price })
   }
 
   function printThermal(sale: Sale) {
@@ -408,12 +428,13 @@ export default function WalkInSales() {
     )
     return cart.map((item) => {
       const unit = item.unit || item.base_unit || 'unit'
-      const perPack = Math.max(1, Number(item.units_per_pack) || 1)
-      const isPack = !!item.pack_label && unit === item.pack_label
-      const baseQty = item.base_quantity ?? (isPack ? item.quantity * perPack : item.quantity)
-      const atMax = baseQty + (isPack ? perPack : 1) > (Number(item.stock_count) || 0)
+      const perSale = unitsPerSaleUnit({ ...item, unit })
+      const baseQty = item.base_quantity ?? Math.round(item.quantity * perSale)
+      const atMax = baseQty + perSale > (Number(item.stock_count) || 0)
       const units = [item.base_unit || 'unit']
-      if (item.pack_label && perPack > 1) units.push(item.pack_label)
+      if (item.pack_label && Math.max(1, Number(item.units_per_pack) || 1) > 1) units.push(item.pack_label)
+      if (item.carton_label && Math.max(1, Number(item.units_per_carton) || 1) > 1) units.push(item.carton_label)
+      const tierLabel = perSale > 1 ? `${item.quantity} ${unit} = ${baseQty} ${item.base_unit} · ` : ''
       return (
       <div key={`${item.drug_name}-${unit}`} className="px-5 py-2">
         <div className="flex items-center justify-between">
@@ -442,7 +463,7 @@ export default function WalkInSales() {
           </div>
           <span className="text-sm font-bold text-slate-800 w-16 text-right">₦{(item.unit_price * item.quantity).toFixed(2)}</span>
         </div>
-        {isPack && <p className="text-[10px] text-slate-400 mt-0.5">{item.quantity} {item.pack_label} = {baseQty} {item.base_unit} · {item.stock_count} {item.base_unit} in stock</p>}
+        {perSale > 1 && <p className="text-[10px] text-slate-400 mt-0.5">{tierLabel}{item.stock_count} {item.base_unit} in stock</p>}
       </div>
       )
     })

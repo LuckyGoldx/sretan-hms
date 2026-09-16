@@ -7,7 +7,7 @@ type SortKey = 'drug_name' | 'batch_number' | 'stock_count' | 'reorder_level' | 
 
 const currentRole: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).role } catch {} return null })()
 
-const emptyForm = { drug_name: '', batch_number: '', stock_count: '', reorder_level: '10', supplier: '', unit_price: '', cost_price: '', amount_type: 'units', expiry_date: '', base_unit: 'tablet', pack_label: '', units_per_pack: '1', pack_price: '' }
+const emptyForm = { drug_name: '', batch_number: '', stock_count: '', reorder_level: '10', supplier: '', unit_price: '', cost_price: '', amount_type: 'units', expiry_date: '', base_unit: 'tablet', pack_label: '', units_per_pack: '1', pack_price: '', carton_label: '', units_per_carton: '', carton_price: '' }
 
 export default function InventoryManagement() {
   const navigate = useNavigate()
@@ -78,6 +78,9 @@ export default function InventoryManagement() {
       pack_label: form.pack_label.trim() || undefined,
       units_per_pack: Math.max(1, parseInt(form.units_per_pack) || 1),
       pack_price: form.pack_price ? parseFloat(form.pack_price) : undefined,
+      carton_label: form.carton_label.trim() || undefined,
+      units_per_carton: form.units_per_carton ? Math.max(1, parseInt(form.units_per_carton) || 1) : undefined,
+      carton_price: form.carton_price ? parseFloat(form.carton_price) : undefined,
       }
       if (editItem) {
         await api.put(`/inventory/${editItem.id}`, payload)
@@ -117,6 +120,8 @@ export default function InventoryManagement() {
       expiry_date: item.expiry_date ? item.expiry_date.split('T')[0] : '',
       base_unit: item.base_unit || 'tablet', pack_label: item.pack_label || '',
       units_per_pack: String(item.units_per_pack ?? 1), pack_price: item.pack_price != null ? String(item.pack_price) : '',
+      carton_label: item.carton_label || '', units_per_carton: item.units_per_carton != null ? String(item.units_per_carton) : '',
+      carton_price: item.carton_price != null ? String(item.carton_price) : '',
     })
     setShowAdd(true)
   }
@@ -291,7 +296,27 @@ export default function InventoryManagement() {
                     placeholder="e.g. 4500"
                     className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
                 </div>
-                <p className="text-[11px] text-slate-400">Stock is counted in the base unit. Selling a pack deducts units-per-pack base units.</p>
+                <div className="grid grid-cols-3 gap-2 pt-1 border-t border-slate-200">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Carton label</label>
+                    <input value={form.carton_label} onChange={(e) => setForm((p) => ({ ...p, carton_label: e.target.value }))}
+                      placeholder="carton / box"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Units / carton</label>
+                    <input type="number" min={1} value={form.units_per_carton} onChange={(e) => setForm((p) => ({ ...p, units_per_carton: e.target.value }))}
+                      placeholder="e.g. 100"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Carton price (₦)</label>
+                    <input type="number" min={0} step="0.01" value={form.carton_price} onChange={(e) => setForm((p) => ({ ...p, carton_price: e.target.value }))}
+                      placeholder="e.g. 40000"
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-primary outline-none" />
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-400">Stock is counted in the base unit. Selling a pack or carton deducts its base-unit multiple.</p>
               </div>
               {error && <p className="text-xs text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> {error}</p>}
             </div>

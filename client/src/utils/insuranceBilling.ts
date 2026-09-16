@@ -48,6 +48,7 @@ export interface InsuranceBillResult {
   patient_total: number
   co_pay_receipt: any
   receipt_number: string
+  case_service_ids: string[]
   items: Array<{ description: string; insurer_amount: number; patient_amount: number; coverage_pct: number }>
 }
 
@@ -107,6 +108,9 @@ export async function billToInsuranceAndCollect(opts: {
     patient_total: patientTotal,
     co_pay_receipt: coPayReceipt,
     receipt_number: `INS-${caseNumber || caseId}`,
+    // Case-service ids, in the same order as the items sent (so a caller can
+    // link its own records to the claim lines, e.g. for void/reversal).
+    case_service_ids: added.map((a) => a.id),
     items: added.map((a) => ({
       description: a.service_name,
       insurer_amount: Number(a.total_price || 0),

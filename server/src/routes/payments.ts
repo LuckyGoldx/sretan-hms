@@ -55,6 +55,11 @@ async function markOrderAsPaid(item: any): Promise<void> {
       // They are excluded from pending after being auto-billed by the above dedup logic.
       return;
     }
+    // A pharmacy bill moves to 'paid' (its stock was already held at creation).
+    if (item.service_type === 'pharmacy_bill') {
+      await pool.query(`UPDATE pharmacy_bills SET status = 'paid' WHERE id = $1 AND status = 'awaiting_payment'`, [item.service_id]);
+      return;
+    }
     const tableMap: Record<string, string> = {
       prescription: 'prescriptions',
       lab: 'lab_orders',
@@ -93,7 +98,10 @@ async function resolveCostAtPayment(item: any, tenantId: string): Promise<number
   const st = item.service_type;
   const name = cleanItemDescription(item.description);
   try {
-    if (st === 'prescription' && item.service_id) {
+    if (st === 'pharmacy_bill') {
+      // Priced by the pharmacist; no separate cost to resolve here.
+      return 0;
+    } else if (st === 'prescription' && item.service_id) {
       const r = await pool.query('SELECT drug_name FROM prescriptions WHERE id = $1', [item.service_id]);
       if (r.rows.length > 0) return await inventoryCostByName(tenantId, r.rows[0].drug_name, 'pharmacy');
     } else if (st === 'lab' && item.service_id) {
@@ -330,9 +338,10 @@ router.post('/api/payments', async (req: Request, res: Response) => {
       if (!paidByTable[table]) paidByTable[table] = new Set<string>();
       paidByTable[table].add(id);
     };
-    const folderPatientIds = new Set<string>();
-    const paidVisitIds = new Set<string>();
-    const paidReferralIds = new Set<string>();
+      const folderPatientIds = new Set<string>();
+      const paidVisitIds = new Set<string>();
+      const paidReferralIds = new Set<string>();
+      const paidPharmacyBillIds = new Set<string>();
 
     try {
       await client.query('BEGIN');
@@ -391,6 +400,8 @@ router.post('/api/payments', async (req: Request, res: Response) => {
           paidVisitIds.add(item.service_id);
         } else if (item.service_type === 'referral_fee' && item.service_id) {
           paidReferralIds.add(item.service_id);
+        } else if (item.service_type === 'pharmacy_bill' && item.service_id) {
+          paidPharmacyBillIds.add(item.service_id);
         }
       }
 
@@ -407,6 +418,9 @@ router.post('/api/payments', async (req: Request, res: Response) => {
       }
       if (paidReferralIds.size > 0) {
         await client.query(`UPDATE referrals SET consultant_fee_status = 'paid' WHERE id = ANY($1)`, [Array.from(paidReferralIds)]);
+      }
+      if (paidPharmacyBillIds.size > 0) {
+        await client.query(`UPDATE pharmacy_bills SET status = 'paid', payment_id = $2 WHERE id = ANY($1) AND status = 'awaiting_payment'`, [Array.from(paidPharmacyBillIds), paymentId]);
       }
 
       // Materialize consultation fees sold through the service catalog (e.g. "General Consultation (New)")
@@ -559,7 +573,16 @@ router.get('/api/payments/pending-summary', async (req: Request, res: Response) 
         JOIN encounters enc ON enc.id = pr.encounter_id
         JOIN patients p ON p.id = enc.patient_id
         WHERE COALESCE(pr.is_paid, false) = false AND pr.status != 'cancelled' AND enc.tenant_id = $1
+          AND COALESCE(pr.quantity, 0) > 0
         GROUP BY enc.patient_id, p.full_name, p.hospital_number, p.phone
+      ),
+      pharm_bill AS (
+        SELECT b.patient_id, p.full_name, p.hospital_number, p.phone, MAX(b.created_at) as created_at,
+               'pharmacy_bill' as service_type,
+               COUNT(*)::int || ' Pharmacy Bill(s)' as description, COUNT(*) as item_count
+        FROM pharmacy_bills b JOIN patients p ON p.id = b.patient_id
+        WHERE b.status = 'awaiting_payment' AND b.tenant_id = $1
+        GROUP BY b.patient_id, p.full_name, p.hospital_number, p.phone
       ),
       lab AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, p.phone, MAX(l.created_at) as created_at,
@@ -616,6 +639,7 @@ router.get('/api/payments/pending-summary', async (req: Request, res: Response) 
       ),
       all_pending AS (
         SELECT * FROM folder UNION ALL SELECT * FROM rx UNION ALL
+        SELECT * FROM pharm_bill UNION ALL
         SELECT * FROM lab UNION ALL SELECT * FROM rad UNION ALL SELECT * FROM adm UNION ALL
         SELECT * FROM bed UNION ALL
         SELECT * FROM consult UNION ALL SELECT * FROM ref_fee
@@ -672,6 +696,15 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
         FROM prescriptions pr JOIN encounters enc ON enc.id = pr.encounter_id
         JOIN patients p ON p.id = enc.patient_id
         WHERE COALESCE(pr.is_paid, false) = false AND pr.status != 'cancelled' AND enc.tenant_id = $1
+          AND COALESCE(pr.quantity, 0) > 0
+      ),
+      pharm_bill_items AS (
+        SELECT b.patient_id, p.full_name, p.hospital_number, p.phone, 'pharmacy_bill' as service_type,
+               b.id as service_id, ('Pharmacy Bill ' || COALESCE(b.bill_number, '')) as description,
+               1 as quantity, b.total::numeric as unit_price,
+               b.created_at
+        FROM pharmacy_bills b JOIN patients p ON p.id = b.patient_id
+        WHERE b.status = 'awaiting_payment' AND b.tenant_id = $1
       ),
       lab_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, p.phone, 'lab' as service_type,
@@ -751,6 +784,7 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
          ORDER BY pp.created_at LIMIT 1) as insurance_provider
       FROM (
         SELECT * FROM folder UNION ALL SELECT * FROM rx_items UNION ALL
+        SELECT * FROM pharm_bill_items UNION ALL
         SELECT * FROM lab_items UNION ALL SELECT * FROM rad_items UNION ALL SELECT * FROM adm_items UNION ALL
         SELECT * FROM bed_items UNION ALL
         SELECT * FROM consult_items UNION ALL SELECT * FROM ref_fee_items

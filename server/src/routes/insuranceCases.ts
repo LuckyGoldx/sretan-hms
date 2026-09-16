@@ -16,6 +16,11 @@ function getTenantId(): string {
 // Helper: mark a source order as paid so it stops appearing at Paypoint once billed to insurance
 async function markSourceOrderAsPaid(serviceType: string, serviceId: string | null): Promise<void> {
   if (!serviceId) return;
+  // A pharmacy bill moves to 'paid' when billed to insurance.
+  if (serviceType === 'pharmacy_bill') {
+    try { await pool.query(`UPDATE pharmacy_bills SET status = 'paid' WHERE id = $1 AND status = 'awaiting_payment'`, [serviceId]); } catch {}
+    return;
+  }
   const tableMap: Record<string, string> = {
     prescription: 'prescriptions',
     pharmacy: 'prescriptions',
@@ -1050,7 +1055,9 @@ router.get('/api/insurance/coverage-quote', async (req: Request, res: Response) 
       const unitPrice = parseFloat(item.unit_price) || 0;
       const qty = parseInt(item.quantity) || 1;
       const lineTotal = Math.round(unitPrice * qty * 100) / 100;
-      const svcType = item.service_type === 'prescription' ? 'pharmacy' : (item.service_type || 'general');
+      const svcType = item.service_type === 'prescription' ? 'pharmacy'
+        : item.service_type === 'pharmacy_bill' ? 'pharmacy'
+        : (item.service_type || 'general');
       const itemName = item.description || '';
       // Bed-day charges are priced by the ADMISSION rule for the ward's nightly
       // item (sent as coverage_item_id), not by the daily-charge id.

@@ -67,6 +67,7 @@ const LabReports = lazy(() => import('./components/LabReports'))
 const PharmacyDashboard = lazy(() => import('./components/PharmacyDashboard'))
 const UnpaidOrders = lazy(() => import('./components/UnpaidOrders'))
 const Dispensing = lazy(() => import('./components/Dispensing'))
+const PharmacyBills = lazy(() => import('./components/PharmacyBills'))
 const InventoryManager = lazy(() => import('./components/InventoryManager'))
 const InventoryManagement = lazy(() => import('./components/InventoryManagement'))
 const RadiologyDashboard = lazy(() => import('./components/RadiologyDashboard'))
@@ -186,6 +187,7 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/lab-low-stock', label: 'Lab Low Stock', icon: AlertTriangle, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
   { to: '/lab-expiry', label: 'Lab Expiry', icon: Clock, roles: ['Lab Scientist', 'Admin'], category: 'Laboratory', module: 'module_laboratory' },
   // ── Pharmacy ──
+  { to: '/pharmacy/bills', label: 'Pharmacy Bills', icon: ClipboardList, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_pharmacy' },
   { to: '/dispensing', label: 'Dispensing', icon: ClipboardList, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_pharmacy' },
   { to: '/dispensing/unpaid', label: 'Unpaid Prescriptions', icon: Banknote, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_pharmacy' },
   { to: '/walk-in-sales', label: 'Walk-in Sales', icon: ShoppingCart, roles: ['Pharmacist', 'Admin'], category: 'Pharmacy', module: 'module_store' },
@@ -1068,6 +1070,18 @@ export default function App() {
                 <ProtectedRoute roles={['Pharmacist', 'Admin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <Dispensing />
+                  </Suspense>
+                </ProtectedRoute>
+              </Layout>
+            }
+          />
+          <Route
+            path="/pharmacy/bills"
+            element={
+              <Layout>
+                <ProtectedRoute roles={['Pharmacist', 'Admin']}>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <PharmacyBills />
                   </Suspense>
                 </ProtectedRoute>
               </Layout>
