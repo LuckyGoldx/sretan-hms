@@ -185,12 +185,17 @@ export default function UnpaidOrders() {
       )}
 
       {!loading && filtered.length > 0 && (
-        <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700">
           <AlertTriangle size={14} />
-          These prescriptions must be paid at Paypoint (or billed to insurance during dispensing) before they can be dispensed.
-          <button onClick={() => navigate('/dispensing')} className="ml-auto flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-600 text-white font-medium hover:bg-amber-700 flex-shrink-0">
-            <Pill size={12} /> Go to Dispensing
-          </button>
+          A prescription with no quantity is quantified by the pharmacist, billed to Paypoint, and only then dispensed.
+          <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+            <button onClick={() => navigate('/pharmacy/bills')} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">
+              <Banknote size={12} /> Quantify &amp; Send to Paypoint
+            </button>
+            <button onClick={() => navigate('/dispensing')} className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-amber-300 bg-white text-amber-700 font-medium hover:bg-amber-100">
+              <Pill size={12} /> Dispensing
+            </button>
+          </div>
         </div>
       )}
     </div>
