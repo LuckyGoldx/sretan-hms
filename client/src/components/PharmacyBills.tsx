@@ -6,7 +6,7 @@ import {
 
 const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
 
-interface QLine { inventory_item_id: string; unit: string; quantity: number }
+interface QLine { inventory_item_id: string; unit: string; quantity: number; prescription_id?: string | null }
 
 function unitsPerTier(item: any, unit: string): number {
   if (item?.carton_label && unit === item.carton_label) return Math.max(1, Number(item.units_per_carton) || 1)
@@ -64,13 +64,19 @@ export default function PharmacyBills() {
 
   useEffect(() => { load() }, [load])
 
-  function openQuantify(rx: any) {
-    setQuantifyRx(rx); setPickItemId(''); setError('')
-    // The doctor already chose the drug — pre-fill it from inventory so the
-    // pharmacist only sets the quantity/unit (adding an item is only needed to
-    // substitute or add an extra line).
-    const match = inventory.find((i) => String(i.drug_name || '').trim().toLowerCase() === String(rx.drug_name || '').trim().toLowerCase())
-    setLines(match ? [{ inventory_item_id: match.id, unit: match.base_unit || 'unit', quantity: 1 }] : [])
+  function openQuantify(group: any) {
+    setQuantifyRx(group); setPickItemId(''); setError('')
+    // The doctor already chose the drugs — pre-fill every prescription in this
+    // group from inventory (deduped by item) so the pharmacist only sets the
+    // quantity/unit. Adding an item is only needed to substitute or add extra.
+    const next: QLine[] = []
+    for (const rx of (group.prescriptions || [])) {
+      const match = inventory.find((i) => String(i.drug_name || '').trim().toLowerCase() === String(rx.drug_name || '').trim().toLowerCase())
+      if (match && !next.some((l) => l.inventory_item_id === match.id)) {
+        next.push({ inventory_item_id: match.id, unit: match.base_unit || 'unit', quantity: 1, prescription_id: rx.id })
+      }
+    }
+    setLines(next)
   }
   function addLine() {
     if (!pickItemId) return
@@ -89,9 +95,10 @@ export default function PharmacyBills() {
     try {
       await api.post('/pharmacy-bills', {
         patient_id: quantifyRx.patient_id,
-        prescription_id: quantifyRx.id,
+        encounter_id: quantifyRx.encounter_id,
+        prescription_id: lines.find((l) => l.prescription_id)?.prescription_id || null,
         billed_by: currentUserId,
-        items: lines.map((l) => ({ inventory_item_id: l.inventory_item_id, unit: l.unit, quantity: l.quantity })),
+        items: lines.map((l) => ({ inventory_item_id: l.inventory_item_id, unit: l.unit, quantity: l.quantity, prescription_id: l.prescription_id || null })),
       })
       setQuantifyRx(null); setLines([])
       await load()
@@ -135,19 +142,28 @@ export default function PharmacyBills() {
           {queue.length === 0 ? <div className="py-14 text-center text-slate-400 text-sm">No prescriptions waiting to be quantified.</div> : (
             <table className="w-full text-sm">
               <thead><tr className="bg-slate-50 text-left text-xs text-slate-400 uppercase tracking-wider">
-                <th className="px-4 py-3 font-medium">Patient</th><th className="px-4 py-3 font-medium">Drug</th>
-                <th className="px-4 py-3 font-medium">Dosage</th><th className="px-4 py-3 font-medium">Ordered</th>
+                <th className="px-4 py-3 font-medium">Patient</th><th className="px-4 py-3 font-medium">Prescribed Drugs</th>
+                <th className="px-4 py-3 font-medium">Ordered</th>
                 <th className="px-4 py-3 font-medium text-right">Action</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-50">
-                {queue.map((r) => (
-                  <tr key={r.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3"><p className="font-medium text-slate-800">{r.patient_name}</p><p className="text-[11px] text-slate-400 font-mono">{r.hospital_number}</p></td>
-                    <td className="px-4 py-3 text-slate-700">{r.drug_name}</td>
-                    <td className="px-4 py-3 text-slate-500 text-xs">{r.dosage || '—'}</td>
-                    <td className="px-4 py-3 text-slate-400 text-xs">{new Date(r.created_at).toLocaleString()}</td>
+                {queue.map((g) => (
+                  <tr key={`${g.patient_id}:${g.encounter_id}`} className="hover:bg-slate-50">
+                    <td className="px-4 py-3">
+                      <p className="font-medium text-slate-800">{g.patient_name}</p>
+                      <p className="text-[11px] text-slate-400 font-mono">{g.hospital_number}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="space-y-0.5">
+                        {(g.prescriptions || []).map((rx: any) => (
+                          <p key={rx.id} className="text-slate-700 text-xs">{rx.drug_name}{rx.dosage ? ` · ${rx.dosage}` : ''}</p>
+                        ))}
+                      </div>
+                      <span className="text-[10px] text-slate-400">{(g.prescriptions || []).length} item(s)</span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-400 text-xs">{new Date(g.created_at).toLocaleString()}</td>
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => openQuantify(r)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"><Pill size={12} /> Quantify &amp; Bill</button>
+                      <button onClick={() => openQuantify(g)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700"><Pill size={12} /> Quantify &amp; Bill all</button>
                     </td>
                   </tr>
                 ))}
@@ -207,13 +223,16 @@ export default function PharmacyBills() {
             <div className="p-6 space-y-4">
               <div className="text-sm text-slate-600">
                 <p><strong>{quantifyRx.patient_name}</strong> <span className="text-xs text-slate-400 font-mono">{quantifyRx.hospital_number}</span></p>
-                <p className="text-xs text-slate-500 mt-1">Prescribed: <strong>{quantifyRx.drug_name}</strong> {quantifyRx.dosage ? `· ${quantifyRx.dosage}` : ''}</p>
-                {quantifyRx.instructions && <p className="text-xs text-slate-400 italic mt-0.5">{quantifyRx.instructions}</p>}
+                <div className="text-xs text-slate-500 mt-1 space-y-0.5">
+                  {(quantifyRx.prescriptions || []).map((rx: any) => (
+                    <p key={rx.id}>Prescribed: <strong>{rx.drug_name}</strong>{rx.dosage ? ` · ${rx.dosage}` : ''}{rx.instructions ? <span className="text-slate-400 italic"> — {rx.instructions}</span> : ''}</p>
+                  ))}
+                </div>
               </div>
 
               {lines.length === 0 && (
                 <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700">
-                  <AlertTriangle size={13} /> “{quantifyRx.drug_name}” was not matched in pharmacy inventory. Add the item manually below.
+                  <AlertTriangle size={13} /> None of the prescribed drugs were matched in pharmacy inventory. Add the item(s) manually below.
                 </div>
               )}
               <div className="flex items-end gap-2">

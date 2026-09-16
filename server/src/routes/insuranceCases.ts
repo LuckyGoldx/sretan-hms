@@ -16,9 +16,17 @@ function getTenantId(): string {
 // Helper: mark a source order as paid so it stops appearing at Paypoint once billed to insurance
 async function markSourceOrderAsPaid(serviceType: string, serviceId: string | null): Promise<void> {
   if (!serviceId) return;
-  // A pharmacy bill moves to 'paid' when billed to insurance.
+  // A pharmacy bill moves to 'paid' when billed to insurance, and every
+  // prescription it was quantified from is settled too.
   if (serviceType === 'pharmacy_bill') {
-    try { await pool.query(`UPDATE pharmacy_bills SET status = 'paid' WHERE id = $1 AND status = 'awaiting_payment'`, [serviceId]); } catch {}
+    try {
+      await pool.query(`UPDATE pharmacy_bills SET status = 'paid' WHERE id = $1 AND status = 'awaiting_payment'`, [serviceId]);
+      await pool.query(
+        `UPDATE prescriptions SET is_paid = true
+          WHERE id IN (SELECT prescription_id FROM pharmacy_bill_items WHERE bill_id = $1 AND prescription_id IS NOT NULL)`,
+        [serviceId]
+      );
+    } catch {}
     return;
   }
   const tableMap: Record<string, string> = {

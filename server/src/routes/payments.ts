@@ -421,6 +421,12 @@ router.post('/api/payments', async (req: Request, res: Response) => {
       }
       if (paidPharmacyBillIds.size > 0) {
         await client.query(`UPDATE pharmacy_bills SET status = 'paid', payment_id = $2 WHERE id = ANY($1) AND status = 'awaiting_payment'`, [Array.from(paidPharmacyBillIds), paymentId]);
+        // Settle every prescription this bill was quantified from.
+        await client.query(
+          `UPDATE prescriptions SET is_paid = true
+            WHERE id IN (SELECT prescription_id FROM pharmacy_bill_items WHERE bill_id = ANY($1) AND prescription_id IS NOT NULL)`,
+          [Array.from(paidPharmacyBillIds)]
+        );
       }
 
       // Materialize consultation fees sold through the service catalog (e.g. "General Consultation (New)")

@@ -65,15 +65,15 @@ async function restoreStock(client: any, tenantId: string, drugName: string, qty
   if (b.rows[0]) await client.query('UPDATE inventory_items SET stock_count = stock_count + $1 WHERE id = $2', [qty, b.rows[0].id]);
 }
 
-// GET /api/pharmacy-bills/queue -- prescriptions with no quantity yet.
+// GET /api/pharmacy-bills/queue -- prescriptions with no quantity yet, grouped
+// by patient + encounter so several drugs can be billed together.
 router.get('/api/pharmacy-bills/queue', async (_req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const result = await pool.query(
       `SELECT pr.id, pr.drug_name, pr.dosage, pr.instructions, pr.created_at,
-              enc.patient_id, p.full_name AS patient_name, p.hospital_number,
-              (SELECT CASE WHEN COUNT(*) > 0 THEN (SELECT id FROM insurance_cases c WHERE c.patient_id = enc.patient_id AND c.status='active' ORDER BY c.created_at DESC LIMIT 1) END
-                 FROM insurance_cases c WHERE c.patient_id = enc.patient_id AND c.status='active') AS active_case_id
+              enc.patient_id, enc.id AS encounter_id, p.full_name AS patient_name, p.hospital_number,
+              (SELECT c.id FROM insurance_cases c WHERE c.patient_id = enc.patient_id AND c.status='active' ORDER BY c.created_at DESC LIMIT 1) AS active_case_id
          FROM prescriptions pr
          JOIN encounters enc ON enc.id = pr.encounter_id
          JOIN patients p ON p.id = enc.patient_id
@@ -81,11 +81,33 @@ router.get('/api/pharmacy-bills/queue', async (_req: Request, res: Response) => 
           AND COALESCE(pr.is_paid, false) = false
           AND pr.status <> 'cancelled'
           AND COALESCE(pr.quantity, 0) = 0
-          AND NOT EXISTS (SELECT 1 FROM pharmacy_bills pb WHERE pb.prescription_id = pr.id AND pb.status <> 'cancelled')
+          AND NOT EXISTS (
+            SELECT 1 FROM pharmacy_bill_items pbi
+              JOIN pharmacy_bills pb ON pb.id = pbi.bill_id
+             WHERE pbi.prescription_id = pr.id AND pb.status <> 'cancelled'
+          )
         ORDER BY pr.created_at ASC`,
       [tenantId]
     );
-    res.json(result.rows);
+
+    // Group by patient + encounter.
+    const groups = new Map<string, any>();
+    for (const r of result.rows) {
+      const key = `${r.patient_id}:${r.encounter_id}`;
+      if (!groups.has(key)) {
+        groups.set(key, {
+          patient_id: r.patient_id,
+          patient_name: r.patient_name,
+          hospital_number: r.hospital_number,
+          encounter_id: r.encounter_id,
+          active_case_id: r.active_case_id || null,
+          created_at: r.created_at,
+          prescriptions: [],
+        });
+      }
+      groups.get(key).prescriptions.push({ id: r.id, drug_name: r.drug_name, dosage: r.dosage, instructions: r.instructions, created_at: r.created_at });
+    }
+    res.json(Array.from(groups.values()));
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }
@@ -120,7 +142,7 @@ router.post('/api/pharmacy-bills', async (req: Request, res: Response) => {
       const baseQty = Math.round(qty * per);
       const unitPrice = priceForTier(item, unit);
       const total = Math.round(unitPrice * qty * 100) / 100;
-      lines.push({ item, unit, qty, baseQty, unitPrice, total, drugName: item.drug_name });
+      lines.push({ item, unit, qty, baseQty, unitPrice, total, drugName: item.drug_name, prescriptionId: raw.prescription_id || null });
     }
 
     // Hold stock (deduct base units) — enough for every line.
@@ -145,13 +167,15 @@ router.post('/api/pharmacy-bills', async (req: Request, res: Response) => {
     await client.query(
       `INSERT INTO pharmacy_bills (id, tenant_id, bill_number, patient_id, prescription_id, encounter_id, status, total, billed_by, notes)
        VALUES ($1, $2, $3, $4, $5, $6, 'awaiting_payment', $7, $8, $9)`,
-      [billId, tenantId, billNumber, patient_id, prescription_id || null, encounter_id || null, total, billed_by || null, notes || null]
+      [billId, tenantId, billNumber, patient_id,
+       prescription_id || lines.find((l: any) => l.prescriptionId)?.prescriptionId || null,
+       encounter_id || null, total, billed_by || null, notes || null]
     );
     for (const l of lines) {
       await client.query(
-        `INSERT INTO pharmacy_bill_items (id, tenant_id, bill_id, inventory_item_id, drug_name, unit, quantity, base_quantity, unit_price, total_price)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [uuidv4(), tenantId, billId, l.item.id, l.drugName, l.unit, l.qty, l.baseQty, l.unitPrice, l.total]
+        `INSERT INTO pharmacy_bill_items (id, tenant_id, bill_id, inventory_item_id, drug_name, unit, quantity, base_quantity, unit_price, total_price, prescription_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [uuidv4(), tenantId, billId, l.item.id, l.drugName, l.unit, l.qty, l.baseQty, l.unitPrice, l.total, l.prescriptionId]
       );
     }
 
