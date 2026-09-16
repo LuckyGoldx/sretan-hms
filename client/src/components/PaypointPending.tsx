@@ -24,6 +24,15 @@ function expandPendingItem(item: any): any[] {
   return [item]
 }
 
+// Newest first (rows without a date go last).
+function sortByNewest(rows: any[]): any[] {
+  return [...rows].sort((a: any, b: any) => {
+    const ta = new Date(a?.date || a?.created_at || 0).getTime() || 0
+    const tb = new Date(b?.date || b?.created_at || 0).getTime() || 0
+    return tb - ta
+  })
+}
+
 const serviceIcons: Record<string, any> = {
   folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home, bed_day: Home,
 }
@@ -94,7 +103,7 @@ export default function PaypointPending() {
       const rowKey = (x: any) => String(x.line_id || x.service_id || x.patient_id) + '-' + x.service_type
       const existing = new Set(prev.map(rowKey))
       const add = rows.filter((r) => !existing.has(rowKey(r)))
-      return add.length ? [...prev, ...add] : prev
+      return add.length ? sortByNewest([...prev, ...add]) : prev
     })
     if (cartWasEmpty && item.patient_id) fetchInsurance(item.patient_id)
   }

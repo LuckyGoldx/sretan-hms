@@ -23,6 +23,15 @@ function expandPendingItem(item: any): any[] {
   return [item]
 }
 
+// Newest first (rows without a date go last).
+function sortByNewest(rows: any[]): any[] {
+  return [...rows].sort((a: any, b: any) => {
+    const ta = new Date(a?.date || a?.created_at || 0).getTime() || 0
+    const tb = new Date(b?.date || b?.created_at || 0).getTime() || 0
+    return tb - ta
+  })
+}
+
 const serviceIcons: Record<string, any> = {
   folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home, bed_day: Home,
 }
@@ -63,13 +72,13 @@ export default function PaypointPatients() {
     try {
       const res = await api.get(`/payments/pending/${selectedPatient.patient_id}`)
       var items = res.data?.items || []
-      setPendingItems(items)
+      setPendingItems(sortByNewest(items))
       const flat = (items as any[]).flatMap(expandPendingItem)
       const rowKey = (x: any) => String(x.line_id || x.service_id || x.patient_id) + '-' + x.service_type
       setCart((prev) => {
         const existing = new Set(prev.map(rowKey))
         const add = flat.filter((r) => !existing.has(rowKey(r)))
-        return add.length ? [...prev, ...add] : prev
+        return add.length ? sortByNewest([...prev, ...add]) : prev
       })
     } catch {}
   }
@@ -92,8 +101,8 @@ export default function PaypointPatients() {
     try {
       const res = await api.get(`/payments/pending/${p.patient_id}`)
       var items = res.data?.items || []
-      setPendingItems(items)
-      setCart((items as any[]).flatMap(expandPendingItem))
+      setPendingItems(sortByNewest(items))
+      setCart(sortByNewest((items as any[]).flatMap(expandPendingItem)))
     } catch {}
   }
 

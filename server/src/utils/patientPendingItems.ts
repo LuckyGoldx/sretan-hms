@@ -21,6 +21,8 @@ export interface PendingItem {
   /** Pharmacy bill: the bill number and its lines, for expanding in the cart. */
   bill_number?: string | null;
   bill_items?: Array<{ line_id: string; drug_name: string; unit: string | null; quantity: number; unit_price: number; total_price?: number }>;
+  /** When the underlying order was created — the list is returned newest first. */
+  date?: string | null;
   /** Insurance coverage lookup override (e.g. a ward's BED_DAY item for bed days). */
   coverage_type?: string;
   coverage_item_id?: string | null;
@@ -126,7 +128,7 @@ export async function buildBasePendingItems(
       [tenantId]
     ).catch(() => ({ rows: [] as any[] }));
     const folderFeePrice = folderFee.rows.length > 0 ? parseFloat(folderFee.rows[0].price) || 0 : 0;
-    items.push({ service_type: 'folder_activation', service_id: null, description: 'Folder Activation / Registration Fee', quantity: 1, unit_price: folderFeePrice, needsPrice: !(folderFeePrice > 0) });
+    items.push({ service_type: 'folder_activation', service_id: null, description: 'Folder Activation / Registration Fee', quantity: 1, unit_price: folderFeePrice, needsPrice: !(folderFeePrice > 0), date: null });
   }
 
   const [rxPrices, labPrices, radPrices] = await Promise.all([
@@ -139,7 +141,7 @@ export async function buildBasePendingItems(
     const hit = rxPrices.get(String(r.drug_name || '').trim().toLowerCase());
     const rxPrice = hit ? parseFloat(hit.price) || 0 : 0;
     const rxCost = hit ? parseFloat(hit.cost) || 0 : 0;
-    items.push({ service_type: 'prescription', service_id: r.id, description: `Prescription: ${r.drug_name} ${r.dosage || ''} × ${r.quantity || ''}`, quantity: r.quantity || 1, unit_price: rxPrice, cost_price: rxCost, needsPrice: !rxPrice });
+    items.push({ service_type: 'prescription', service_id: r.id, description: `Prescription: ${r.drug_name} ${r.dosage || ''} × ${r.quantity || ''}`, quantity: r.quantity || 1, unit_price: rxPrice, cost_price: rxCost, needsPrice: !rxPrice, date: r.created_at });
   }
 
   // Quantified pharmacy bills awaiting payment — one row per BILL; the cart
@@ -155,6 +157,7 @@ export async function buildBasePendingItems(
       needsPrice: false,
       bill_number: b.bill_number,
       bill_items: Array.isArray(b.bill_items) ? b.bill_items : [],
+      date: b.created_at,
     });
   }
 
@@ -162,20 +165,20 @@ export async function buildBasePendingItems(
     const hit = labPrices.get(String(r.test_name || '').trim().toLowerCase());
     const labPrice = hit ? parseFloat(hit.price) || 0 : 0;
     const labCost = hit ? parseFloat(hit.cost) || 0 : 0;
-    items.push({ service_type: 'lab', service_id: r.id, description: `Lab: ${r.test_name}`, quantity: 1, unit_price: labPrice, cost_price: labCost, needsPrice: !labPrice });
+    items.push({ service_type: 'lab', service_id: r.id, description: `Lab: ${r.test_name}`, quantity: 1, unit_price: labPrice, cost_price: labCost, needsPrice: !labPrice, date: r.created_at });
   }
 
   for (const r of (radiologyRes.rows || [])) {
     const hit = radPrices.get(String(r.imaging_type || '').trim().toLowerCase());
     const radPrice = hit ? parseFloat(hit.price) || 0 : 0;
     const radCost = hit ? parseFloat(hit.cost) || 0 : 0;
-    items.push({ service_type: 'radiology', service_id: r.id, description: `Radiology: ${r.imaging_type}`, quantity: 1, unit_price: radPrice, cost_price: radCost, needsPrice: !radPrice });
+    items.push({ service_type: 'radiology', service_id: r.id, description: `Radiology: ${r.imaging_type}`, quantity: 1, unit_price: radPrice, cost_price: radCost, needsPrice: !radPrice, date: r.created_at });
   }
 
   const admissionFee = await resolveOneTimeAdmissionFee(tenantId).catch(() => null);
   const admissionFeePrice = admissionFee ? admissionFee.price : 0;
   for (const r of (admissionsRes.rows || [])) {
-    items.push({ service_type: 'admission', service_id: r.id, description: 'Admission Fee', quantity: 1, unit_price: admissionFeePrice, needsPrice: !(admissionFeePrice > 0) });
+    items.push({ service_type: 'admission', service_id: r.id, description: 'Admission Fee', quantity: 1, unit_price: admissionFeePrice, needsPrice: !(admissionFeePrice > 0), date: r.admitted_at });
   }
 
   const bedDaysRes = await pool.query(
@@ -194,16 +197,23 @@ export async function buildBasePendingItems(
     const bedPrice = parseFloat(b.amount) || 0;
     // coverage_type/coverage_item_id let insurance price the ward's own nightly
     // rate rule (service_type 'admission' on the ward's BED_DAY item).
-    items.push({ service_type: 'bed_day', service_id: b.id, coverage_type: 'admission', coverage_item_id: b.bed_day_item_id || null, description: `Bed Fee: ${b.ward_name || 'Ward'} (Day ${b.day_index})`, quantity: 1, unit_price: bedPrice, needsPrice: !(bedPrice > 0) });
+    items.push({ service_type: 'bed_day', service_id: b.id, coverage_type: 'admission', coverage_item_id: b.bed_day_item_id || null, description: `Bed Fee: ${b.ward_name || 'Ward'} (Day ${b.day_index})`, quantity: 1, unit_price: bedPrice, needsPrice: !(bedPrice > 0), date: b.period_start });
   }
 
   (visitsRes.rows || []).forEach((r: any) => {
     const typeLabel = r.visit_type === 'follow_up' ? 'Follow-up' : r.visit_type === 'review' ? 'Review' : 'New';
-    items.push({ service_type: 'consultation', service_id: r.id, description: `Consultation (${typeLabel} visit)`, quantity: 1, unit_price: parseFloat(r.consultation_fee) || 0, needsPrice: !(parseFloat(r.consultation_fee) > 0) });
+    items.push({ service_type: 'consultation', service_id: r.id, description: `Consultation (${typeLabel} visit)`, quantity: 1, unit_price: parseFloat(r.consultation_fee) || 0, needsPrice: !(parseFloat(r.consultation_fee) > 0), date: r.created_at });
   });
 
   (referralsRes.rows || []).forEach((r: any) => {
-    items.push({ service_type: 'referral_fee', service_id: r.id, description: `Specialist Fee — ${r.referral_number}`, quantity: 1, unit_price: parseFloat(r.consultant_fee) || 0, needsPrice: !(parseFloat(r.consultant_fee) > 0) });
+    items.push({ service_type: 'referral_fee', service_id: r.id, description: `Specialist Fee — ${r.referral_number}`, quantity: 1, unit_price: parseFloat(r.consultant_fee) || 0, needsPrice: !(parseFloat(r.consultant_fee) > 0), date: r.created_at });
+  });
+
+  // Newest first across all services (rows without a date go last).
+  items.sort((a, b) => {
+    const ta = a.date ? new Date(a.date).getTime() : 0;
+    const tb = b.date ? new Date(b.date).getTime() : 0;
+    return tb - ta;
   });
 
   return { items, folderActivated: !!patient?.folder_activated };

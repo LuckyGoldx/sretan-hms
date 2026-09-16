@@ -43,6 +43,15 @@ function expandPendingItem(item: any): any[] {
   return [item]
 }
 
+// Newest first (rows without a date go last).
+function sortByNewest(rows: any[]): any[] {
+  return [...rows].sort((a: any, b: any) => {
+    const ta = new Date(a?.date || a?.created_at || 0).getTime() || 0
+    const tb = new Date(b?.date || b?.created_at || 0).getTime() || 0
+    return tb - ta
+  })
+}
+
 export default function PaypointCheckout() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -121,7 +130,7 @@ export default function PaypointCheckout() {
       var items = res.data?.items || []
       setInsuredCoverage(res.data?.insured || null)
       setPendingItems(items)
-      setCart((items as any[]).flatMap(expandPendingItem))
+      setCart(sortByNewest((items as any[]).flatMap(expandPendingItem)))
     } catch {}
   }
 
@@ -133,7 +142,7 @@ export default function PaypointCheckout() {
       const rowKey = (x: any) => String(x.line_id || x.service_id || x.patient_id) + '-' + x.service_type
       const existing = new Set(prev.map(rowKey))
       const add = rows.filter((r) => !existing.has(rowKey(r)))
-      return add.length ? [...prev, ...add] : prev
+      return add.length ? sortByNewest([...prev, ...add]) : prev
     })
   }
 
