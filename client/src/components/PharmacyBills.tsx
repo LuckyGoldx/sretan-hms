@@ -65,7 +65,12 @@ export default function PharmacyBills() {
   useEffect(() => { load() }, [load])
 
   function openQuantify(rx: any) {
-    setQuantifyRx(rx); setLines([]); setPickItemId(''); setError('')
+    setQuantifyRx(rx); setPickItemId(''); setError('')
+    // The doctor already chose the drug — pre-fill it from inventory so the
+    // pharmacist only sets the quantity/unit (adding an item is only needed to
+    // substitute or add an extra line).
+    const match = inventory.find((i) => String(i.drug_name || '').trim().toLowerCase() === String(rx.drug_name || '').trim().toLowerCase())
+    setLines(match ? [{ inventory_item_id: match.id, unit: match.base_unit || 'unit', quantity: 1 }] : [])
   }
   function addLine() {
     if (!pickItemId) return
@@ -206,9 +211,14 @@ export default function PharmacyBills() {
                 {quantifyRx.instructions && <p className="text-xs text-slate-400 italic mt-0.5">{quantifyRx.instructions}</p>}
               </div>
 
+              {lines.length === 0 && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-700">
+                  <AlertTriangle size={13} /> “{quantifyRx.drug_name}” was not matched in pharmacy inventory. Add the item manually below.
+                </div>
+              )}
               <div className="flex items-end gap-2">
                 <div className="flex-1">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Add item (in stock)</label>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Add another item (optional — for substitution or extra)</label>
                   <select value={pickItemId} onChange={(e) => setPickItemId(e.target.value)} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-primary outline-none">
                     <option value="">Select pharmacy item…</option>
                     {inventory.map((i) => <option key={i.id} value={i.id}>{i.drug_name} — {i.stock_count} {i.base_unit || 'units'} in stock</option>)}
