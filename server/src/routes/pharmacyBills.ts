@@ -264,6 +264,18 @@ router.post('/api/pharmacy-bills/:id/dispense', async (req: Request, res: Respon
       [dispensed_by || null, id]
     );
     await pool.query(`UPDATE pharmacy_bill_items SET dispensed_quantity = quantity WHERE bill_id = $1`, [id]);
+    // The prescriptions this bill was quantified from are dispensed too.
+    await pool.query(
+      `UPDATE prescriptions pr
+          SET status = 'dispensed', quantity = COALESCE(NULLIF(pr.quantity, 0), pbi.quantity)
+         FROM pharmacy_bill_items pbi
+        WHERE pbi.bill_id = $1
+          AND lower(trim(pr.drug_name)) = lower(trim(pbi.drug_name))
+          AND pr.encounter_id IN (
+            SELECT e.id FROM encounters e WHERE e.patient_id = (SELECT patient_id FROM pharmacy_bills WHERE id = $1)
+          )`,
+      [id]
+    );
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });

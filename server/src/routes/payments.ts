@@ -428,12 +428,18 @@ router.post('/api/payments', async (req: Request, res: Response) => {
         // Settle every prescription this bill was quantified from (by link) and,
         // for older bills without the per-line link, by patient + drug name.
         await client.query(
-          `UPDATE prescriptions SET is_paid = true
-            WHERE id IN (SELECT prescription_id FROM pharmacy_bill_items WHERE bill_id = ANY($1) AND prescription_id IS NOT NULL)`,
+          `UPDATE prescriptions pr
+              SET is_paid = true,
+                  quantity = COALESCE(NULLIF(pr.quantity, 0),
+                              (SELECT pbi.quantity FROM pharmacy_bill_items pbi
+                                WHERE pbi.prescription_id = pr.id ORDER BY pbi.created_at DESC LIMIT 1))
+            WHERE pr.id IN (SELECT prescription_id FROM pharmacy_bill_items WHERE bill_id = ANY($1) AND prescription_id IS NOT NULL)`,
           [Array.from(paidPharmacyBillIds)]
         );
         await client.query(
-          `UPDATE prescriptions pr SET is_paid = true
+          `UPDATE prescriptions pr
+              SET is_paid = true,
+                  quantity = COALESCE(NULLIF(pr.quantity, 0), pbi.quantity)
              FROM pharmacy_bill_items pbi
              JOIN pharmacy_bills pb ON pb.id = pbi.bill_id
             WHERE pb.id = ANY($1)

@@ -22,13 +22,19 @@ async function markSourceOrderAsPaid(serviceType: string, serviceId: string | nu
     try {
       await pool.query(`UPDATE pharmacy_bills SET status = 'paid' WHERE id = $1 AND status = 'awaiting_payment'`, [serviceId]);
       await pool.query(
-        `UPDATE prescriptions SET is_paid = true
-          WHERE id IN (SELECT prescription_id FROM pharmacy_bill_items WHERE bill_id = $1 AND prescription_id IS NOT NULL)`,
+        `UPDATE prescriptions pr
+            SET is_paid = true,
+                quantity = COALESCE(NULLIF(pr.quantity, 0),
+                            (SELECT pbi.quantity FROM pharmacy_bill_items pbi
+                              WHERE pbi.prescription_id = pr.id ORDER BY pbi.created_at DESC LIMIT 1))
+          WHERE pr.id IN (SELECT prescription_id FROM pharmacy_bill_items WHERE bill_id = $1 AND prescription_id IS NOT NULL)`,
         [serviceId]
       );
       // Older bills have lines with no prescription link — settle by patient + drug.
       await pool.query(
-        `UPDATE prescriptions pr SET is_paid = true
+        `UPDATE prescriptions pr
+            SET is_paid = true,
+                quantity = COALESCE(NULLIF(pr.quantity, 0), pbi.quantity)
            FROM pharmacy_bill_items pbi
           WHERE pbi.bill_id = $1
             AND COALESCE(pr.is_paid, false) = false AND pr.status <> 'cancelled'
