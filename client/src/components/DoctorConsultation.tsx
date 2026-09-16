@@ -601,14 +601,13 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
   const handlePrescriptionSubmit = async () => {
     if (!patientId || !prescription.drug_name.trim()) { showToast('Please enter a drug name', 'error'); return }
     const drug = prescription.drug_name.trim()
-    const available = drugStock[drug] || 0
-    const qty = Number(prescription.quantity) || 0
-    if (available <= 0) { showToast(`${drug} is not in the pharmacy inventory`, 'error'); return }
-    if (qty > available) { showToast(`Only ${available} unit(s) of ${drug} in stock`, 'error'); return }
+    // No quantity from the doctor — the pharmacist decides the quantity and
+    // unit at dispensing. We only require the drug to be in stock.
+    if ((drugStock[drug] || 0) <= 0) { showToast(`${drug} is not in the pharmacy inventory`, 'error'); return }
     setPrescriptionSubmitting(true)
     try {
       const encId = await ensureEncounter()
-      await api.post('/prescriptions', { encounter_id: encId, drug_name: prescription.drug_name.trim(), dosage: prescription.dosage, quantity: Number(prescription.quantity) || 0, instructions: prescription.instructions })
+      await api.post('/prescriptions', { encounter_id: encId, drug_name: prescription.drug_name.trim(), dosage: prescription.dosage, instructions: prescription.instructions })
       showToast('Prescription created', 'success'); if (encId) maybePromptAnc(encId)
       setPrescription({ drug_name: '', dosage: '', quantity: '', instructions: '' })
       try { localStorage.removeItem(draftKey('rx_drug')); localStorage.removeItem(draftKey('rx_dosage')); localStorage.removeItem(draftKey('rx_instructions')) } catch {}
@@ -1124,20 +1123,8 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
                   onChange={(e) => { setPrescription((prev) => ({ ...prev, dosage: e.target.value })); try { localStorage.setItem(draftKey('rx_dosage'), e.target.value) } catch {} }}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
               </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1.5">Quantity</label>
-                <input type="number" min={1}
-                  max={drugStock[prescription.drug_name.trim()] || undefined}
-                  placeholder="30" value={prescription.quantity}
-                  onChange={(e) => setPrescription((prev) => ({ ...prev, quantity: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow" />
-                {prescription.drug_name.trim() && drugStock[prescription.drug_name.trim()] !== undefined && (
-                  <p className={`text-[11px] mt-1 ${Number(prescription.quantity) > drugStock[prescription.drug_name.trim()] ? 'text-rose-600 font-medium' : 'text-slate-400'}`}>
-                    {drugStock[prescription.drug_name.trim()]} in stock
-                    {Number(prescription.quantity) > drugStock[prescription.drug_name.trim()] ? ' — quantity exceeds stock' : ''}
-                  </p>
-                )}
-              </div>
+              {/* Quantity is intentionally not collected from the doctor — the
+                  pharmacist sets the quantity and unit when billing/dispensing. */}
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1.5 flex items-center gap-1">Instructions

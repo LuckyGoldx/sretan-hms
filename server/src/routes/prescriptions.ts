@@ -96,8 +96,9 @@ router.post('/api/prescriptions', async (req: Request, res: Response) => {
       return;
     }
 
-    // Stock gate: the drug must exist in this hospital's pharmacy inventory and
-    // the ordered quantity must not exceed what is available.
+    // Stock gate: the drug must exist in this hospital's pharmacy inventory.
+    // The doctor does not set a quantity — the pharmacist decides the quantity
+    // and unit when billing/dispensing.
     const stockRes = await pool.query(
       `SELECT COALESCE(SUM(stock_count), 0)::int AS available
          FROM inventory_items
@@ -110,8 +111,14 @@ router.post('/api/prescriptions', async (req: Request, res: Response) => {
       res.status(400).json({ error: true, message: `${drug_name} is not available in the pharmacy inventory.` });
       return;
     }
-    const requested = parseInt(String(quantity ?? 1), 10) || 1;
-    if (requested > available) {
+    // Quantity is optional (and normally omitted); when supplied it must fit stock.
+    const hasQty = quantity !== undefined && quantity !== null && String(quantity).trim() !== '';
+    const requested = hasQty ? (parseInt(String(quantity), 10) || 0) : null;
+    if (hasQty && (requested === null || requested <= 0)) {
+      res.status(400).json({ error: true, message: 'Quantity must be greater than 0' });
+      return;
+    }
+    if (hasQty && (requested as number) > available) {
       res.status(400).json({ error: true, message: `Only ${available} unit(s) of ${drug_name} are in stock.` });
       return;
     }
@@ -121,7 +128,7 @@ router.post('/api/prescriptions', async (req: Request, res: Response) => {
       `INSERT INTO prescriptions (id, tenant_id, encounter_id, drug_name, dosage, quantity, instructions)
        VALUES ($1, $2, $3, $4, $5, $6, $7)
        RETURNING *`,
-      [id, tenantId, encounter_id, drug_name, dosage || null, quantity || null, instructions || null]
+      [id, tenantId, encounter_id, drug_name, dosage || null, requested, instructions || null]
     );
 
     res.status(201).json(result.rows[0]);
