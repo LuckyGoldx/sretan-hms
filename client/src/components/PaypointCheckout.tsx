@@ -113,9 +113,10 @@ export default function PaypointCheckout() {
 
   function addToCart(item: any) {
     setCart((prev) => {
-      if (prev.find((c) => c.service_id === item.service_id && c.service_type === item.service_type)) {
-        return prev
-      }
+      // line_id distinguishes rows that share a source (e.g. a pharmacy bill's
+      // lines) without blocking the other lines.
+      const rowKey = (x: any) => (x.line_id || x.service_id || x.patient_id) + '-' + x.service_type
+      if (prev.find((c) => rowKey(c) === rowKey(item))) return prev
       return [...prev, { ...item }]
     })
   }

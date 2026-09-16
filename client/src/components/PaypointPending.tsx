@@ -72,8 +72,11 @@ export default function PaypointPending() {
         setErrorModal('Only items from the same patient can be in one cart. Clear the cart first to add items from a different patient.')
         return prev
       }
-      var key = (item.service_id || item.patient_id) + '-' + item.service_type + '-' + (item.service_id || item.description)
-      if (prev.find((c: any) => ((c.service_id || c.patient_id) + '-' + c.service_type + '-' + (c.service_id || c.description)) === key)) return prev
+      // line_id makes each row of a multi-line source (e.g. a pharmacy bill)
+      // distinct, while service_id still identifies the thing being paid.
+      const rowKey = (x: any) => (x.line_id || x.service_id || x.patient_id) + '-' + x.service_type
+      const key = rowKey(item)
+      if (prev.find((c: any) => rowKey(c) === key)) return prev
       return [...prev, { ...item }]
     })
     if (cartWasEmpty && item.patient_id) fetchInsurance(item.patient_id)
@@ -172,7 +175,7 @@ export default function PaypointPending() {
                   <tbody className="divide-y divide-slate-50">
                     {paged.map((item: any, idx: number) => {
                       const Icon = serviceIcons[item.service_type] || Package
-                      const added = cart.some((c: any) => ((c.service_id || c.patient_id) + '-' + c.service_type + '-' + (c.service_id || c.description)) === ((item.service_id || item.patient_id) + '-' + item.service_type + '-' + (item.service_id || item.description)))
+                      const added = cart.some((c: any) => (c.line_id || c.service_id || c.patient_id) === (item.line_id || item.service_id || item.patient_id) && c.service_type === item.service_type)
                       return (
                         <tr key={`${item.service_id}-${item.service_type}-${idx}`} className={`hover:bg-slate-50 transition-colors ${added ? 'bg-emerald-50' : ''}`}>
                           <td className="px-4 py-3">

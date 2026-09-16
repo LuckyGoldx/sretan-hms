@@ -197,14 +197,18 @@ router.get('/api/payments/pending/:patientId', async (req: Request, res: Respons
           const insurancePortion = Math.round(totalPrice * coveragePct) / 100;
           const patientPortion = Math.round((totalPrice - insurancePortion) * 100) / 100;
 
+          // Use the row id when several rows share one source (pharmacy bill
+          // lines), so each line becomes its own case service instead of being
+          // deduped away.
+          const sourceRef = item.line_id || item.service_id;
           if (coveragePct === 100) {
             // Fully covered — auto-bill to insurance, mark source as paid, skip Paypoint
-            await autoBillToCase(cid, tenantId, item, totalPrice, item.service_id, svcType);
+            await autoBillToCase(cid, tenantId, item, totalPrice, sourceRef, svcType);
             await markOrderAsPaid(item);
           } else if (coveragePct > 0) {
             // Partially covered — bill insurance portion to case, patient pays the rest at Paypoint
             if (insurancePortion > 0) {
-              await autoBillToCase(cid, tenantId, item, insurancePortion, item.service_id, svcType);
+              await autoBillToCase(cid, tenantId, item, insurancePortion, sourceRef, svcType);
             }
             filteredItems.push({
               ...item,
@@ -717,16 +721,14 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       ),
       pharm_bill_items AS (
         SELECT b.patient_id, p.full_name, p.hospital_number, p.phone, 'pharmacy_bill' as service_type,
-               b.id as service_id,
-               ('Pharmacy Bill ' || COALESCE(b.bill_number, '') ||
-                 COALESCE(': ' || (SELECT string_agg(
-                            pbi.quantity || ' ' || COALESCE(NULLIF(pbi.unit, ''), 'unit') || ' ' || COALESCE(pbi.drug_name, '') ||
-                            ' @ ₦' || to_char(pbi.unit_price, 'FM999999990.00') ||
-                            ' = ₦' || to_char(pbi.total_price, 'FM999999990.00'), '; ')
-                          FROM pharmacy_bill_items pbi WHERE pbi.bill_id = b.id), '')) as description,
-               1 as quantity, b.total::numeric as unit_price,
+               b.id as service_id, pbi.id as line_id,
+               (COALESCE(pbi.drug_name, 'Item') || COALESCE(' (' || NULLIF(pbi.unit, '') || ')', '') ||
+                ' — Pharmacy Bill ' || COALESCE(b.bill_number, '')) as description,
+               pbi.quantity as quantity, pbi.unit_price::numeric as unit_price,
                b.created_at
-        FROM pharmacy_bills b JOIN patients p ON p.id = b.patient_id
+        FROM pharmacy_bill_items pbi
+        JOIN pharmacy_bills b ON b.id = pbi.bill_id
+        JOIN patients p ON p.id = b.patient_id
         WHERE b.status = 'awaiting_payment' AND b.tenant_id = $1
       ),
       lab_items AS (
