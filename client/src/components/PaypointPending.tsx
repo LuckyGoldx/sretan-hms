@@ -9,6 +9,21 @@ import {
 
 const PAGE_SIZE = 30
 
+// A pharmacy bill is a single pending row; expand it into its individual lines
+// for the cart (each with its own quantity, unit, price and a distinct line id).
+function expandPendingItem(item: any): any[] {
+  if (item && item.service_type === 'pharmacy_bill' && Array.isArray(item.bill_items) && item.bill_items.length > 0) {
+    return item.bill_items.map((bi: any) => ({
+      ...item,
+      line_id: bi.line_id,
+      description: `${bi.drug_name || 'Item'}${bi.unit ? ` (${bi.unit})` : ''} — ${item.description || 'Pharmacy Bill'}`,
+      quantity: Number(bi.quantity) || 1,
+      unit_price: Number(bi.unit_price) || 0,
+    }))
+  }
+  return [item]
+}
+
 const serviceIcons: Record<string, any> = {
   folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home, bed_day: Home,
 }
@@ -72,12 +87,14 @@ export default function PaypointPending() {
         setErrorModal('Only items from the same patient can be in one cart. Clear the cart first to add items from a different patient.')
         return prev
       }
-      // line_id makes each row of a multi-line source (e.g. a pharmacy bill)
-      // distinct, while service_id still identifies the thing being paid.
-      const rowKey = (x: any) => (x.line_id || x.service_id || x.patient_id) + '-' + x.service_type
-      const key = rowKey(item)
-      if (prev.find((c: any) => rowKey(c) === key)) return prev
-      return [...prev, { ...item }]
+      // A pharmacy bill is ONE pending row but expands into its individual
+      // lines in the cart. line_id keeps each row distinct while service_id
+      // still identifies the thing being paid.
+      const rows = expandPendingItem(item)
+      const rowKey = (x: any) => String(x.line_id || x.service_id || x.patient_id) + '-' + x.service_type
+      const existing = new Set(prev.map(rowKey))
+      const add = rows.filter((r) => !existing.has(rowKey(r)))
+      return add.length ? [...prev, ...add] : prev
     })
     if (cartWasEmpty && item.patient_id) fetchInsurance(item.patient_id)
   }
@@ -175,7 +192,11 @@ export default function PaypointPending() {
                   <tbody className="divide-y divide-slate-50">
                     {paged.map((item: any, idx: number) => {
                       const Icon = serviceIcons[item.service_type] || Package
-                      const added = cart.some((c: any) => (c.line_id || c.service_id || c.patient_id) === (item.line_id || item.service_id || item.patient_id) && c.service_type === item.service_type)
+                      const added = cart.some((c: any) => c.service_type === item.service_type && (
+                        item.service_type === 'pharmacy_bill'
+                          ? c.service_id === item.service_id
+                          : String(c.line_id || c.service_id || c.patient_id) === String(item.line_id || item.service_id || item.patient_id)
+                      ))
                       return (
                         <tr key={`${item.service_id}-${item.service_type}-${idx}`} className={`hover:bg-slate-50 transition-colors ${added ? 'bg-emerald-50' : ''}`}>
                           <td className="px-4 py-3">

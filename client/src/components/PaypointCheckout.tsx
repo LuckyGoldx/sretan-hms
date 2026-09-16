@@ -29,6 +29,20 @@ const serviceIcons: Record<string, any> = {
 
 const PAGE_SIZE = 25
 
+// A pharmacy bill is one pending row; expand it into its individual lines.
+function expandPendingItem(item: any): any[] {
+  if (item && item.service_type === 'pharmacy_bill' && Array.isArray(item.bill_items) && item.bill_items.length > 0) {
+    return item.bill_items.map((bi: any) => ({
+      ...item,
+      line_id: bi.line_id,
+      description: `${bi.drug_name || 'Item'}${bi.unit ? ` (${bi.unit})` : ''} — ${item.description || 'Pharmacy Bill'}`,
+      quantity: Number(bi.quantity) || 1,
+      unit_price: Number(bi.unit_price) || 0,
+    }))
+  }
+  return [item]
+}
+
 export default function PaypointCheckout() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -107,17 +121,19 @@ export default function PaypointCheckout() {
       var items = res.data?.items || []
       setInsuredCoverage(res.data?.insured || null)
       setPendingItems(items)
-      setCart(items.map(function(item: any) { return { ...item } }))
+      setCart((items as any[]).flatMap(expandPendingItem))
     } catch {}
   }
 
   function addToCart(item: any) {
+    const rows = expandPendingItem(item)
     setCart((prev) => {
       // line_id distinguishes rows that share a source (e.g. a pharmacy bill's
       // lines) without blocking the other lines.
-      const rowKey = (x: any) => (x.line_id || x.service_id || x.patient_id) + '-' + x.service_type
-      if (prev.find((c) => rowKey(c) === rowKey(item))) return prev
-      return [...prev, { ...item }]
+      const rowKey = (x: any) => String(x.line_id || x.service_id || x.patient_id) + '-' + x.service_type
+      const existing = new Set(prev.map(rowKey))
+      const add = rows.filter((r) => !existing.has(rowKey(r)))
+      return add.length ? [...prev, ...add] : prev
     })
   }
 

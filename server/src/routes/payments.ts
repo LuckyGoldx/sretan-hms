@@ -707,7 +707,8 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
                                 OR (i.category = 'general' AND i.drug_name ILIKE '%folder activation%'))
                          ORDER BY (i.service_key = 'FOLDER_ACTIVATION') DESC,
                                   (i.drug_name ILIKE '%folder activation fee%') DESC, i.created_at DESC LIMIT 1), 0)::numeric as unit_price,
-               created_at
+               created_at,
+               NULL::text as bill_number, NULL::jsonb as bill_items
         FROM patients WHERE folder_activated = false AND tenant_id = $1
       ),
       rx_items AS (
@@ -715,7 +716,8 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
                pr.id as service_id, NULL::uuid as line_id,
                (pr.drug_name || COALESCE(' ' || pr.dosage, '') || ' × ' || COALESCE(pr.quantity::text, '1')) as description,
                pr.quantity, (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE pr.drug_name AND ii.category = 'pharmacy' AND ii.is_active = true) as unit_price,
-               pr.created_at
+               pr.created_at,
+               NULL::text as bill_number, NULL::jsonb as bill_items
         FROM prescriptions pr JOIN encounters enc ON enc.id = pr.encounter_id
         JOIN patients p ON p.id = enc.patient_id
         WHERE COALESCE(pr.is_paid, false) = false AND pr.status != 'cancelled' AND enc.tenant_id = $1
@@ -723,21 +725,25 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
       ),
       pharm_bill_items AS (
         SELECT b.patient_id, p.full_name, p.hospital_number, p.phone, 'pharmacy_bill' as service_type,
-               b.id as service_id, pbi.id as line_id,
-               (COALESCE(pbi.drug_name, 'Item') || COALESCE(' (' || NULLIF(pbi.unit, '') || ')', '') ||
-                ' — Pharmacy Bill ' || COALESCE(b.bill_number, '')) as description,
-               pbi.quantity as quantity, pbi.unit_price::numeric as unit_price,
-               b.created_at
-        FROM pharmacy_bill_items pbi
-        JOIN pharmacy_bills b ON b.id = pbi.bill_id
-        JOIN patients p ON p.id = b.patient_id
+               b.id as service_id, NULL::uuid as line_id,
+               ('Pharmacy Bill ' || COALESCE(b.bill_number, '')) as description,
+               1 as quantity, b.total::numeric as unit_price,
+               b.created_at,
+               b.bill_number::text as bill_number,
+               (SELECT jsonb_agg(jsonb_build_object(
+                          'line_id', pbi.id, 'drug_name', pbi.drug_name, 'unit', pbi.unit,
+                          'quantity', pbi.quantity, 'unit_price', pbi.unit_price, 'total_price', pbi.total_price)
+                        ORDER BY pbi.created_at)
+                  FROM pharmacy_bill_items pbi WHERE pbi.bill_id = b.id) as bill_items
+        FROM pharmacy_bills b JOIN patients p ON p.id = b.patient_id
         WHERE b.status = 'awaiting_payment' AND b.tenant_id = $1
       ),
       lab_items AS (
         SELECT enc.patient_id, p.full_name, p.hospital_number, p.phone, 'lab' as service_type,
                l.id as service_id, NULL::uuid as line_id, l.test_name as description,
                1 as quantity, (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE l.test_name AND ii.category = 'lab' AND ii.is_active = true) as unit_price,
-               l.created_at
+               l.created_at,
+               NULL::text as bill_number, NULL::jsonb as bill_items
         FROM lab_orders l JOIN encounters enc ON enc.id = l.encounter_id
         JOIN patients p ON p.id = enc.patient_id
         WHERE COALESCE(l.is_paid, false) = false AND l.status NOT IN ('cancelled', 'completed') AND enc.tenant_id = $1
@@ -746,7 +752,8 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
         SELECT enc.patient_id, p.full_name, p.hospital_number, p.phone, 'radiology' as service_type,
                r.id as service_id, NULL::uuid as line_id, r.imaging_type as description,
                1 as quantity, (SELECT COALESCE(MAX(ii.price), 0) FROM inventory_items ii WHERE ii.drug_name ILIKE r.imaging_type AND ii.category = 'radiology' AND ii.is_active = true) as unit_price,
-               r.created_at
+               r.created_at,
+               NULL::text as bill_number, NULL::jsonb as bill_items
         FROM radiology_orders r JOIN encounters enc ON enc.id = r.encounter_id
         JOIN patients p ON p.id = enc.patient_id
         WHERE COALESCE(r.is_paid, false) = false AND r.status NOT IN ('cancelled', 'completed') AND enc.tenant_id = $1
@@ -767,7 +774,8 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
                                     )))
                          ORDER BY (i.service_key = 'ADMISSION_FEE') DESC,
                                   (i.drug_name ILIKE '%admission fee%') DESC, i.created_at DESC LIMIT 1), 0)::numeric as unit_price,
-               a.admitted_at as created_at
+               a.admitted_at as created_at,
+               NULL::text as bill_number, NULL::jsonb as bill_items
         FROM admissions a JOIN patients p ON p.id = a.patient_id
         WHERE COALESCE(a.is_paid, false) = false AND a.tenant_id = $1
       ),
@@ -776,7 +784,8 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
                dc.id as service_id, NULL::uuid as line_id,
                ('Bed Fee (Day ' || dc.day_index || ')' || CASE WHEN w.name IS NOT NULL THEN ' — ' || w.name ELSE '' END) as description,
                1 as quantity, dc.amount::numeric as unit_price,
-               dc.period_start as created_at
+               dc.period_start as created_at,
+               NULL::text as bill_number, NULL::jsonb as bill_items
         FROM admission_daily_charges dc
         JOIN patients p ON p.id = dc.patient_id
         LEFT JOIN admissions a ON a.id = dc.admission_id
@@ -789,7 +798,8 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
                ('Consultation (' || CASE v.visit_type WHEN 'follow_up' THEN 'follow-up' WHEN 'review' THEN 'review' ELSE 'new' END || ' visit)' ||
                 CASE WHEN v.remarks IS NOT NULL THEN ' — ' || v.remarks ELSE '' END) as description,
                 1 as quantity, COALESCE(v.consultation_fee, 0)::numeric as unit_price,
-                v.created_at
+                v.created_at,
+                NULL::text as bill_number, NULL::jsonb as bill_items
         FROM visits v JOIN patients p ON p.id = v.patient_id
         WHERE v.consultation_status = 'pending' AND COALESCE(v.consultation_fee, 0) > 0 AND v.tenant_id = $1
       ),
@@ -798,7 +808,8 @@ router.get('/api/payments/all-pending-items', async (req: Request, res: Response
                r.id as service_id, NULL::uuid as line_id,
                ('Specialist Fee — ' || r.referral_number) as description,
                 1 as quantity, COALESCE(r.consultant_fee, 0)::numeric as unit_price,
-                r.created_at
+                r.created_at,
+                NULL::text as bill_number, NULL::jsonb as bill_items
         FROM referrals r JOIN patients p ON p.id = r.patient_id
         WHERE r.consultant_fee_status = 'pending' AND COALESCE(r.consultant_fee, 0) > 0 AND r.tenant_id = $1
       )

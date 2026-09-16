@@ -18,6 +18,9 @@ export interface PendingItem {
   /** Unique id per pending row when several rows share one source (e.g. a
    *  pharmacy bill's lines); used by the cart so each line is distinct. */
   line_id?: string | null;
+  /** Pharmacy bill: the bill number and its lines, for expanding in the cart. */
+  bill_number?: string | null;
+  bill_items?: Array<{ line_id: string; drug_name: string; unit: string | null; quantity: number; unit_price: number; total_price?: number }>;
   /** Insurance coverage lookup override (e.g. a ward's BED_DAY item for bed days). */
   coverage_type?: string;
   coverage_item_id?: string | null;
@@ -95,16 +98,18 @@ export async function buildBasePendingItems(
     pool.query(`SELECT r.id, r.referral_number, r.consultant_fee, r.consultant_fee_status, r.created_at
       FROM referrals r WHERE r.patient_id = $1 AND r.consultant_fee_status = 'pending' AND COALESCE(r.consultant_fee, 0) > 0
       ORDER BY r.created_at DESC`, [patientId]),
-    // Pharmacy bills the pharmacist has quantified and sent to Paypoint. One
-    // pending row PER BILL LINE so each item shows separately in the cart and
-    // receipt (quantity, unit, unit price, amount); all rows share the bill id
-    // so paying any of them settles the whole bill once.
-    pool.query(`SELECT pbi.id AS line_id, pbi.bill_id, pbi.drug_name, pbi.unit, pbi.quantity, pbi.unit_price, pbi.total_price,
-                      b.bill_number, b.created_at
-      FROM pharmacy_bill_items pbi
-      JOIN pharmacy_bills b ON b.id = pbi.bill_id
+    // Pharmacy bills the pharmacist has quantified and sent to Paypoint. ONE
+    // pending row per bill (the bill number + total); the bill's lines travel
+    // with it so the cart can expand them into separate items.
+    pool.query(`SELECT b.id, b.bill_number, b.total, b.created_at,
+              (SELECT json_agg(json_build_object(
+                        'line_id', pbi.id, 'drug_name', pbi.drug_name, 'unit', pbi.unit,
+                        'quantity', pbi.quantity, 'unit_price', pbi.unit_price, 'total_price', pbi.total_price)
+                      ORDER BY pbi.created_at)
+                 FROM pharmacy_bill_items pbi WHERE pbi.bill_id = b.id) AS bill_items
+      FROM pharmacy_bills b
       WHERE b.tenant_id = $1 AND b.patient_id = $2 AND b.status = 'awaiting_payment'
-      ORDER BY b.created_at DESC, pbi.created_at`, [tenantId, patientId]),
+      ORDER BY b.created_at DESC`, [tenantId, patientId]),
   ]);
 
   const patient = folderRes.rows[0];
@@ -137,17 +142,19 @@ export async function buildBasePendingItems(
     items.push({ service_type: 'prescription', service_id: r.id, description: `Prescription: ${r.drug_name} ${r.dosage || ''} × ${r.quantity || ''}`, quantity: r.quantity || 1, unit_price: rxPrice, cost_price: rxCost, needsPrice: !rxPrice });
   }
 
-  // Quantified pharmacy bills awaiting payment — one row per bill line.
+  // Quantified pharmacy bills awaiting payment — one row per BILL; the cart
+  // expands `bill_items` into individual lines.
   for (const b of (pharmacyBillsRes.rows || [])) {
     items.push({
       service_type: 'pharmacy_bill',
-      service_id: b.bill_id,
-      line_id: b.line_id,
+      service_id: b.id,
       coverage_type: 'pharmacy',
-      description: `${b.drug_name || 'Item'}${b.unit ? ` (${b.unit})` : ''} — Pharmacy Bill ${b.bill_number}`,
-      quantity: Number(b.quantity) || 1,
-      unit_price: parseFloat(b.unit_price) || 0,
+      description: `Pharmacy Bill ${b.bill_number}`,
+      quantity: 1,
+      unit_price: parseFloat(b.total) || 0,
       needsPrice: false,
+      bill_number: b.bill_number,
+      bill_items: Array.isArray(b.bill_items) ? b.bill_items : [],
     });
   }
 
