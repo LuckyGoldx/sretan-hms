@@ -46,6 +46,7 @@ export default function PaypointPending() {
   const [cart, setCart] = useState<any[]>([])
   const [showCart, setShowCart] = useState(false)
   const [errorModal, setErrorModal] = useState('')
+  const [billItemsModal, setBillItemsModal] = useState<{ title: string; items: any[] } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [paymentMethod, setPaymentMethod] = useState('cash')
   const [receipt, setReceipt] = useState<any>(null)
@@ -238,7 +239,17 @@ export default function PaypointPending() {
                               <Icon size={10} />{item.service_type.replace('_', ' ')}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-slate-600 max-w-[360px] whitespace-normal break-words align-top" title={item.description}>{item.description}</td>
+                          <td className="px-4 py-3 text-slate-600 max-w-[360px] whitespace-normal break-words align-top">
+                            {item.service_type === 'pharmacy_bill' && Array.isArray(item.bill_items) && item.bill_items.length > 0 ? (
+                              <button onClick={() => setBillItemsModal({ title: item.description, items: item.bill_items })}
+                                title="Click to see the items"
+                                className="text-left text-primary font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid">
+                                {item.description}
+                              </button>
+                            ) : (
+                              <span title={item.description}>{item.description}</span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 font-medium text-slate-800">{item.unit_price > 0 ? `₦${Number(item.unit_price).toLocaleString()}` : '—'}</td>
                           <td className="px-4 py-3 text-right">
                             <button onClick={() => addToCart(item)}
@@ -470,6 +481,29 @@ export default function PaypointPending() {
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
               <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium"><Printer size={14} /> Print</button>
               <button onClick={() => setShowReceipt(false)} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pharmacy bill items popup */}
+      {billItemsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setBillItemsModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2"><Pill size={16} className="text-primary" /> {billItemsModal.title}</h3>
+              <button onClick={() => setBillItemsModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-5 space-y-2.5">
+              {billItemsModal.items.map((i: any, idx: number) => (
+                <div key={i.line_id || i.id || idx} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-slate-700">{i.drug_name}</span>
+                  <span className="text-xs text-slate-500 flex-shrink-0">
+                    {i.quantity}{i.unit ? ` ${i.unit}` : ''} @ ₦{Number(i.unit_price || 0).toLocaleString()}
+                    <span className="font-semibold text-slate-800 ml-2">₦{(Number(i.total_price ?? (i.quantity || 0) * (i.unit_price || 0))).toLocaleString()}</span>
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>

@@ -51,6 +51,7 @@ export default function PaypointPatients() {
   const [showReceipt, setShowReceipt] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [showCart, setShowCart] = useState(false)
+  const [billItemsModal, setBillItemsModal] = useState<{ title: string; items: any[] } | null>(null)
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
@@ -235,7 +236,15 @@ export default function PaypointPatients() {
                     <div key={i} className="px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
                       <div className="flex items-center justify-between">
                         <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium text-slate-700 break-words" title={item.description}>{item.description}</p>
+                            {item.service_type === 'pharmacy_bill' && Array.isArray(item.bill_items) && item.bill_items.length > 0 ? (
+                              <button onClick={() => setBillItemsModal({ title: item.description, items: item.bill_items })}
+                                title="Click to see the items"
+                                className="text-left text-sm font-medium text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid break-words">
+                                {item.description}
+                              </button>
+                            ) : (
+                              <p className="text-sm font-medium text-slate-700 break-words" title={item.description}>{item.description}</p>
+                            )}
                           <p className="text-xs text-slate-400 capitalize">{item.service_type.replace('_', ' ')}{item.unit_price > 0 ? ` · ₦${Number(item.unit_price).toLocaleString()}` : ''}</p>
                         </div>
                         {item.unit_price > 0 ? (
@@ -387,6 +396,29 @@ export default function PaypointPatients() {
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
               <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium"><Printer size={14} /> Print</button>
               <button onClick={() => { setShowReceipt(false); setSelectedPatient(null); setPendingItems([]); loadSummary() }} className="px-5 py-2 rounded-xl bg-primary text-white text-sm font-medium">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pharmacy bill items popup */}
+      {billItemsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setBillItemsModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2"><Pill size={16} className="text-primary" /> {billItemsModal.title}</h3>
+              <button onClick={() => setBillItemsModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-5 space-y-2.5">
+              {billItemsModal.items.map((i: any, idx: number) => (
+                <div key={i.line_id || i.id || idx} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-slate-700">{i.drug_name}</span>
+                  <span className="text-xs text-slate-500 flex-shrink-0">
+                    {i.quantity}{i.unit ? ` ${i.unit}` : ''} @ ₦{Number(i.unit_price || 0).toLocaleString()}
+                    <span className="font-semibold text-slate-800 ml-2">₦{(Number(i.total_price ?? (i.quantity || 0) * (i.unit_price || 0))).toLocaleString()}</span>
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </div>
