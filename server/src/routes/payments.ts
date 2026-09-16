@@ -421,10 +421,21 @@ router.post('/api/payments', async (req: Request, res: Response) => {
       }
       if (paidPharmacyBillIds.size > 0) {
         await client.query(`UPDATE pharmacy_bills SET status = 'paid', payment_id = $2 WHERE id = ANY($1) AND status = 'awaiting_payment'`, [Array.from(paidPharmacyBillIds), paymentId]);
-        // Settle every prescription this bill was quantified from.
+        // Settle every prescription this bill was quantified from (by link) and,
+        // for older bills without the per-line link, by patient + drug name.
         await client.query(
           `UPDATE prescriptions SET is_paid = true
             WHERE id IN (SELECT prescription_id FROM pharmacy_bill_items WHERE bill_id = ANY($1) AND prescription_id IS NOT NULL)`,
+          [Array.from(paidPharmacyBillIds)]
+        );
+        await client.query(
+          `UPDATE prescriptions pr SET is_paid = true
+             FROM pharmacy_bill_items pbi
+             JOIN pharmacy_bills pb ON pb.id = pbi.bill_id
+            WHERE pb.id = ANY($1)
+              AND COALESCE(pr.is_paid, false) = false AND pr.status <> 'cancelled'
+              AND lower(trim(pr.drug_name)) = lower(trim(pbi.drug_name))
+              AND pr.encounter_id IN (SELECT e.id FROM encounters e WHERE e.patient_id = pb.patient_id)`,
           [Array.from(paidPharmacyBillIds)]
         );
       }

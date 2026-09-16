@@ -26,6 +26,19 @@ async function markSourceOrderAsPaid(serviceType: string, serviceId: string | nu
           WHERE id IN (SELECT prescription_id FROM pharmacy_bill_items WHERE bill_id = $1 AND prescription_id IS NOT NULL)`,
         [serviceId]
       );
+      // Older bills have lines with no prescription link — settle by patient + drug.
+      await pool.query(
+        `UPDATE prescriptions pr SET is_paid = true
+           FROM pharmacy_bill_items pbi
+          WHERE pbi.bill_id = $1
+            AND COALESCE(pr.is_paid, false) = false AND pr.status <> 'cancelled'
+            AND lower(trim(pr.drug_name)) = lower(trim(pbi.drug_name))
+            AND pr.encounter_id IN (
+              SELECT e.id FROM encounters e
+               WHERE e.patient_id = (SELECT patient_id FROM pharmacy_bills WHERE id = $1)
+            )`,
+        [serviceId]
+      );
     } catch {}
     return;
   }
