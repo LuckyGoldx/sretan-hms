@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import api from '../hooks/useAxios'
 import {
-  ClipboardList, Loader2, Plus, Trash2, X, CheckCircle, XCircle, Pill, Clock, Banknote, Send, AlertTriangle,
+  ClipboardList, Loader2, Plus, Trash2, X, CheckCircle, XCircle, Pill, Clock, Banknote, Send, AlertTriangle, Search, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 
 const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
@@ -53,6 +53,9 @@ export default function PharmacyBills() {
   const [error, setError] = useState('')
 
   const [itemsModal, setItemsModal] = useState<{ title: string; items: any[] } | null>(null)
+  const [dispenseModal, setDispenseModal] = useState<any | null>(null)
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const [quantifyRx, setQuantifyRx] = useState<any | null>(null)
   const [lines, setLines] = useState<QLine[]>([])
   const [pickItemId, setPickItemId] = useState('')
@@ -72,6 +75,7 @@ export default function PharmacyBills() {
   }, [])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { setPage(1) }, [tab, search])
 
   function openQuantify(group: any) {
     setQuantifyRx(group); setPickItemId(''); setError('')
@@ -127,6 +131,22 @@ export default function PharmacyBills() {
 
   const shown = bills.filter((b) => tab === 'awaiting' ? b.status === 'awaiting_payment' : tab === 'paid' ? b.status === 'paid' : true)
 
+  // Search works across every tab (doctor, patient, phone, hospital number, drug).
+  const q = search.trim().toLowerCase()
+  const matchBill = (b: any) => !q || [b.bill_number, b.patient_name, b.hospital_number, b.patient_phone, b.doctor_name, (b.items || []).map((i: any) => i.drug_name).join(' ')]
+    .some((v) => String(v || '').toLowerCase().includes(q))
+  const matchGroup = (g: any) => !q || [g.patient_name, g.hospital_number, g.patient_phone, g.doctor_name, (g.prescriptions || []).map((p: any) => p.drug_name).join(' ')]
+    .some((v) => String(v || '').toLowerCase().includes(q))
+  const filteredBills = shown.filter(matchBill)
+  const filteredQueue = queue.filter(matchGroup)
+
+  const PER_PAGE = 30
+  const listLen = tab === 'queue' ? filteredQueue.length : filteredBills.length
+  const totalPages = Math.max(1, Math.ceil(listLen / PER_PAGE))
+  const safePage = Math.min(page, totalPages)
+  const pagedQueue = filteredQueue.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE)
+  const pagedBills = filteredBills.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE)
+
   // Item names only (no unit), first two / 50 chars, with a "see more" popup.
   function renderItemNames(items: any[], title: string) {
     const { text, hasMore } = conciseNames(items.map((i) => i.drug_name))
@@ -151,6 +171,14 @@ export default function PharmacyBills() {
         </div>
       </div>
 
+      {/* Search filters every tab (doctor, patient, phone, hospital number, drug) */}
+      <div className="relative max-w-md">
+        <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+        <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search doctor, patient, phone, hospital # or drug…"
+          className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
+      </div>
+
       <div className="flex gap-2">
         {[['queue', `To Quantify (${queue.length})`], ['awaiting', 'Awaiting Payment'], ['paid', 'Paid / Dispense'], ['all', 'All']].map(([k, label]) => (
           <button key={k} onClick={() => setTab(k as any)}
@@ -162,7 +190,7 @@ export default function PharmacyBills() {
 
       {loading ? <div className="flex justify-center py-16"><Loader2 size={26} className="animate-spin text-primary" /></div> : tab === 'queue' ? (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-          {queue.length === 0 ? <div className="py-14 text-center text-slate-400 text-sm">No prescriptions waiting to be quantified.</div> : (
+          {filteredQueue.length === 0 ? <div className="py-14 text-center text-slate-400 text-sm">{q ? `Nothing matches “${search}”.` : 'No prescriptions waiting to be quantified.'}</div> : (
             <table className="w-full text-sm">
               <thead><tr className="bg-slate-50 text-left text-xs text-slate-400 uppercase tracking-wider">
                 <th className="px-4 py-3 font-medium">Patient</th><th className="px-4 py-3 font-medium">Prescribed Drugs</th>
@@ -170,7 +198,7 @@ export default function PharmacyBills() {
                 <th className="px-4 py-3 font-medium text-right">Action</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-50">
-                {queue.map((g) => (
+                {pagedQueue.map((g) => (
                   <tr key={`${g.patient_id}:${g.encounter_id}`} className="hover:bg-slate-50">
                     <td className="px-4 py-3">
                       <p className="font-medium text-slate-800">{g.patient_name}</p>
@@ -192,7 +220,7 @@ export default function PharmacyBills() {
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-          {shown.length === 0 ? <div className="py-14 text-center text-slate-400 text-sm">No bills.</div> : (
+          {filteredBills.length === 0 ? <div className="py-14 text-center text-slate-400 text-sm">{q ? `Nothing matches “${search}”.` : 'No bills.'}</div> : (
             <table className="w-full text-sm">
               <thead><tr className="bg-slate-50 text-left text-xs text-slate-400 uppercase tracking-wider">
                 <th className="px-4 py-3 font-medium">Bill</th><th className="px-4 py-3 font-medium">Patient</th>
@@ -200,7 +228,7 @@ export default function PharmacyBills() {
                 <th className="px-4 py-3 font-medium">Status</th><th className="px-4 py-3 font-medium text-right">Action</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-50">
-                {shown.map((b) => (
+                {pagedBills.map((b) => (
                   <tr key={b.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-mono text-xs text-slate-600">{b.bill_number}</td>
                     <td className="px-4 py-3"><p className="font-medium text-slate-800">{b.patient_name}</p><p className="text-[11px] text-slate-400 font-mono">{b.hospital_number}</p></td>
@@ -217,7 +245,7 @@ export default function PharmacyBills() {
                         <button onClick={() => cancelBill(b)} disabled={busy === b.id} className="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-slate-500 text-xs font-medium hover:bg-slate-50 mr-1.5 disabled:opacity-50"><XCircle size={12} className="inline" /> Cancel</button>
                       )}
                       {b.status === 'paid' && (
-                        <button onClick={() => dispense(b)} disabled={busy === b.id} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50">
+                        <button onClick={() => setDispenseModal(b)} disabled={busy === b.id} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700 disabled:opacity-50">
                           {busy === b.id ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle size={12} />} Dispense
                         </button>
                       )}
@@ -228,6 +256,61 @@ export default function PharmacyBills() {
               </tbody>
             </table>
           )}
+        </div>
+      )}
+
+      {/* Pagination — 30 per page on every tab */}
+      {!loading && listLen > 0 && totalPages > 1 && (
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <span className="text-xs text-slate-400">{listLen} record(s)</span>
+          <div className="flex items-center gap-1.5 ml-auto">
+            <button onClick={() => setPage(Math.max(1, safePage - 1))} disabled={safePage <= 1}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft size={14} /> Prev</button>
+            <span className="px-3 py-1.5 rounded-lg bg-slate-100 text-xs font-semibold text-slate-700">Page {safePage} / {totalPages}</span>
+            <button onClick={() => setPage(Math.min(totalPages, safePage + 1))} disabled={safePage >= totalPages}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40">Next <ChevronRight size={14} /></button>
+          </div>
+        </div>
+      )}
+
+      {/* Dispense confirmation modal */}
+      {dispenseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (busy !== dispenseModal.id) setDispenseModal(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-semibold text-slate-800 flex items-center gap-2"><CheckCircle size={18} className="text-emerald-500" /> Confirm Dispense</h3>
+              <button onClick={() => setDispenseModal(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={18} /></button>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              <div className="space-y-1">
+                <p className="text-sm text-slate-600"><span className="font-semibold">Bill:</span> {dispenseModal.bill_number}</p>
+                <p className="text-sm text-slate-600"><span className="font-semibold">Patient:</span> {dispenseModal.patient_name || 'Unknown'}{dispenseModal.hospital_number ? ` · ${dispenseModal.hospital_number}` : ''}</p>
+                {dispenseModal.doctor_name && <p className="text-sm text-slate-600"><span className="font-semibold">Doctor:</span> {dispenseModal.doctor_name}</p>}
+              </div>
+              <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
+                {(dispenseModal.items || []).map((li: any) => (
+                  <div key={li.id} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
+                    <span className="text-slate-700">{li.drug_name}</span>
+                    <span className="text-xs text-slate-500">
+                      {li.quantity}{li.unit ? ` ${li.unit}` : ''} @ ₦{Number(li.unit_price || 0).toLocaleString()}
+                      <span className="font-semibold text-slate-800 ml-2">₦{Number(li.total_price || 0).toLocaleString()}</span>
+                    </span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between px-3.5 py-2.5 text-sm font-bold bg-slate-50">
+                  <span>Total</span><span>₦{Number(dispenseModal.total || 0).toLocaleString()}</span>
+                </div>
+              </div>
+              {error && <p className="text-xs text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> {error}</p>}
+            </div>
+            <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-3">
+              <button onClick={() => setDispenseModal(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={async () => { await dispense(dispenseModal); setDispenseModal(null) }} disabled={busy === dispenseModal.id}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                {busy === dispenseModal.id ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />} Confirm Dispense
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -72,11 +72,13 @@ router.get('/api/pharmacy-bills/queue', async (_req: Request, res: Response) => 
     const tenantId = getTenantId();
     const result = await pool.query(
       `SELECT pr.id, pr.drug_name, pr.dosage, pr.instructions, pr.created_at,
-              enc.patient_id, enc.id AS encounter_id, p.full_name AS patient_name, p.hospital_number,
+              enc.patient_id, enc.id AS encounter_id, p.full_name AS patient_name, p.hospital_number, p.phone AS patient_phone,
+              enc.staff_id AS doctor_id, su.name AS doctor_name,
               (SELECT c.id FROM insurance_cases c WHERE c.patient_id = enc.patient_id AND c.status='active' ORDER BY c.created_at DESC LIMIT 1) AS active_case_id
          FROM prescriptions pr
          JOIN encounters enc ON enc.id = pr.encounter_id
          JOIN patients p ON p.id = enc.patient_id
+         LEFT JOIN staff_users su ON su.id = enc.staff_id
         WHERE pr.tenant_id = $1
           AND COALESCE(pr.is_paid, false) = false
           AND pr.status <> 'cancelled'
@@ -99,6 +101,9 @@ router.get('/api/pharmacy-bills/queue', async (_req: Request, res: Response) => 
           patient_id: r.patient_id,
           patient_name: r.patient_name,
           hospital_number: r.hospital_number,
+          patient_phone: r.patient_phone || null,
+          doctor_id: r.doctor_id || null,
+          doctor_name: r.doctor_name || null,
           encounter_id: r.encounter_id,
           active_case_id: r.active_case_id || null,
           created_at: r.created_at,
@@ -194,9 +199,13 @@ router.get('/api/pharmacy-bills', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const { status, patient_id } = req.query;
-    let q = `SELECT b.*, p.full_name AS patient_name, p.hospital_number,
+    let q = `SELECT b.*, p.full_name AS patient_name, p.hospital_number, p.phone AS patient_phone,
+                    e.staff_id AS doctor_id, su.name AS doctor_name,
                     (SELECT json_agg(row_to_json(i)) FROM pharmacy_bill_items i WHERE i.bill_id = b.id) AS items
-               FROM pharmacy_bills b JOIN patients p ON p.id = b.patient_id
+               FROM pharmacy_bills b
+               JOIN patients p ON p.id = b.patient_id
+               LEFT JOIN encounters e ON e.id = b.encounter_id
+               LEFT JOIN staff_users su ON su.id = e.staff_id
               WHERE b.tenant_id = $1`;
     const params: any[] = [tenantId];
     if (status) { params.push(status); q += ` AND b.status = $${params.length}`; }
