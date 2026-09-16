@@ -267,6 +267,26 @@ export default function WalkInSales() {
           paymentMethod,
           createdBy: currentUserId,
         })
+        // The case service records the money; otc_sales records the stock
+        // movement (base units) and the cost/profit for the pharmacy log.
+        const stockErrors: string[] = []
+        for (const item of cart) {
+          try {
+            await api.post('/otc-sales', {
+              drug_name: item.drug_name,
+              quantity: item.quantity,
+              unit_price: item.unit_price,
+              unit: item.unit || null,
+              base_quantity: item.base_quantity ?? item.quantity,
+              customer_name: receiptCustomer || null,
+              payment_method: receiptPayment,
+              notes: 'Insurance-billed OTC sale',
+              sold_by: currentUserId,
+            })
+          } catch (e: any) {
+            stockErrors.push(`${item.drug_name}: ${e.response?.data?.message || 'stock update failed'}`)
+          }
+        }
         setReceipt({
           items: soldItems,
           customer: receiptCustomer || 'Walk-in Customer',
@@ -278,6 +298,7 @@ export default function WalkInSales() {
         })
         setShowCartModal(false)
         clearCart()
+        if (stockErrors.length > 0) setError(`Billed to insurance, but stock was not updated — ${stockErrors.join('; ')}`)
         await reloadData()
       } else {
       for (const item of cart) {
