@@ -8,6 +8,21 @@ import {
 
 const PAGE_SIZE = 30
 
+// A pharmacy bill is one pending row; expand it into its individual lines so
+// the cart shows each item (quantity, unit, price) separately.
+function expandPendingItem(item: any): any[] {
+  if (item && item.service_type === 'pharmacy_bill' && Array.isArray(item.bill_items) && item.bill_items.length > 0) {
+    return item.bill_items.map((bi: any) => ({
+      ...item,
+      line_id: bi.line_id,
+      description: `${bi.drug_name || 'Item'}${bi.unit ? ` (${bi.unit})` : ''} — ${item.description || 'Pharmacy Bill'}`,
+      quantity: Number(bi.quantity) || 1,
+      unit_price: Number(bi.unit_price) || 0,
+    }))
+  }
+  return [item]
+}
+
 const serviceIcons: Record<string, any> = {
   folder_activation: User, prescription: Pill, lab: FlaskConical, radiology: Scan, admission: Home, bed_day: Home,
 }
@@ -49,14 +64,12 @@ export default function PaypointPatients() {
       const res = await api.get(`/payments/pending/${selectedPatient.patient_id}`)
       var items = res.data?.items || []
       setPendingItems(items)
+      const flat = (items as any[]).flatMap(expandPendingItem)
+      const rowKey = (x: any) => String(x.line_id || x.service_id || x.patient_id) + '-' + x.service_type
       setCart((prev) => {
-        var next = [...prev]
-        for (const item of items) {
-          if (!next.find((c: any) => c.service_id === item.service_id && c.service_type === item.service_type)) {
-            next.push({ ...item })
-          }
-        }
-        return next
+        const existing = new Set(prev.map(rowKey))
+        const add = flat.filter((r) => !existing.has(rowKey(r)))
+        return add.length ? [...prev, ...add] : prev
       })
     } catch {}
   }
@@ -80,7 +93,7 @@ export default function PaypointPatients() {
       const res = await api.get(`/payments/pending/${p.patient_id}`)
       var items = res.data?.items || []
       setPendingItems(items)
-      setCart(items.map(function(item: any) { return { ...item } }))
+      setCart((items as any[]).flatMap(expandPendingItem))
     } catch {}
   }
 
@@ -213,7 +226,7 @@ export default function PaypointPatients() {
                     <div key={i} className="px-4 py-3 rounded-xl bg-slate-50 border border-slate-100">
                       <div className="flex items-center justify-between">
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-slate-700 truncate">{item.description}</p>
+                            <p className="text-sm font-medium text-slate-700 break-words" title={item.description}>{item.description}</p>
                           <p className="text-xs text-slate-400 capitalize">{item.service_type.replace('_', ' ')}{item.unit_price > 0 ? ` · ₦${Number(item.unit_price).toLocaleString()}` : ''}</p>
                         </div>
                         {item.unit_price > 0 ? (
@@ -246,7 +259,7 @@ export default function PaypointPatients() {
                 {cart.map((item, i) => (
                   <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100">
                     <div className="flex items-start justify-between gap-2 mb-2">
-                      <p className="text-xs font-medium text-slate-700 flex-1 truncate">{item.description}</p>
+                      <p className="text-xs font-medium text-slate-700 flex-1 break-words" title={item.description}>{item.description}</p>
                       <button onClick={() => removeFromCart(i)} className="p-0.5 rounded hover:bg-rose-50 text-slate-300 hover:text-rose-500"><X size={12} /></button>
                     </div>
                     <div className="flex items-center gap-2">
