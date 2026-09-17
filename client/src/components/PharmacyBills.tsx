@@ -309,7 +309,6 @@ export default function PharmacyBills() {
                     ? ((dispenseModal.items[0].quantity ?? '—'))
                     : (dispenseModal.items || []).length}
                 </p>
-                <p className="text-[11px] text-emerald-600 mt-1">Paid at Paypoint — dispensing will deduct the stock.</p>
               </div>
               {dispenseModal.doctor_notes && (
                 <div>
@@ -331,6 +330,7 @@ export default function PharmacyBills() {
                   <span>Total</span><span>₦{Number(dispenseModal.total || 0).toLocaleString()}</span>
                 </div>
               </div>
+              <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle size={12} /> Paid at Paypoint — dispensing will deduct the stock.</p>
               {error && <p className="text-xs text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> {error}</p>}
             </div>
             <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-3">

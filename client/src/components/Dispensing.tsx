@@ -287,7 +287,6 @@ export default function Dispensing() {
                   <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3 text-center">
                     <p className="text-[11px] uppercase tracking-wide text-emerald-700">Quantified quantity</p>
                     <p className="text-2xl font-bold text-emerald-800">{String(modal.rx.quantity ?? '—')}</p>
-                    <p className="text-[11px] text-emerald-600 mt-1">Paid at Paypoint — dispensing will deduct the stock.</p>
                   </div>
                   {modal.rx.instructions && (
                     <div>
@@ -319,9 +318,7 @@ export default function Dispensing() {
                   </div>
                 </>
               )}
-              {modal.kind === 'bill' && (
-                <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle size={12} /> Paid at Paypoint — dispensing will deduct the stock.</p>
-              )}
+              <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle size={12} /> Paid at Paypoint — dispensing will deduct the stock.</p>
               {modal.kind === 'rx' && !modal.billId && !(Number(modal.rx.quantity) > 0) && (
                 <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle size={12} /> No quantified quantity — bill this order at Pharmacy Bills.</p>
               )}
