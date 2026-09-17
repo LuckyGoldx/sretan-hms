@@ -31,8 +31,11 @@ interface PendingPrescription {
 // One unified "ready to dispense" row: a paid legacy prescription or a paid
 // pharmacy bill (the pharmacist's quantified order).
 type ReadyItem =
-  | { kind: 'rx'; id: string; date: string; rx: PendingPrescription }
+  | { kind: 'rx'; id: string; date: string; rx: PendingPrescription; billId?: string | null }
   | { kind: 'bill'; id: string; date: string; bill: any }
+
+// Normalise a drug name for matching.
+function drugKey(s: any): string { return String(s || '').trim().toLowerCase() }
 
 export default function Dispensing() {
   const navigate = useNavigate()
@@ -66,20 +69,44 @@ export default function Dispensing() {
         } catch { return { ...rx, patient_name: 'Unknown', doctor_name: '' } }
       }))
 
-      // A billed prescription is dispensed through its bill, so don't list it
-      // separately (avoids the same drug showing twice).
-      const billedKeys = new Set<string>()
-      const billedRxIds = new Set<string>()
-      for (const b of (billRes.data || [])) {
-        for (const li of (b.items || [])) {
-          billedKeys.add(`${b.patient_id}:${String(li.drug_name || '').trim().toLowerCase()}`)
-          if (li.prescription_id) billedRxIds.add(String(li.prescription_id))
+      // Avoid showing the same medication twice: a single-item bill that is
+      // covered by a paid prescription is dropped in favour of the prescription
+      // card (which is more detailed), and that card dispenses through the bill
+      // so stock isn't deducted twice. Multi-item bills stay, and the paid
+      // prescriptions they cover are hidden instead.
+      const bills: any[] = billRes.data || []
+      const rxKey = (rx: any) => `${rx.patient_id}:${drugKey(rx.drug_name)}`
+      const rxKeys = new Set(enriched.map(rxKey))
+      const rxIds = new Set(enriched.map((rx) => String(rx.id)))
+      const covers = (b: any, li: any) => rxIds.has(String(li.prescription_id)) || rxKeys.has(`${b.patient_id}:${drugKey(li.drug_name)}`)
+
+      const droppedBillIds = new Set<string>()
+      const rxBillId = new Map<string, string>()
+      for (const b of bills) {
+        const its = b.items || []
+        if (its.length === 1 && covers(b, its[0])) {
+          droppedBillIds.add(b.id)
+          const li = its[0]
+          const match = enriched.find((rx) => String(rx.id) === String(li.prescription_id) || rxKey(rx) === `${b.patient_id}:${drugKey(li.drug_name)}`)
+          if (match) rxBillId.set(String(match.id), b.id)
         }
       }
+
+      const hiddenRxIds = new Set<string>()
+      for (const b of bills) {
+        if (droppedBillIds.has(b.id) || (b.items || []).length <= 1) continue
+        for (const li of (b.items || [])) {
+          if (li.prescription_id) hiddenRxIds.add(String(li.prescription_id))
+          for (const rx of enriched) if (rxKey(rx) === `${b.patient_id}:${drugKey(li.drug_name)}`) hiddenRxIds.add(String(rx.id))
+        }
+      }
+
       const rxItems: ReadyItem[] = enriched
-        .filter((rx) => !billedRxIds.has(String(rx.id)) && !billedKeys.has(`${rx.patient_id}:${String(rx.drug_name || '').trim().toLowerCase()}`))
-        .map((rx) => ({ kind: 'rx', id: rx.id, date: rx.created_at || '', rx }))
-      const billItems: ReadyItem[] = (billRes.data || []).map((b) => ({ kind: 'bill', id: b.id, date: b.created_at || '', bill: b }))
+        .filter((rx) => !hiddenRxIds.has(String(rx.id)))
+        .map((rx) => ({ kind: 'rx', id: rx.id, date: rx.created_at || '', rx, billId: rxBillId.get(String(rx.id)) || null }))
+      const billItems: ReadyItem[] = bills
+        .filter((b) => !droppedBillIds.has(b.id))
+        .map((b) => ({ kind: 'bill', id: b.id, date: b.created_at || '', bill: b }))
 
       const merged = [...rxItems, ...billItems].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
       setItems(merged)
@@ -117,9 +144,15 @@ export default function Dispensing() {
     setDispensing(true); setError(null)
     try {
       if (modal.kind === 'rx') {
-        const qty = Number(modal.rx.quantity) || 0
-        if (qty <= 0) { setError('This prescription has no quantified quantity'); return }
-        await api.post('/dispense', { prescription_id: modal.rx.id, quantity_dispensed: qty })
+        if (modal.billId) {
+          // Covered by a paid bill — dispense through the bill (stock was held
+          // when the bill was created, so this must not deduct again).
+          await api.post(`/pharmacy-bills/${modal.billId}/dispense`, { dispensed_by: null })
+        } else {
+          const qty = Number(modal.rx.quantity) || 0
+          if (qty <= 0) { setError('This prescription has no quantified quantity'); return }
+          await api.post('/dispense', { prescription_id: modal.rx.id, quantity_dispensed: qty })
+        }
       } else {
         await api.post(`/pharmacy-bills/${modal.bill.id}/dispense`, { dispensed_by: null })
       }
@@ -289,14 +322,14 @@ export default function Dispensing() {
               {modal.kind === 'bill' && (
                 <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle size={12} /> Paid at Paypoint — dispensing will deduct the stock.</p>
               )}
-              {modal.kind === 'rx' && !(Number(modal.rx.quantity) > 0) && (
+              {modal.kind === 'rx' && !modal.billId && !(Number(modal.rx.quantity) > 0) && (
                 <p className="text-xs text-amber-600 flex items-center gap-1"><AlertTriangle size={12} /> No quantified quantity — bill this order at Pharmacy Bills.</p>
               )}
               {error && <p className="text-xs text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> {error}</p>}
             </div>
             <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-3">
               <button onClick={() => setModal(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-              <button onClick={handleDispense} disabled={dispensing || (modal.kind === 'rx' && !(Number(modal.rx.quantity) > 0))}
+              <button onClick={handleDispense} disabled={dispensing || (modal.kind === 'rx' && !modal.billId && !(Number(modal.rx.quantity) > 0))}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-50">
                 {dispensing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />} Confirm Dispense
               </button>
