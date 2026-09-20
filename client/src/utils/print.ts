@@ -3,18 +3,38 @@ import { getClinicInfo } from './clinicInfo'
 
 export const HOSPITAL_NAME = 'MACHOKO MEMORIAL HOSPITAL'
 export const HOSPITAL_ADDRESS = 'Machoko Diamond Plaza, Mile 6 Road Bye-Pass, Jalingo, Taraba State'
-export const HOSPITAL_CONTACTS = '0802900231, 07068855750, 08068862666'
 
-function hospitalName(): string {
-  return getClinicInfo().hospital_name || HOSPITAL_NAME
+// The configured clinic branding (from /api/setup/status, cached by clinicInfo)
+// always wins; the constants above are only a fallback when branding has not
+// loaded at all. A deliberately blank configured value stays blank so one
+// hospital's details never leak into another's printables.
+function brandValue(key: 'hospital_name' | 'address' | 'phone_number', fallback: string): string {
+  const info = getClinicInfo()
+  if (!info || Object.keys(info).length === 0) return fallback
+  const v = (info as any)[key]
+  return v === undefined || v === null ? fallback : String(v)
 }
 
-function hospitalAddress(): string {
-  return getClinicInfo().address || HOSPITAL_ADDRESS
+export function hospitalName(): string {
+  return brandValue('hospital_name', HOSPITAL_NAME)
 }
 
-function hospitalContacts(): string {
-  return getClinicInfo().phone_number || HOSPITAL_CONTACTS
+export function hospitalAddress(): string {
+  return brandValue('address', HOSPITAL_ADDRESS)
+}
+
+export function hospitalContacts(): string {
+  // Deliberately no fallback: a hospital's phone numbers come only from its own
+  // configuration. If none are set, the Tel line stays blank.
+  return brandValue('phone_number', '')
+}
+
+// Absolute URL so the logo resolves inside print popups (about:blank).
+export function hospitalLogoUrl(): string | null {
+  const raw = getClinicInfo().logo_url
+  if (!raw) return null
+  if (/^(https?:|data:)/i.test(raw)) return raw
+  try { return new URL(raw, window.location.origin).href } catch { return raw }
 }
 
 export function escapeHtml(value: unknown): string {
@@ -39,8 +59,10 @@ export function generateReceiptNumber(prefix = 'RCP'): string {
 
 // Compact 72mm receipt header
 export function receiptHeaderHtml(): string {
+  const logo = hospitalLogoUrl()
   return `
     <div style="text-align:center;padding-bottom:8px;border-bottom:2px dashed #cbd5e1">
+      ${logo ? `<img src="${escapeHtml(logo)}" alt="" style="max-height:44px;max-width:78%;margin:0 auto 4px;display:block" />` : ''}
       <div style="font-size:15px;font-weight:700">${escapeHtml(hospitalName())}</div>
       <div style="font-size:10px;color:#64748b">${escapeHtml(hospitalAddress())}</div>
       <div style="font-size:10px;color:#64748b">Tel: ${escapeHtml(hospitalContacts())}</div>
@@ -49,8 +71,10 @@ export function receiptHeaderHtml(): string {
 
 // Full A4 report header
 export function reportHeaderHtml(): string {
+  const logo = hospitalLogoUrl()
   return `
     <div style="text-align:center;padding-bottom:12px;border-bottom:3px solid #0f766e;margin-bottom:16px">
+      ${logo ? `<img src="${escapeHtml(logo)}" alt="" style="max-height:64px;max-width:260px;margin:0 auto 6px;display:block" />` : ''}
       <div style="font-size:20px;font-weight:800;color:#0f766e;letter-spacing:0.5px">${escapeHtml(hospitalName())}</div>
       <div style="font-size:12px;color:#64748b;margin-top:4px">${escapeHtml(hospitalAddress())}</div>
       <div style="font-size:12px;color:#64748b">Tel: ${escapeHtml(hospitalContacts())}</div>
@@ -143,10 +167,31 @@ export function printPaymentReceipt(r: any): Window | null {
     item: it.description || it.service_name || 'Item',
     quantity: it.quantity || 1,
     price: Number(it.unit_price) || Number(it.total_price) || 0,
-    total: Number(it.total_price) || (Number(it.unit_price) * (it.quantity || 1)) || 0,
+    total: Number(it.line_total) || Number(it.total_price) || (Number(it.unit_price) * (it.quantity || 1)) || 0,
   }))
   if (lines.length === 0) {
     lines.push({ item: 'Payment', quantity: 1, price: Number(r.total_amount) || 0, total: Number(r.total_amount) || 0 })
+  }
+  // Insurance receipts print the provider and the insurer/patient split so the
+  // patient can see what the insurance covered and what they paid.
+  const insurer = Number(r.insurance_amount || 0)
+  const patient = Number(r.patient_amount ?? r.total_amount ?? 0)
+  const provider = r.provider_name || r.insurance_provider_name
+  const caseRef = r.case_number || r.insurance_case_number
+  const isInsurance = r.insurance_amount != null || !!provider
+  const fmtMoney = (n: number) => `₦${(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+  const splitNote = isInsurance
+    ? `Billed to ${provider || 'insurance'}${caseRef ? ' · ' + caseRef : ''} | Insurance paid ${fmtMoney(insurer)} | Patient paid ${fmtMoney(patient)} | Total billed ${fmtMoney(insurer + patient)}`
+    : ''
+  const notesText = [r.notes, splitNote].filter(Boolean).join(' | ')
+  // Prefer an explicit display label; otherwise derive one from the split so a
+  // 100%-insured receipt reads "INSURANCE" and a co-pay reads
+  // "INSURANCE + CASH" (or the chosen method).
+  let methodLabel = r.payment_label ? String(r.payment_label).toUpperCase() : ''
+  if (!methodLabel) {
+    methodLabel = isInsurance
+      ? (insurer > 0 && patient > 0 ? `INSURANCE + ${String(r.payment_method || 'cash').toUpperCase()}` : 'INSURANCE')
+      : (r.payment_method ? String(r.payment_method).toUpperCase() : '')
   }
   const html = buildReceiptHtml({
     receiptNumber: r.receipt_number || generateReceiptNumber(),
@@ -154,10 +199,10 @@ export function printPaymentReceipt(r: any): Window | null {
     time: receiptTime(d),
     staff: r.staff_name || '',
     customer,
-    paymentMethod: r.payment_method ? String(r.payment_method).toUpperCase() : '',
+    paymentMethod: methodLabel,
     lines,
     total: Number(r.total_amount) || lines.reduce((s, l) => s + Number(l.total), 0),
-    notes: r.notes || '',
+    notes: notesText,
   })
   return openPrint(html)
 }

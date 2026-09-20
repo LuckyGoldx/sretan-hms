@@ -1545,7 +1545,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
       {/* Prescription Detail Modal */}
       {modalRx && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setModalRx(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
                 <Pill size={18} className="text-violet-500" />
@@ -2787,7 +2787,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
       {/* Add Fluid Balance Modal — simple */}
       {showFluidModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!fluidSubmitting) setShowFluidModal(false) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Droplets size={18} className="text-blue-500" /> Add Fluid Entry</h2>
               <button onClick={() => setShowFluidModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
@@ -3098,7 +3098,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
       {/* Add Output Modal */}
       {showOutputModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!outputSubmitting) setShowOutputModal(false) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Droplets size={18} className="text-amber-500" /> Record Output</h2>
               <button onClick={() => setShowOutputModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
@@ -3171,7 +3171,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
       {/* Add Clinical Note Modal */}
       {showNoteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!noteSubmitting) setShowNoteModal(false) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <h2 className="text-base font-semibold text-slate-800">Add Clinical Note</h2>
               <button onClick={() => setShowNoteModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
@@ -3216,7 +3216,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
       {/* Add Doctor Note Modal */}
       {showDoctorNoteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!doctorNoteSubmitting) setShowDoctorNoteModal(false) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Stethoscope size={18} className="text-primary" /> New Clinical Note</h2>
               <button onClick={() => setShowDoctorNoteModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
@@ -3616,7 +3616,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
       {/* Add Insurance Policy Modal */}
       {showAddPolicyModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAddPolicyModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-base font-semibold text-slate-800">Add Insurance Policy</h2>
               <button onClick={() => setShowAddPolicyModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
@@ -3905,7 +3905,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
       {/* Add Treatment Choice Modal */}
       {addTxChoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setAddTxChoice(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="text-center px-6 pt-6 pb-4">
               <div className="mx-auto w-16 h-16 rounded-2xl bg-blue-100 flex items-center justify-center mb-4">
                 <Pill size={32} className="text-primary" />
@@ -3964,7 +3964,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
       {/* Drug End Choice Modal */}
       {drugEndChoice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setDrugEndChoice(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             {(() => {
               const sessions = sessionsMap[drugEndChoice.treatmentId] || []
               const allChildrenComplete = sessions.length > 0 && sessions.every((s: any) => {
@@ -4379,7 +4379,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
       {/* Dose Confirmation Modal */}
       {confirmDose && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setConfirmDose(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="text-center px-6 pt-6 pb-4">
               <div className="mx-auto w-16 h-16 rounded-2xl bg-blue-100 flex items-center justify-center mb-4">
                 <Pill size={32} className="text-primary" />
@@ -4417,7 +4417,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
       {/* End Treatment Confirmation Modal */}
       {endTreatment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setEndTreatment(null); setEndIsDrug(false) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="text-center px-6 pt-6 pb-4">
               <div className="mx-auto w-16 h-16 rounded-2xl bg-amber-100 flex items-center justify-center mb-4">
                 <AlertTriangle size={32} className="text-amber-500" />
@@ -4600,7 +4600,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
       {/* Skip Reason Modal */}
       {skipReason && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setSkipReason(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="text-center px-6 pt-6 pb-4">
               <div className="mx-auto w-16 h-16 rounded-2xl bg-rose-100 flex items-center justify-center mb-4">
                 <XCircle size={32} className="text-rose-500" />
@@ -4943,7 +4943,7 @@ export default function PatientChart({ patientId: patientIdProp, hideBack, initi
       {/* Fluid Entry Detail Modal */}
       {showEntryModal && selectedEntry && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowEntryModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
                 {Number(selectedEntry.intake_ml) > 0 ? (

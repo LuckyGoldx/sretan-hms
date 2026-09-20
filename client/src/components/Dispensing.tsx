@@ -37,6 +37,14 @@ type ReadyItem =
 // Normalise a drug name for matching.
 function drugKey(s: any): string { return String(s || '').trim().toLowerCase() }
 
+// First two names, capped at ~50 characters; "see more" opens the full list.
+function conciseNames(names: Array<string | null | undefined>): { text: string; hasMore: boolean } {
+  const clean = names.map((n) => String(n || '').trim()).filter(Boolean)
+  const firstTwo = clean.slice(0, 2).join(', ')
+  const text = firstTwo.length > 50 ? firstTwo.slice(0, 50) : firstTwo
+  return { text, hasMore: clean.length > 2 || firstTwo.length > 50 }
+}
+
 export default function Dispensing() {
   const navigate = useNavigate()
   const [items, setItems] = useState<ReadyItem[]>([])
@@ -46,6 +54,7 @@ export default function Dispensing() {
   const [modal, setModal] = useState<ReadyItem | null>(null)
   const [dispensing, setDispensing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [itemsModal, setItemsModal] = useState<{ title: string; items: any[] } | null>(null)
 
   const fetch = useCallback(async (silent = false) => {
     if (!silent) setLoading(true)
@@ -134,10 +143,28 @@ export default function Dispensing() {
       .some((v) => String(v || '').toLowerCase().includes(q))
   }
 
+  // Item names only (no unit), first two / 50 chars, with a "see more" popup.
+  function renderItemNames(items: any[], title: string) {
+    const { text, hasMore } = conciseNames(items.map((i) => i.drug_name))
+    if (!text) return <span className="text-xs text-slate-400 italic">—</span>
+    return (
+      <span className="text-xs text-slate-600">
+        {text}{hasMore ? '… ' : ''}
+        {hasMore && (
+          <button onClick={() => setItemsModal({ title, items })} className="text-indigo-600 hover:underline font-medium">see more</button>
+        )}
+      </span>
+    )
+  }
+
   const filtered = items.filter((it) => matches(it, search.toLowerCase()))
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages - 1)
   const paged = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
+
+  // A single-item bill shows the doctor's note; multiple items show the
+  // per-drug instructions instead (the aggregated note is ambiguous there).
+  const billMulti = !!modal && modal.kind === 'bill' && (modal.bill.items || []).length > 1
 
   async function handleDispense() {
     if (!modal) return
@@ -209,7 +236,7 @@ export default function Dispensing() {
                   </div>
                   <p className="text-sm text-slate-500 mt-0.5">{it.rx.dosage} &middot; Quantified qty: <strong>{it.rx.quantity}</strong></p>
                   <p className="text-xs text-slate-400">
-                    Patient: {it.rx.patient_name || 'Unknown'}{it.rx.hospital_number ? ` · ${it.rx.hospital_number}` : ''}{it.rx.phone ? ` · ${it.rx.phone}` : ''}
+                    Patient: <strong className="font-semibold text-slate-900">{it.rx.patient_name || 'Unknown'}</strong>{it.rx.hospital_number ? ` · ${it.rx.hospital_number}` : ''}{it.rx.phone ? ` · ${it.rx.phone}` : ''}
                   </p>
                   {it.rx.doctor_name && <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><Stethoscope size={11} /> Prescribed by: <strong>{it.rx.doctor_name}</strong></p>}
                 </div>
@@ -226,18 +253,11 @@ export default function Dispensing() {
                     <p className="text-base font-semibold text-slate-800">Pharmacy Bill {it.bill.bill_number}</p>
                     <span className="px-2 py-0.5 rounded-lg text-[10px] font-medium bg-emerald-100 text-emerald-700">Paid</span>
                   </div>
-                  <div className="mt-1 space-y-0.5">
-                    {(it.bill.items || []).map((li: any) => (
-                      <p key={li.id} className="text-xs text-slate-600">
-                        {li.drug_name} — <strong>{li.quantity}{li.unit ? ` ${li.unit}` : ''}</strong> @ ₦{Number(li.unit_price || 0).toLocaleString()}
-                        <span className="text-slate-400"> = ₦{Number(li.total_price || 0).toLocaleString()}</span>
-                      </p>
-                    ))}
-                  </div>
+                  <p className="mt-1">{renderItemNames(it.bill.items || [], `Bill ${it.bill.bill_number} — items`)}</p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Patient: {it.bill.patient_name || 'Unknown'}{it.bill.hospital_number ? ` · ${it.bill.hospital_number}` : ''}
-                    {it.bill.doctor_name ? ` · Dr: ${it.bill.doctor_name}` : ''} · Total ₦{Number(it.bill.total || 0).toLocaleString()}
+                    Patient: <strong className="font-semibold text-slate-900">{it.bill.patient_name || 'Unknown'}</strong>{it.bill.hospital_number ? ` · ${it.bill.hospital_number}` : ''} · Total ₦{Number(it.bill.total || 0).toLocaleString()}
                   </p>
+                  {it.bill.doctor_name && <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1"><Stethoscope size={11} /> Prescribed by: <strong>{it.bill.doctor_name}</strong></p>}
                 </div>
                 <button onClick={() => { setModal(it); setError(null) }}
                   className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 transition-transform flex-shrink-0 ml-4">
@@ -270,12 +290,12 @@ export default function Dispensing() {
       {/* Confirmation modal — shows the already-quantified amount */}
       {modal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!dispensing) setModal(null) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
               <h3 className="font-semibold text-slate-800 flex items-center gap-2"><Pill size={18} className="text-emerald-500" /> Confirm Dispense</h3>
               <button onClick={() => setModal(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={18} /></button>
             </div>
-            <div className="px-5 py-4 space-y-4">
+            <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1">
               {modal.kind === 'rx' ? (
                 <>
                   <div className="space-y-1">
@@ -290,7 +310,7 @@ export default function Dispensing() {
                   </div>
                   {modal.rx.instructions && (
                     <div>
-                      <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1"><ClipboardList size={12} /> Doctor's Note</p>
+                      <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1"><ClipboardList size={12} /> Instructions</p>
                       <div className="rounded-xl bg-slate-50 border border-slate-100 px-3.5 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">{modal.rx.instructions}</div>
                     </div>
                   )}
@@ -300,22 +320,32 @@ export default function Dispensing() {
                   <div className="space-y-1">
                     <p className="text-sm text-slate-600"><span className="font-semibold">Bill:</span> {modal.bill.bill_number}</p>
                     <p className="text-sm text-slate-600"><span className="font-semibold">Patient:</span> {modal.bill.patient_name || 'Unknown'}{modal.bill.hospital_number ? ` · ${modal.bill.hospital_number}` : ''}</p>
-                    {modal.bill.doctor_name && <p className="text-sm text-slate-600"><span className="font-semibold">Doctor:</span> {modal.bill.doctor_name}</p>}
+                    {modal.bill.doctor_name && <p className="text-sm text-slate-600 flex items-center gap-1"><Stethoscope size={14} className="text-slate-400" /><span className="font-semibold">Prescribed by:</span> {modal.bill.doctor_name}</p>}
                   </div>
                   <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
                     {(modal.bill.items || []).map((li: any) => (
-                      <div key={li.id} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
-                        <span className="text-slate-700">{li.drug_name}</span>
-                        <span className="text-xs text-slate-500">
-                          {li.quantity}{li.unit ? ` ${li.unit}` : ''} @ ₦{Number(li.unit_price || 0).toLocaleString()}
-                          <span className="font-semibold text-slate-800 ml-2">₦{Number(li.total_price || 0).toLocaleString()}</span>
-                        </span>
+                      <div key={li.id} className="px-3.5 py-2.5 text-sm space-y-0.5">
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="text-slate-700 font-medium">{li.drug_name}</span>
+                          <span className="text-xs text-slate-500 text-right whitespace-nowrap">
+                            <strong className="text-slate-800">{li.quantity}{li.unit ? ` ${li.unit}` : ''}</strong> @ ₦{Number(li.unit_price || 0).toLocaleString()}
+                            <span className="font-semibold text-slate-800 ml-2">₦{Number(li.total_price || 0).toLocaleString()}</span>
+                          </span>
+                        </div>
+                        {li.dosage && <p className="text-xs text-slate-500">Dosage: {li.dosage}</p>}
+                        {li.instructions && billMulti && <p className="text-xs text-slate-500 italic">Instructions: {li.instructions}</p>}
                       </div>
                     ))}
                     <div className="flex items-center justify-between px-3.5 py-2.5 text-sm font-bold bg-slate-50">
                       <span>Total</span><span>₦{Number(modal.bill.total || 0).toLocaleString()}</span>
                     </div>
                   </div>
+                  {!billMulti && modal.bill.doctor_notes && (
+                    <div>
+                      <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1"><ClipboardList size={12} /> Instructions</p>
+                      <div className="rounded-xl bg-slate-50 border border-slate-100 px-3.5 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">{modal.bill.doctor_notes}</div>
+                    </div>
+                  )}
                 </>
               )}
               <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle size={12} /> Paid at Paypoint — dispensing will deduct the stock.</p>
@@ -324,12 +354,37 @@ export default function Dispensing() {
               )}
               {error && <p className="text-xs text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> {error}</p>}
             </div>
-            <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-3">
+            <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-3 flex-shrink-0">
               <button onClick={() => setModal(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
               <button onClick={handleDispense} disabled={dispensing || (modal.kind === 'rx' && !modal.billId && !(Number(modal.rx.quantity) > 0))}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-50">
                 {dispensing ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />} Confirm Dispense
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full item list popup (see more) */}
+      {itemsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setItemsModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+              <h3 className="text-sm font-semibold text-slate-800">{itemsModal.title}</h3>
+              <button onClick={() => setItemsModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-5 space-y-2.5">
+              {itemsModal.items.map((i: any, idx: number) => (
+                <div key={i.id || idx} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-slate-700">{i.drug_name}{i.dosage ? ` · ${i.dosage}` : ''}</span>
+                  {i.quantity != null && (
+                    <span className="text-xs text-slate-400 flex-shrink-0">
+                      {i.quantity}{i.unit ? ` ${i.unit}` : ''}{i.unit_price != null ? ` @ ₦${Number(i.unit_price).toLocaleString()}` : ''}
+                    </span>
+                  )}
+                </div>
+              ))}
+              {itemsModal.items.length === 0 && <p className="text-sm text-slate-400 italic">No items.</p>}
             </div>
           </div>
         </div>

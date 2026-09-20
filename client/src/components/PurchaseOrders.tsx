@@ -157,7 +157,7 @@ export default function PurchaseOrders() {
 
       {showAdd && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => { if (!adding) setShowAdd(false) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-semibold text-slate-800 flex items-center gap-2"><Truck size={18} className="text-indigo-500" /> New Purchase Order</h3>
               <button onClick={() => setShowAdd(false)} className="text-slate-400 hover:text-slate-600 p-1"><X size={18} /></button>

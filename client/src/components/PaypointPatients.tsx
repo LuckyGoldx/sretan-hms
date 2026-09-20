@@ -46,7 +46,7 @@ export default function PaypointPatients() {
   const [pendingItems, setPendingItems] = useState<any[]>([])
   const [cart, setCart] = useState<any[]>([])
   const [submitting, setSubmitting] = useState(false)
-  const [paymentMethod, setPaymentMethod] = useState('cash')
+  const [paymentMethod, setPaymentMethod] = useState('')
   const [receipt, setReceipt] = useState<any>(null)
   const [showReceipt, setShowReceipt] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
@@ -113,6 +113,7 @@ export default function PaypointPatients() {
 
   async function handlePayment() {
     if (cart.length === 0 || !selectedPatient) return
+    if (!paymentMethod) { alert('Select a payment method before billing.'); return }
     setSubmitting(true)
     try {
       const res = await api.post('/payments', {
@@ -120,7 +121,7 @@ export default function PaypointPatients() {
         items: cart.map((c) => ({ service_type: c.service_type, service_id: c.service_id, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
         payment_method: paymentMethod, notes: null, created_by: currentUser?.id,
       })
-      setReceipt(res.data); setShowReceipt(true); setCart([])
+      setReceipt(res.data); setShowReceipt(true); setCart([]); setPaymentMethod('')
       const r = await api.get(`/payments/pending/${selectedPatient.patient_id}`)
       setPendingItems(r.data?.items || [])
     } catch (err: any) { alert(err.response?.data?.message || 'Payment failed') } finally { setSubmitting(false) }
@@ -298,22 +299,25 @@ export default function PaypointPatients() {
             )}
             {cart.length > 0 && selectedPatient && (
               <div className="border-t border-slate-100 pt-4 mt-4 space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  {paymentMethods.map((m) => {
-                    const Icon = m.icon
-                    return (
-                      <button key={m.value} onClick={() => setPaymentMethod(m.value)}
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                        <Icon size={14} />{m.label}
-                      </button>
-                    )
-                  })}
+                <div>
+                  <p className="text-[10px] font-medium text-slate-400 mb-1.5">Payment method</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {paymentMethods.map((m) => {
+                      const Icon = m.icon
+                      return (
+                        <button key={m.value} onClick={() => setPaymentMethod(m.value)}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                          <Icon size={14} />{m.label}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-slate-400">{cart.length} item(s)</span>
                   <span className="text-lg font-bold text-slate-800">₦{total.toLocaleString()}</span>
                 </div>
-                <button onClick={handlePayment} disabled={submitting || cart.length === 0}
+                <button onClick={handlePayment} disabled={submitting || cart.length === 0 || !paymentMethod}
                   className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-all">
                   {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
                   {submitting ? 'Processing...' : `Pay ₦${total.toLocaleString()}`}
@@ -361,19 +365,22 @@ export default function PaypointPatients() {
             </div>
             {cart.length > 0 && selectedPatient && (
               <div className="px-5 py-4 border-t bg-slate-50 rounded-b-2xl flex-shrink-0 space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  {paymentMethods.map((m) => {
-                    const Icon = m.icon
-                    return (
-                      <button key={m.value} onClick={() => setPaymentMethod(m.value)}
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                        <Icon size={14} />{m.label}
-                      </button>
-                    )
-                  })}
+                <div>
+                  <p className="text-[10px] font-medium text-slate-400 mb-1.5">Payment method</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {paymentMethods.map((m) => {
+                      const Icon = m.icon
+                      return (
+                        <button key={m.value} onClick={() => setPaymentMethod(m.value)}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                          <Icon size={14} />{m.label}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between"><span className="text-xs text-slate-400">{cart.length} items</span><span className="text-lg font-bold">₦{total.toLocaleString()}</span></div>
-                <button onClick={() => { setShowCart(false); handlePayment() }} disabled={submitting}
+                <button onClick={() => { setShowCart(false); handlePayment() }} disabled={submitting || !paymentMethod}
                   className="w-full py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50">{submitting ? 'Processing...' : `Pay ₦${total.toLocaleString()}`}</button>
               </div>
             )}

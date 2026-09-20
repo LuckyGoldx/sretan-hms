@@ -118,7 +118,7 @@ export default function DischargeSummaryModal({ admission, onClose }: DischargeS
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-2xl mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-2xl mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-rose-50/60">
           <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2">
             <ScrollText size={18} className="text-rose-500" /> Discharge Summary

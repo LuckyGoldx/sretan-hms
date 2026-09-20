@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import InsuranceReceiptSplit from './InsuranceReceiptSplit'
+import { insurancePaymentLabel } from '../utils/insuranceBilling'
 import { printPaymentReceipt } from '../utils/print'
 import {
   Search, Loader2, Plus, X, CheckCircle, Trash2, Banknote, CreditCard, Landmark, Smartphone, ArrowLeft, User, Receipt, Building2, Pill, FlaskConical, Scan, ShoppingCart, Printer, ChevronLeft, ChevronRight, Shield,
@@ -20,7 +22,7 @@ export default function BillingPage() {
   const [loaded, setLoaded] = useState(false)
   const [cart, setCart] = useState<any[]>([])
   const [submitting, setSubmitting] = useState(false)
-  const [paymentMethod, setPaymentMethod] = useState('cash')
+  const [paymentMethod, setPaymentMethod] = useState('')
   const [receipt, setReceipt] = useState<any>(null)
   const [showReceipt, setShowReceipt] = useState(false)
   const [catSearch, setCatSearch] = useState('')
@@ -138,6 +140,8 @@ export default function BillingPage() {
   const insuranceReady = !billToInsurance || (!!quote?.hasActiveCase && quote.in_window !== false && !quoteLoading)
   const billAmount = Number(quote?.insurer?.covered ?? total)
   const coPayAmount = Number(quote?.patient?.co_pay ?? 0)
+  // With insurance, a method is only needed for a co-pay; 100% cover hides it.
+  const methodRequired = !billToInsurance || coPayAmount > 0
 
   function renderInsurance() {
     return (
@@ -176,6 +180,7 @@ export default function BillingPage() {
 
   async function handlePayment() {
     if (cart.length === 0 || !selectedPatient) return
+    if (methodRequired && !paymentMethod) { alert('Select a payment method before billing.'); return }
     setSubmitting(true)
     try {
       if (billToInsurance && insuranceCase) {
@@ -200,31 +205,60 @@ export default function BillingPage() {
           created_by: currentUser?.id,
         })
 
-        // Collect the patient's co-pay now (standard point-of-service co-pay).
+        // Collect the patient's co-pay now (standard point-of-service co-pay),
+        // itemised with each line's patient share and full price.
         const coPay = Number(quote?.patient?.co_pay || 0)
+        const insuranceBilled = Number(quote?.insurer?.covered || 0)
+        let coPayReceiptNumber: string | null = null
         if (coPay > 0) {
-          await api.post('/insurance/co-pay/pay', {
+          const coRes = await api.post('/insurance/co-pay/pay', {
             patientId: selectedPatient.id,
             caseId: insuranceCase.id,
             amount: coPay,
+            insurance_amount: insuranceBilled,
+            provider_name: insuranceCase.provider_name || null,
+            case_number: insuranceCase.case_number || null,
             paymentMethod,
+            items: cart
+              .map((c: any, i: number) => {
+                const patient = Number(quote?.items?.[i]?.patient_amount || 0)
+                const insurance = Number(quote?.items?.[i]?.insurer_amount || 0)
+                return {
+                  description: c.description,
+                  amount: patient,
+                  insurance_amount: insurance,
+                  line_total: Number(quote?.items?.[i]?.line_total ?? (patient + insurance)),
+                }
+              })
+              .filter((l) => l.amount > 0 || l.insurance_amount > 0),
           })
+          coPayReceiptNumber = coRes.data?.receipt_number || null
         }
 
         setReceipt({
-          receipt_number: `INS-${insuranceCase.case_number}`,
+          receipt_number: coPayReceiptNumber || `INS-${insuranceCase.case_number}`,
           patient_name: selectedPatient.full_name,
           hospital_number: selectedPatient.hospital_number || null,
-          total_amount: Number(quote?.insurer?.covered ?? total),
-          items: cart.map((c: any, i: number) => ({
-            description: c.description,
-            total_price: quote?.items?.[i]?.insurer_amount ?? (c.quantity * c.unit_price),
-          })),
-          payment_method: `Insurance: ${insuranceCase.provider_name}` +
-            (coPay > 0 ? ` · Co-pay ₦${coPay.toLocaleString()} (${paymentMethod})` : ''),
+          total_amount: insuranceBilled + coPay,
+          insurance_amount: insuranceBilled,
+          patient_amount: coPay,
+          provider_name: insuranceCase.provider_name || null,
+          case_number: insuranceCase.case_number || null,
+          items: cart.map((c: any, i: number) => {
+            const patient = Number(quote?.items?.[i]?.patient_amount || 0)
+            const insurance = Number(quote?.items?.[i]?.insurer_amount ?? (c.quantity * c.unit_price))
+            return {
+              description: c.description,
+              total_price: Number(quote?.items?.[i]?.line_total ?? (patient + insurance)),
+              insurance_amount: insurance,
+              patient_amount: patient,
+            }
+          }),
+          payment_method: methodRequired ? paymentMethod : '',
+          payment_label: insurancePaymentLabel(insuranceBilled, coPay, methodRequired ? paymentMethod : ''),
           created_at: new Date().toISOString(),
         })
-        setShowReceipt(true); setCart([]); setBillToInsurance(false); setQuote(null)
+        setShowReceipt(true); setCart([]); setBillToInsurance(false); setQuote(null); setPaymentMethod('')
         return
       }
 
@@ -233,7 +267,7 @@ export default function BillingPage() {
         items: cart.map((c) => ({ service_type: c.service_type || 'billing', service_id: c.service_id || null, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
         payment_method: paymentMethod, notes: null, created_by: currentUser?.id,
       })
-      setReceipt(res.data); setShowReceipt(true); setCart([])
+      setReceipt(res.data); setShowReceipt(true); setCart([]); setPaymentMethod('')
     } catch (err: any) { alert(err.response?.data?.message || 'Payment failed') } finally { setSubmitting(false) }
   }
 
@@ -404,22 +438,27 @@ export default function BillingPage() {
             {cart.length > 0 && selectedPatient && (
               <div className="border-t border-slate-100 pt-4 mt-4 space-y-3">
                 {renderInsurance()}
-                <div className="grid grid-cols-2 gap-2">
-                  {paymentMethods.map((m) => {
-                    const Icon = m.icon
-                    return (
-                      <button key={m.value} onClick={() => setPaymentMethod(m.value)}
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                        <Icon size={14} />{m.label}
-                      </button>
-                    )
-                  })}
-                </div>
+                {methodRequired && (
+                  <div>
+                    <p className="text-[10px] font-medium text-slate-400 mb-1.5">{billToInsurance ? 'Co-pay payment method' : 'Payment method'}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {paymentMethods.map((m) => {
+                        const Icon = m.icon
+                        return (
+                          <button key={m.value} onClick={() => setPaymentMethod(m.value)}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                            <Icon size={14} />{m.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-slate-400">{cart.length} item(s)</span>
                   <span className="text-lg font-bold text-slate-800">₦{total.toLocaleString()}</span>
                 </div>
-                <button onClick={handlePayment} disabled={submitting || cart.length === 0 || !insuranceReady}
+                <button onClick={handlePayment} disabled={submitting || cart.length === 0 || (methodRequired && !paymentMethod) || !insuranceReady}
                   className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-white text-sm font-semibold disabled:opacity-50 transition-all ${billToInsurance ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
                   {submitting ? <Loader2 size={16} className="animate-spin" /> : billToInsurance ? <Shield size={16} /> : <CheckCircle size={16} />}
                   {submitting ? 'Processing...' : billToInsurance ? `Bill ₦${billAmount.toLocaleString()} to Insurance` : `Charge ₦${total.toLocaleString()}`}
@@ -473,19 +512,24 @@ export default function BillingPage() {
             {cart.length > 0 && selectedPatient && (
               <div className="px-5 py-4 border-t border-slate-100 bg-slate-50 rounded-b-2xl flex-shrink-0 space-y-3">
                 {renderInsurance()}
-                <div className="grid grid-cols-2 gap-2">
-                  {paymentMethods.map((m) => {
-                    const Icon = m.icon
-                    return (
-                      <button key={m.value} onClick={() => setPaymentMethod(m.value)}
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                        <Icon size={14} />{m.label}
-                      </button>
-                    )
-                  })}
-                </div>
+                {methodRequired && (
+                  <div>
+                    <p className="text-[10px] font-medium text-slate-400 mb-1.5">{billToInsurance ? 'Co-pay payment method' : 'Payment method'}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {paymentMethods.map((m) => {
+                        const Icon = m.icon
+                        return (
+                          <button key={m.value} onClick={() => setPaymentMethod(m.value)}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                            <Icon size={14} />{m.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center justify-between"><span className="text-xs text-slate-400">{cart.length} items</span><span className="text-lg font-bold">₦{total.toLocaleString()}</span></div>
-                <button onClick={() => { setShowCart(false); handlePayment() }} disabled={submitting || !insuranceReady}
+                <button onClick={() => { setShowCart(false); handlePayment() }} disabled={submitting || (methodRequired && !paymentMethod) || !insuranceReady}
                   className={`w-full py-3 rounded-xl text-white text-sm font-semibold disabled:opacity-50 ${billToInsurance ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
                   {submitting ? 'Processing...' : billToInsurance ? `Bill ₦${billAmount.toLocaleString()} to Insurance` : `Charge ₦${total.toLocaleString()}`}
                 </button>
@@ -505,8 +549,12 @@ export default function BillingPage() {
               {(receipt.items || []).map((item: any, i: number) => (
                 <div key={i} className="flex justify-between text-sm"><span>{item.description}</span><span className="font-medium">₦{(item.total_price || 0).toLocaleString()}</span></div>
               ))}
-              <div className="flex justify-between font-bold pt-3 border-t"><span>Total</span><span>₦{(receipt.total_amount || 0).toLocaleString()}</span></div>
-              <div className="flex justify-between text-xs text-slate-400 pt-2"><span>{receipt.payment_method?.toUpperCase()}</span><span>{new Date(receipt.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
+              {receipt.insurance_amount != null || receipt.insurance_provider_name ? (
+                <div className="pt-2"><InsuranceReceiptSplit receipt={receipt} /></div>
+              ) : (
+                <div className="flex justify-between font-bold pt-3 border-t"><span>Total</span><span>₦{(receipt.total_amount || 0).toLocaleString()}</span></div>
+              )}
+              <div className="flex justify-between text-xs text-slate-400 pt-2"><span>{(receipt.payment_label || receipt.payment_method || '').toUpperCase()}</span><span>{new Date(receipt.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
               <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-medium"><Printer size={14} /> Print</button>

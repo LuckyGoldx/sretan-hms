@@ -1,4 +1,4 @@
-import { HOSPITAL_NAME, HOSPITAL_ADDRESS, HOSPITAL_CONTACTS } from './print';
+import { hospitalName, hospitalAddress, hospitalContacts, hospitalLogoUrl } from './print';
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '').replace(/[&<>"']/g, (c) => {
@@ -101,9 +101,10 @@ export function printLabReport(order: any, results: any[] = []): void {
     </style></head><body>
     <div class="head">
       <div>
-        <div class="org">${HOSPITAL_NAME}</div>
-        <div class="org-sub">${HOSPITAL_ADDRESS}</div>
-        <div class="org-sub">Tel: ${HOSPITAL_CONTACTS}</div>
+        ${hospitalLogoUrl() ? `<img src="${escapeHtml(hospitalLogoUrl())}" alt="" style="max-height:52px;max-width:200px;margin-bottom:6px" />` : ''}
+        <div class="org">${escapeHtml(hospitalName())}</div>
+        <div class="org-sub">${escapeHtml(hospitalAddress())}</div>
+        <div class="org-sub">Tel: ${escapeHtml(hospitalContacts())}</div>
         <div class="org-sub">Laboratory Results Report</div>
       </div>
       <div class="meta">
@@ -138,7 +139,7 @@ export function printLabReport(order: any, results: any[] = []): void {
       <div class="sign-line">Supervisor / Approver</div>
     </div>
 
-    <p class="foot">This is a computer-generated laboratory report from ${HOSPITAL_NAME}. Results flagged <b>ABNORMAL</b> fall outside the reference range.</p>
+    <p class="foot">This is a computer-generated laboratory report from ${escapeHtml(hospitalName())}. Results flagged <b>ABNORMAL</b> fall outside the reference range.</p>
     </body></html>`);
   w.document.close();
   setTimeout(() => w.print(), 350);

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
+import InsuranceReceiptSplit from './InsuranceReceiptSplit'
 import { printPaymentReceipt } from '../utils/print'
-import { fetchActiveInsuranceCase, billToInsuranceAndCollect } from '../utils/insuranceBilling'
+import { fetchActiveInsuranceCase, fetchCoverageQuote, billToInsuranceAndCollect, insurancePaymentLabel } from '../utils/insuranceBilling'
 import {
   Search, Loader2, CheckCircle, User, Package, Pill, FlaskConical, Scan, Home, Plus, X, ShoppingCart, Banknote, CreditCard, Landmark, Smartphone, Trash2, Printer, Clock, FileText, ArrowLeft, AlertTriangle, Shield, ChevronLeft, ChevronRight,
 } from 'lucide-react'
@@ -22,6 +23,16 @@ function expandPendingItem(item: any): any[] {
     }))
   }
   return [item]
+}
+
+// A single-item pharmacy bill is effectively that one item, so its pending row
+// shows the drug name rather than the internal bill number. Multi-item bills
+// keep the bill reference and offer the "see the items" popup.
+function pendingDescription(item: any): string {
+  if (item && item.service_type === 'pharmacy_bill' && Array.isArray(item.bill_items) && item.bill_items.length === 1) {
+    return String(item.bill_items[0]?.drug_name || item.description || '')
+  }
+  return String(item?.description || '')
 }
 
 // Newest first (rows without a date go last).
@@ -48,7 +59,7 @@ export default function PaypointPending() {
   const [errorModal, setErrorModal] = useState('')
   const [billItemsModal, setBillItemsModal] = useState<{ title: string; items: any[] } | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [paymentMethod, setPaymentMethod] = useState('cash')
+  const [paymentMethod, setPaymentMethod] = useState('')
   const [receipt, setReceipt] = useState<any>(null)
   const [showReceipt, setShowReceipt] = useState(false)
   const [currentUser, setCurrentUser] = useState<any>(null)
@@ -56,6 +67,8 @@ export default function PaypointPending() {
   const [insuranceInWindow, setInsuranceInWindow] = useState(true)
   const [insuranceLoading, setInsuranceLoading] = useState(false)
   const [billToInsurance, setBillToInsurance] = useState(false)
+  const [coverageQuote, setCoverageQuote] = useState<any>(null)
+  const [quoteLoading, setQuoteLoading] = useState(false)
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
@@ -71,10 +84,30 @@ export default function PaypointPending() {
     try { const r = await api.get('/payments/all-pending-items'); setItems(r.data || []) } catch {} finally { if (!silent) setLoading(false) }
   }
 
+  // Per-line insurer/patient split for the current cart, so the cashier can
+  // tell the patient their co-pay BEFORE billing to the insurer.
+  useEffect(() => {
+    if (!billToInsurance || !insuranceInfo || cart.length === 0) { setCoverageQuote(null); setQuoteLoading(false); return }
+    let cancelled = false
+    setQuoteLoading(true)
+    fetchCoverageQuote(
+      cart[0]?.patient_id,
+      cart.map((c: any) => ({
+        service_type: c.service_type, service_id: c.service_id, coverage_item_id: c.coverage_item_id || null,
+        description: c.description, quantity: c.quantity, unit_price: c.unit_price,
+      }))
+    )
+      .then((q) => { if (!cancelled) setCoverageQuote(q) })
+      .catch(() => { if (!cancelled) setCoverageQuote(null) })
+      .finally(() => { if (!cancelled) setQuoteLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billToInsurance, insuranceInfo?.id, cart])
+
   const filtered = items.filter((i: any) => {
     if (!filter) return true
     var q = filter.toLowerCase()
-    return (i.full_name || '').toLowerCase().includes(q) || (i.description || '').toLowerCase().includes(q) || (i.hospital_number || '').toLowerCase().includes(q) || (i.phone || '').toLowerCase().includes(q)
+    return (i.full_name || '').toLowerCase().includes(q) || (i.description || '').toLowerCase().includes(q) || pendingDescription(i).toLowerCase().includes(q) || (i.hospital_number || '').toLowerCase().includes(q) || (i.phone || '').toLowerCase().includes(q)
   })
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const safePage = Math.min(page, totalPages - 1)
@@ -111,9 +144,14 @@ export default function PaypointPending() {
   function removeFromCart(i: number) { setCart((p) => p.filter((_, idx) => idx !== i)) }
   function updateQty(i: number, q: number) { setCart((p) => p.map((c, idx) => idx === i ? { ...c, quantity: Math.max(1, q) } : c)) }
   const total = cart.reduce((s, c) => s + c.unit_price * c.quantity, 0)
+  // When billing to insurance, a payment method is only needed (and shown) for
+  // a co-pay. 100% cover collects nothing, so no method is required.
+  const insuranceCoPay = billToInsurance ? Number(coverageQuote?.patient?.co_pay || 0) : 0
+  const methodRequired = !billToInsurance || insuranceCoPay > 0
 
   async function handlePayment() {
     if (cart.length === 0) return
+    if (methodRequired && !paymentMethod) { alert('Select a payment method before billing.'); return }
     setSubmitting(true)
     try {
       if (billToInsurance && insuranceInfo && cart[0]?.patient_id) {
@@ -126,20 +164,30 @@ export default function PaypointPending() {
           caseNumber: insuranceInfo.case_number,
           providerName: insuranceInfo.provider_name,
           items,
+          quote: coverageQuote,
           paymentMethod,
           createdBy: currentUser?.id,
         })
         setReceipt({
-          receipt_number: result.receipt_number,
+          receipt_number: result.co_pay_receipt_number || result.receipt_number,
           patient_name: cart[0]?.full_name || 'Patient',
           hospital_number: cart[0]?.hospital_number || null,
-          total_amount: result.insurer_total,
-          items: result.items.map((i) => ({ description: i.description, total_price: i.insurer_amount })),
-          payment_method: `Insurance: ${insuranceInfo.provider_name}` +
-            (result.patient_total > 0 ? ` · Co-pay ₦${result.patient_total.toLocaleString()} (${paymentMethod})` : ''),
+          total_amount: result.insurer_total + result.patient_total,
+          insurance_amount: result.insurer_total,
+          patient_amount: result.patient_total,
+          provider_name: insuranceInfo.provider_name || result.provider_name,
+          case_number: result.case_number || insuranceInfo.case_number || null,
+          items: result.items.map((i) => ({
+            description: i.description,
+            total_price: i.line_total,
+            insurance_amount: i.insurer_amount,
+            patient_amount: i.patient_amount,
+          })),
+          payment_method: methodRequired ? paymentMethod : '',
+          payment_label: insurancePaymentLabel(result.insurer_total, result.patient_total, methodRequired ? paymentMethod : ''),
           created_at: new Date().toISOString(),
         })
-        setShowReceipt(true); setCart([]); setBillToInsurance(false); setInsuranceInfo(null)
+        setShowReceipt(true); setCart([]); setBillToInsurance(false); setInsuranceInfo(null); setCoverageQuote(null); setPaymentMethod('')
         loadItems()
       } else {
         const res = await api.post('/payments', {
@@ -147,10 +195,41 @@ export default function PaypointPending() {
           items: cart.map((c) => ({ patient_id: c.patient_id, service_type: c.service_type, service_id: c.service_id, description: c.description, quantity: c.quantity, unit_price: c.unit_price })),
           payment_method: paymentMethod, notes: null, created_by: currentUser?.id,
         })
-        setReceipt(res.data); setShowReceipt(true); setCart([]); setBillToInsurance(false); setInsuranceInfo(null)
+        setReceipt(res.data); setShowReceipt(true); setCart([]); setBillToInsurance(false); setInsuranceInfo(null); setPaymentMethod('')
         loadItems()
       }
     } catch (err: any) { alert(err.response?.data?.message || 'Payment failed') } finally { setSubmitting(false) }
+  }
+
+  // Co-pay/insurer split for the current cart, shown before the cashier bills
+  // so the patient knows their out-of-pocket amount upfront.
+  function renderInsuranceSummary() {
+    return (
+      <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-3 space-y-1.5">
+        {quoteLoading ? (
+          <div className="flex items-center gap-2 text-xs text-emerald-700"><Loader2 size={14} className="animate-spin" /> Calculating co-pay...</div>
+        ) : coverageQuote ? (
+          <>
+            {(coverageQuote.items || []).map((q: any, i: number) => (
+              <div key={i} className="flex justify-between text-[11px] text-slate-500">
+                <span className="truncate pr-2">{q.description}</span>
+                <span className="text-amber-600 font-medium whitespace-nowrap">₦{Number(q.patient_amount || 0).toLocaleString()}</span>
+              </div>
+            ))}
+            <div className="flex justify-between text-xs pt-1.5 border-t border-emerald-100">
+              <span className="text-slate-500">Patient pays{paymentMethod ? ` (${paymentMethod})` : ''}</span>
+              <span className="font-bold text-amber-600">₦{Number(coverageQuote.patient?.co_pay || 0).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-500">Insurer billed ({coverageQuote.provider_name || insuranceInfo?.provider_name || 'HMO'})</span>
+              <span className="font-bold text-emerald-600">₦{Number(coverageQuote.insurer?.covered || 0).toLocaleString()}</span>
+            </div>
+          </>
+        ) : (
+          <p className="text-xs text-amber-600">Unable to load coverage. Please retry or bill without insurance.</p>
+        )}
+      </div>
+    )
   }
 
   const paymentMethods = [
@@ -173,7 +252,7 @@ export default function PaypointPending() {
           <input type="text" placeholder="Search patient, phone or service..." value={filter} onChange={(e) => { setFilter(e.target.value); setPage(0) }}
             className="w-full rounded-xl border border-slate-200 pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
         </div>
-        {cart.length > 0 && <button onClick={() => { setCart([]); setInsuranceInfo(null); setBillToInsurance(false) }} className="px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-500 hover:bg-slate-50">Clear Cart</button>}
+        {cart.length > 0 && <button onClick={() => { setCart([]); setInsuranceInfo(null); setBillToInsurance(false); setCoverageQuote(null); setPaymentMethod('') }} className="px-3 py-2 rounded-xl border border-slate-200 text-xs text-slate-500 hover:bg-slate-50">Clear Cart</button>}
         <span className="text-xs text-slate-400">{filtered.length} shown</span>
       </div>
 
@@ -240,14 +319,14 @@ export default function PaypointPending() {
                             </span>
                           </td>
                           <td className="px-4 py-3 text-slate-600 max-w-[360px] whitespace-normal break-words align-top">
-                            {item.service_type === 'pharmacy_bill' && Array.isArray(item.bill_items) && item.bill_items.length > 0 ? (
+                            {item.service_type === 'pharmacy_bill' && Array.isArray(item.bill_items) && item.bill_items.length > 1 ? (
                               <button onClick={() => setBillItemsModal({ title: item.description, items: item.bill_items })}
                                 title="Click to see the items"
                                 className="text-left text-primary font-medium underline decoration-dotted underline-offset-2 hover:decoration-solid">
                                 {item.description}
                               </button>
                             ) : (
-                              <span title={item.description}>{item.description}</span>
+                              <span title={item.description}>{pendingDescription(item)}</span>
                             )}
                           </td>
                           <td className="px-4 py-3 font-medium text-slate-800">{item.unit_price > 0 ? `₦${Number(item.unit_price).toLocaleString()}` : '—'}</td>
@@ -333,25 +412,31 @@ export default function PaypointPending() {
                     {billToInsurance ? `Billing to ${insuranceInfo.provider_name}` : `Bill to Insurance (${insuranceInfo.provider_name})`}
                   </button>
                 ) : null}
-                <div className="grid grid-cols-2 gap-2">
-                  {paymentMethods.map((m) => {
-                    const Icon = m.icon
-                    return (
-                      <button key={m.value} onClick={() => setPaymentMethod(m.value)}
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                        <Icon size={14} />{m.label}
-                      </button>
-                    )
-                  })}
-                </div>
+                {billToInsurance && renderInsuranceSummary()}
+                {methodRequired && (
+                  <div>
+                    <p className="text-[10px] font-medium text-slate-400 mb-1.5">{billToInsurance ? 'Co-pay payment method' : 'Payment method'}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {paymentMethods.map((m) => {
+                        const Icon = m.icon
+                        return (
+                          <button key={m.value} onClick={() => setPaymentMethod(m.value)}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                            <Icon size={14} />{m.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-slate-400">{cart.reduce((s, c) => s + c.quantity, 0)} units</span>
                   <span className="text-lg font-bold text-slate-800">₦{total.toLocaleString()}</span>
                 </div>
-                <button onClick={handlePayment} disabled={submitting || cart.length === 0}
+                <button onClick={handlePayment} disabled={submitting || cart.length === 0 || (methodRequired && !paymentMethod) || (billToInsurance && quoteLoading)}
                   className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-all">
                   {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-                  {submitting ? 'Processing...' : (billToInsurance ? `Bill ₦${total.toLocaleString()} to Insurance` : `Pay ₦${total.toLocaleString()}`)}
+                  {submitting ? 'Processing...' : (billToInsurance ? (insuranceCoPay > 0 ? `Collect ₦${insuranceCoPay.toLocaleString()} + Bill Insurance` : 'Bill to Insurance') : `Pay ₦${total.toLocaleString()}`)}
                 </button>
               </div>
             )}
@@ -418,21 +503,27 @@ export default function PaypointPending() {
                     {billToInsurance ? `Billing to ${insuranceInfo.provider_name}` : `Bill to Insurance (${insuranceInfo.provider_name})`}
                   </button>
                 ) : null}
-                <div className="grid grid-cols-2 gap-2">
-                  {paymentMethods.map((m) => {
-                    const Icon = m.icon
-                    return (
-                      <button key={m.value} onClick={() => setPaymentMethod(m.value)}
-                        className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-                        <Icon size={14} />{m.label}
-                      </button>
-                    )
-                  })}
-                </div>
+                {billToInsurance && renderInsuranceSummary()}
+                {methodRequired && (
+                  <div>
+                    <p className="text-[10px] font-medium text-slate-400 mb-1.5">{billToInsurance ? 'Co-pay payment method' : 'Payment method'}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {paymentMethods.map((m) => {
+                        const Icon = m.icon
+                        return (
+                          <button key={m.value} onClick={() => setPaymentMethod(m.value)}
+                            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium ${paymentMethod === m.value ? m.color + ' ring-2 ring-primary/20' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                            <Icon size={14} />{m.label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center justify-between"><span className="text-xs text-slate-400">{cart.reduce((s, c) => s + c.quantity, 0)} units</span><span className="text-lg font-bold">₦{total.toLocaleString()}</span></div>
-                <button onClick={() => { setShowCart(false); handlePayment() }} disabled={submitting}
+                <button onClick={() => { setShowCart(false); handlePayment() }} disabled={submitting || (methodRequired && !paymentMethod) || (billToInsurance && quoteLoading)}
                   className="w-full py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50">
-                  {submitting ? 'Processing...' : (billToInsurance ? `Bill ₦${total.toLocaleString()} to Insurance` : `Pay ₦${total.toLocaleString()}`)}
+                  {submitting ? 'Processing...' : (billToInsurance ? (insuranceCoPay > 0 ? `Collect ₦${insuranceCoPay.toLocaleString()} + Bill Insurance` : 'Bill to Insurance') : `Pay ₦${total.toLocaleString()}`)}
                 </button>
               </div>
             )}
@@ -443,7 +534,7 @@ export default function PaypointPending() {
       {/* Error Modal */}
       {errorModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setErrorModal('')}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-start gap-4 px-6 pt-6 pb-4">
               <div className="w-12 h-12 rounded-2xl bg-amber-100 flex items-center justify-center flex-shrink-0">
                 <AlertTriangle size={24} className="text-amber-600" />
@@ -455,7 +546,7 @@ export default function PaypointPending() {
               <button onClick={() => setErrorModal('')} className="p-1 rounded-lg hover:bg-slate-100 flex-shrink-0"><X size={16} className="text-slate-400" /></button>
             </div>
             <div className="px-6 pb-5 flex items-center justify-between">
-              <button onClick={() => { setCart([]); setInsuranceInfo(null); setBillToInsurance(false); setErrorModal('') }} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-rose-200 text-rose-600 text-sm font-medium hover:bg-rose-50 transition-colors">
+              <button onClick={() => { setCart([]); setInsuranceInfo(null); setBillToInsurance(false); setCoverageQuote(null); setPaymentMethod(''); setErrorModal('') }} className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-rose-200 text-rose-600 text-sm font-medium hover:bg-rose-50 transition-colors">
                 <Trash2 size={14} /> Clear Cart
               </button>
               <button onClick={() => setErrorModal('')} className="px-6 py-2.5 rounded-xl bg-primary text-white text-sm font-medium hover:scale-[1.01] transition-transform">
@@ -475,8 +566,12 @@ export default function PaypointPending() {
               {(receipt.items || []).map((item: any, i: number) => (
                 <div key={i} className="flex justify-between text-sm"><span className="text-slate-600 flex-1 truncate">{item.description}</span><span className="font-medium ml-4">₦{(item.total_price || 0).toLocaleString()}</span></div>
               ))}
-              <div className="flex justify-between font-bold pt-3 border-t"><span>Total</span><span>₦{(receipt.total_amount || 0).toLocaleString()}</span></div>
-              <div className="flex justify-between text-xs text-slate-400 pt-2"><span>{receipt.payment_method?.toUpperCase()}</span><span>{new Date(receipt.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
+              {receipt.insurance_amount != null || receipt.insurance_provider_name ? (
+                <div className="pt-2"><InsuranceReceiptSplit receipt={receipt} /></div>
+              ) : (
+                <div className="flex justify-between font-bold pt-3 border-t"><span>Total</span><span>₦{(receipt.total_amount || 0).toLocaleString()}</span></div>
+              )}
+              <div className="flex justify-between text-xs text-slate-400 pt-2"><span>{(receipt.payment_label || receipt.payment_method || '').toUpperCase()}</span><span>{new Date(receipt.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span></div>
             </div>
             <div className="px-6 py-4 bg-slate-50 rounded-b-2xl flex justify-end gap-3 flex-shrink-0">
               <button onClick={() => printPaymentReceipt(receipt)} className="flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 text-sm font-medium"><Printer size={14} /> Print</button>

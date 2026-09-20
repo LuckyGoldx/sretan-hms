@@ -311,7 +311,7 @@ export default function ExpenseTracker() {
       {/* Reject modal */}
       {rejectFor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setRejectFor(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
               <h2 className="text-sm font-semibold text-slate-800 flex items-center gap-2"><XCircle size={16} className="text-rose-500" /> Reject Expense</h2>
               <button onClick={() => setRejectFor(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={16} className="text-slate-400" /></button>

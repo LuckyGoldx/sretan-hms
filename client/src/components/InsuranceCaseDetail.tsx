@@ -203,7 +203,7 @@ export default function InsuranceCaseDetail() {
       {/* Add Service Modal */}
       {showAddService && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowAddService(false)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Add Service</h3>
               <button onClick={() => setShowAddService(false)} className="p-1 rounded-lg hover:bg-slate-100"><X className="w-5 h-5 text-slate-400" /></button>
@@ -253,7 +253,7 @@ export default function InsuranceCaseDetail() {
       {/* Remove Service Confirmation Modal (1 step) */}
       {confirmRemove && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setConfirmRemove(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="px-6 pt-6 pb-4 text-center">
               <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center mx-auto mb-3">
                 <MinusCircle className="w-7 h-7 text-amber-500" />
@@ -281,7 +281,7 @@ export default function InsuranceCaseDetail() {
       {/* Delete Service Confirmation Modal (3 steps) */}
       {confirmDelete && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setConfirmDelete(null); setDeleteStep(1) }}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="px-6 pt-6 pb-4 text-center">
               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3 ${deleteStep === 3 ? 'bg-red-50' : deleteStep === 2 ? 'bg-rose-50' : 'bg-slate-50'}`}>
                 <AlertTriangle className={`w-7 h-7 ${deleteStep === 3 ? 'text-red-500' : deleteStep === 2 ? 'text-rose-500' : 'text-slate-400'}`} />

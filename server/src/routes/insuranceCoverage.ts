@@ -90,11 +90,21 @@ router.put('/api/insurance/providers/:id/coverage', async (req: Request, res: Re
     const tenantId = getTenantId();
     const { default_coverage_pct, rules } = req.body;
 
-    // Update provider default
+    // Update provider default. Blank/null means "no default coverage" (0%),
+    // which the coverage lookup already treats as fail-closed.
     if (default_coverage_pct !== undefined) {
+      let def: number | null = null;
+      if (default_coverage_pct !== null && String(default_coverage_pct).trim() !== '') {
+        const v = Number(default_coverage_pct);
+        if (!Number.isFinite(v) || v < 0 || v > 100) {
+          res.status(400).json({ error: true, message: 'Default coverage must be between 0 and 100 (or blank for no coverage).' });
+          return;
+        }
+        def = v;
+      }
       await pool.query(
         'UPDATE insurance_providers SET default_coverage_pct = $1 WHERE id = $2',
-        [parseFloat(default_coverage_pct), providerId]
+        [def, providerId]
       );
     }
 

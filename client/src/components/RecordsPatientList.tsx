@@ -449,7 +449,7 @@ export default function RecordsPatientList() {
             {/* Delete Policy Confirmation Modal */}
             {confirmDelete && (
               <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setConfirmDelete(null); setConfirmDeleteStep(1) }}>
-                <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
                   <div className="px-6 pt-6 pb-4 text-center">
                     <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3 ${confirmDeleteStep === 2 ? 'bg-red-50' : 'bg-rose-50'}`}>
                       <AlertTriangle className={`w-7 h-7 ${confirmDeleteStep === 2 ? 'text-red-500' : 'text-rose-500'}`} />

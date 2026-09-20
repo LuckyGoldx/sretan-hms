@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { useTheme } from './hooks/useTheme'
-import { loadClinicInfo } from './utils/clinicInfo'
+import { loadClinicInfo, refreshClinicInfo } from './utils/clinicInfo'
 import {
   UserPlus,
   Stethoscope,
@@ -291,9 +291,15 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [clinic, setClinic] = useState<{ hospital_name?: string; [k: string]: any } | null>(null)
 
   useEffect(() => {
+    const apply = (d: any) => { if (d) setClinic(d) }
     loadClinicInfo()
-      .then((d) => setClinic(d as any))
+      .then(apply)
       .catch(() => {})
+    // Re-read branding when the window regains focus so hospital name / address
+    // / phone / logo changes apply to receipts and reports without a full reload.
+    const onFocus = () => { refreshClinicInfo().then(apply).catch(() => {}) }
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [])
 
   useEffect(() => {

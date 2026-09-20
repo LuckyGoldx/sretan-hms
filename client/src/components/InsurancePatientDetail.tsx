@@ -706,7 +706,7 @@ export default function InsurancePatientDetail() {
       {/* Invoice Success Modal */}
       {invoiceResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setInvoiceResult(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-3 mb-4">
               <div className="p-3 rounded-full bg-emerald-50">
                 <CheckCircle className="w-6 h-6 text-emerald-500" />
@@ -815,7 +815,7 @@ export default function InsurancePatientDetail() {
       {/* Add Service Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowAddModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold">Add Service</h3>
               <button onClick={() => setShowAddModal(false)} className="p-1 rounded-lg hover:bg-slate-100"><X className="w-5 h-5 text-slate-400" /></button>
@@ -880,7 +880,7 @@ export default function InsurancePatientDetail() {
       {/* Delete Service Confirmation Modal (2 steps) */}
       {confirmDeleteSvc && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setConfirmDeleteSvc(null); setDeleteStep(1) }}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="px-6 pt-6 pb-4 text-center">
               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3 ${deleteStep === 2 ? 'bg-red-50' : 'bg-rose-50'}`}>
                 <Trash2 className={`w-7 h-7 ${deleteStep === 2 ? 'text-red-500' : 'text-rose-500'}`} />

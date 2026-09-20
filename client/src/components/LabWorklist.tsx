@@ -3,6 +3,7 @@ import api from '../hooks/useAxios'
 import DoctorComment from './DoctorComment'
 import SpecialistTag from './SpecialistTag'
 import { printLabReport } from '../utils/labPrint'
+import { hospitalName, hospitalAddress, hospitalContacts, hospitalLogoUrl } from '../utils/print'
 import {
   FlaskConical, Search, Loader2, CheckCircle, XCircle, AlertTriangle, Plus, X, FileText, Clock, Copy, Printer, Shield
 } from 'lucide-react'
@@ -864,7 +865,7 @@ export default function LabWorklist() {
       {/* Collect Sample - Specimen Modal */}
       {specimenModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!collectingId) setSpecimenModal(null) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><FlaskConical size={18} className="text-amber-500" /> Collect Sample</h2>
               <button onClick={() => setSpecimenModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
@@ -958,7 +959,7 @@ export default function LabWorklist() {
       {/* Collect Confirmation Modal */}
       {collectModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setCollectModal(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><CheckCircle size={18} className="text-sky-500" /> Mark as Collected</h2>
               <button onClick={() => setCollectModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
@@ -989,16 +990,17 @@ export default function LabWorklist() {
       {/* Print / View Modal */}
       {printModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setPrintModal(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><FileText size={18} className="text-primary" /> Lab Result</h2>
               <button onClick={() => setPrintModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
             </div>
             <div className="p-6 space-y-4">
               <div className="text-center border-b border-slate-100 pb-3">
-                <h3 className="font-bold text-slate-800">MACHOKO MEMORIAL HOSPITAL</h3>
-                <p className="text-xs text-slate-400">Machoko Diamond Plaza, Mile 6 Road Bye-Pass, Jalingo, Taraba State</p>
-                <p className="text-xs text-slate-400">Tel: 0802900231, 07068855750, 08068862666</p>
+                {hospitalLogoUrl() && <img src={hospitalLogoUrl() as string} alt="" className="max-h-12 mx-auto mb-1" />}
+                <h3 className="font-bold text-slate-800">{hospitalName()}</h3>
+                <p className="text-xs text-slate-400">{hospitalAddress()}</p>
+                <p className="text-xs text-slate-400">Tel: {hospitalContacts()}</p>
                 <p className="text-xs text-slate-400">Laboratory Report</p>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
@@ -1048,7 +1050,7 @@ export default function LabWorklist() {
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex gap-3">
               <button onClick={() => {
                 const resultsTxt = (printModal.results || []).map((r: any) => `${r.analyte_name}: ${r.value} (Ref: ${r.reference_range_low || '?'}–${r.reference_range_high || '?'})`).join('\n')
-                const txt = `MACHOKO MEMORIAL HOSPITAL - Laboratory Report\n#${printModal.lab_number || ''}\nPatient: ${printModal.patient_name || 'Walk-in Patient'}\nTest: ${printModal.test_name}\nSpecimen: ${printModal.specimen_type || '—'}\nDate: ${new Date(printModal.created_at).toLocaleString()}\nStatus: ${printModal.status}\n${resultsTxt ? '\nResults:\n' + resultsTxt : ''}`
+                const txt = `${hospitalName()} - Laboratory Report\n#${printModal.lab_number || ''}\nPatient: ${printModal.patient_name || 'Walk-in Patient'}\nTest: ${printModal.test_name}\nSpecimen: ${printModal.specimen_type || '—'}\nDate: ${new Date(printModal.created_at).toLocaleString()}\nStatus: ${printModal.status}\n${resultsTxt ? '\nResults:\n' + resultsTxt : ''}`
                 navigator.clipboard?.writeText(txt)
               }} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-100 transition-colors">
                 <Copy size={14} /> Copy

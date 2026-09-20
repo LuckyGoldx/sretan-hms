@@ -27,7 +27,7 @@ export default function ChartModal({ patientId, maternityId, initialSection, onC
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-sm p-2 sm:p-4" onClick={onClose}>
       <div
-        className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-6xl h-[94vh] sm:h-[92vh] flex flex-col overflow-hidden"
+        className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-6xl h-[94vh] sm:h-[92vh] flex flex-col overflow-hidden max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"

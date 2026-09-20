@@ -2061,3 +2061,78 @@ Note: `wards.daily_rate` from `066` is now legacy/unused; the live source is the
 6. **P2-12 (deferred):** splitting `PatientChart.tsx` (4,708 lines) into per-tab subcomponents, memoizing list rows, and virtualizing long lists. This is a dedicated UI refactor that needs interactive testing and was intentionally not bundled with the server changes.
 
 *End of Session Summary - September 10, 2026 (Performance Remediation)*
+
+---
+
+# Session 2026-09-17 → 2026-09-20 — Pharmacy Dispensing, Insurance Co-pay Receipts, Branding & Modals
+
+**Scope:** pharmacy dispense UX (items/quantities/instructions), Paypoint pending descriptions, itemised insurance co-pay receipts with insurer/patient split, explicit payment-method enforcement, configuration-driven branding in every printable, hospital-wide modal scrolling, and phone-number correction.
+
+## 1. Pharmacy dispense UX (`PharmacyBills.tsx`, `Dispensing.tsx`, `server/src/routes/pharmacyBills.ts`)
+
+- **Per-drug instructions surfaced with the item.** `GET /api/pharmacy-bills` item JSON now includes `instructions` (from `prescriptions.instructions`, with the same drug-name fallback already used for `dosage`). Before this, the bill-level `doctor_notes` was a `string_agg` of every prescription's instructions (`"2x daily; 5daily; take 10 daily; …"`), so the drug↔instruction mapping was lost.
+- **Confirm Dispense modal scrollable** in both `/pharmacy/bills` and `/dispensing`: card is now `max-h-[90vh] flex flex-col`, body `overflow-y-auto flex-1`, header/footer pinned (`flex-shrink-0`).
+- **Single vs multiple items:** single item → shows `Instructions` (renamed from "Doctor's Note"); multiple items → shows per-line `Instructions` and hides the ambiguous aggregated note. The old "Quantified quantity" box no longer shows an item count as if it were a quantity.
+- **Dispensing bill cards:** item description shows first two drug names capped at ~50 chars with a **see more** link that opens a modal listing all items (mirrors the `/pharmacy/bills` Items column). Patient name is now bold/dark; multi-item bills show a dedicated `Prescribed by:` line, and the confirm modal uses `Prescribed by:` (stethoscope icon) instead of `Doctor:`.
+
+## 2. Paypoint pending descriptions (`PaypointPending.tsx`)
+
+- A **single-item pharmacy bill** now shows the drug name in the Description column instead of `Pharmacy Bill PHB-xxxxx`; multi-item bills keep the bill reference as the clickable "see the items" popup. Search also matches the displayed drug name.
+
+## 3. Insurance co-pay receipts — itemised insurer/patient split
+
+- **Migration `database/110_insurance_payment_split.sql`** (applied + recorded):
+  - `payments`: `insurance_case_id`, `insurance_provider_id`, `insurance_provider_name`, `insurance_case_number`, `insurance_amount` (+ index).
+  - `payment_items`: `insurance_amount`, `line_total`.
+  - **Cash accounting unchanged:** `payments.total_amount` remains the patient portion actually collected; the insurer figure is an informational claim and is never added to total_amount.
+- **`POST /api/insurance/co-pay/pay`** (`server/src/routes/insuranceCases.ts`) now joins the case/provider, snapshots the provider name + case number, accepts per-line `{ description, amount, insurance_amount, line_total }`, writes one `payment_items` row per line with the full price split, and keeps `Co-pay for case <n>` in `notes`. Legacy callers with no breakdown still work.
+- **Client sends the split:** `insuranceBilling.ts` (`billToInsuranceAndCollect`), `BillingPage.tsx`, `PaypointCheckout.tsx`. `InsuranceBillResult` gained `line_total` and `co_pay_receipt_number`.
+- **Receipts UI:** new shared `client/src/components/InsuranceReceiptSplit.tsx` ("Billed to <provider> · <case>", Insurance paid, Patient paid (method), Total billed) wired into all five Payment Successful modals (`PaypointPending`, `PaypointDashboard`, `BillingPage`, `PaypointCheckout`, `WalkInSales`). `/receipts` list shows an insurance provider badge; detail shows the split block and each line's actual amount. `printPaymentReceipt` prints provider, case and split.
+- Insurance modals now use the real `COP-…` receipt number instead of a synthesized `INS-…`.
+
+## 4. Co-pay preview and payment-method enforcement
+
+- **Co-pay is shown before billing.** `PaypointPending`, `PaypointDashboard`, `BillingPage`, `PaypointCheckout` use the coverage quote; `WalkInSales` gained a quote fetch it previously lacked. The cart shows a per-line "patient pays" breakdown, `Patient pays ₦X` / `Insurer billed ₦Y`, and the button reads `Collect ₦X + Bill Insurance`.
+- **Method selector rules:** with insurance and a **₦0 co-pay the method buttons are hidden and not required**; with a co-pay they are shown (labelled "Co-pay payment method") and required. Self-pay always requires a selection. Implemented via `methodRequired = !billToInsurance || coPay > 0` on all five screens plus `PaypointPatients`.
+- Payment method no longer defaults to `cash` anywhere — it must be explicitly chosen before a receipt/bill is produced.
+- New `insurancePaymentLabel()`: `INSURANCE` (100% covered), `INSURANCE + CASH/POS/…` (co-pay), or the method (self-pay). Modals, `/receipts` list + detail, and `printPaymentReceipt` use it; `payment_method` stays raw for accounting.
+- When the co-pay is ₦0 the button reads just **"Bill to Insurance"**.
+
+## 5. Configuration-driven branding in all printables
+
+**Root cause found:** lab reports (`labPrint.ts`), referral slips (`printReferral.ts`) and insurance invoices (`InsuranceInvoices.tsx`) imported the *static* `HOSPITAL_NAME`/`ADDRESS`/`CONTACTS` constants, so configured values never appeared. `getClinicInfo()` is also cached at app start, and a hard-coded contacts fallback printed a stale number whenever the cache was blank.
+
+- `print.ts`: exported dynamic `hospitalName()`, `hospitalAddress()`, `hospitalContacts()`, `hospitalLogoUrl()`. Receipt (72mm) and A4 report headers now include the **configured logo**.
+- **Contacts have no fallback** — `hospitalContacts()` returns the configured value or blank; the `HOSPITAL_CONTACTS` constant was deleted. (Verified: the numbers appear nowhere in source or in `client/dist`.)
+- `labPrint.ts`, `printReferral.ts`, `InsuranceInvoices.tsx`, `LabWorklist.tsx`, `LabHistory.tsx` now use the configured getters (and logo).
+- `App.tsx` re-reads branding on **window focus** (`refreshClinicInfo`), so a settings change applies to subsequent prints without a full reload.
+- `SuperAdminTenantDetail.tsx` Settings tab: phone accepts comma-separated numbers with helper text; saving calls `refreshClinicInfo()`; logo upload/save call `refreshLogoPreview()` so the preview updates.
+- `vite.config.ts`: added an `/assets` proxy → `:3000` (dev was serving Vite's own `/assets`, so the uploaded logo preview 404'd).
+- **Login page** no longer shows address or phone (logo + hospital name + tagline only).
+- Active hospital (**MACHOKO MEMORIAL HOSPITAL**) phone set to `08029002321, 07068855750, 08068862666` in `tenant_configurations` and the active `clinic_profile.json`.
+
+## 6. Hospital-wide modal scrolling
+
+- Codemod added `max-h-[90vh] overflow-y-auto` to **90 modal cards across 56 files** that had no height cap (bg-white + rounded + `max-w-*` inside a `fixed inset-0` overlay). Cards that already capped their height (pinned header/footer with inner scroll) were left untouched to avoid double scrollbars. Named examples verified: Add Staff (`StaffManagement.tsx:736`) and Delete Hospital (`SuperAdminTenantDetail.tsx:402`).
+- Re-scanned for multi-line/template-literal class strings: only 7 candidates, all non-modal page cards.
+
+## 7. Verification performed
+
+- `tsc --noEmit` clean in **server** and **client** after each phase; `npm run build` succeeds.
+- Insurance co-pay live E2E on a temp server (`:3100`), with the test payment deleted and `co_pay_collected` restored: `GET /api/payments/:id` returned `total_amount` (patient), `insurance_amount`, provider, case, and per-line `{ patient, insurance, line_total }`.
+- Coverage blank/default test on a provider, preserving and restoring existing rules: `null`/`""` → stored `NULL`; `75` → `75.00`; `150` → `400`; `0` → `0.00`.
+- Branding propagation: `PUT /api/superadmin/tenants/:id` for the **active** tenant updated both `tenant_configurations` and the active `clinic_profile.json`, and `/api/setup/status` reflected it.
+- Logo upload E2E: upload → file written → `logo_url = /assets/logo.png` → `GET /assets/logo.png` 200; file removed afterwards (none existed before).
+- Payment-label matrix checked for fully-insured / co-pay / self-pay.
+
+## 8. Caveats / notes for the next developer
+
+1. **Restart the API server** (`npx tsx src/server.ts`) to load backend changes from this session (`insuranceCases.ts`, `insuranceCoverage.ts`, `pharmacyBills.ts`) and migration 110.
+2. **Historical co-pay receipts** created before migration 110 have no case/provider/insurer split; only new co-pays itemise. Backfill was intentionally not attempted (per-line mapping is approximate).
+3. **Logo is a single deployment asset** (`C:/hms/assets/logo.png`) — it applies to the active hospital only; per-tenant logo storage is not implemented.
+4. **Which hospital is active matters:** `applyTenantToProfile` writes `clinic_profile.json` only for the active tenant. Printables always show the active hospital's configured details.
+5. `HOSPITAL_NAME`/`HOSPITAL_ADDRESS` fallbacks still exist (contacts deliberately have none).
+6. Fully-covered bills (patient pays ₦0) create no `payments` row, so they have no `/receipts` entry.
+7. The modal codemod rewrote files with LF endings; git normalizes to CRLF on commit, so the real diff is one className per card.
+
+*End of Session Summary - September 20, 2026 (Pharmacy, Co-pay Receipts, Branding, Modals)*

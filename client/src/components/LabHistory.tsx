@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import api from '../hooks/useAxios'
 import SpecialistTag from './SpecialistTag'
+import { hospitalName, hospitalAddress, hospitalContacts, hospitalLogoUrl } from '../utils/print'
 import {
   FlaskConical, Search, Loader2, AlertTriangle, X, FileText, Clock, Calendar
 } from 'lucide-react'
@@ -214,9 +215,10 @@ export default function LabHistory() {
             </div>
             <div className="p-6 space-y-4 overflow-y-auto">
               <div className="text-center border-b border-slate-100 pb-3">
-                <h3 className="font-bold text-slate-800">MACHOKO MEMORIAL HOSPITAL</h3>
-                <p className="text-xs text-slate-400">Machoko Diamond Plaza, Mile 6 Road Bye-Pass, Jalingo, Taraba State</p>
-                <p className="text-xs text-slate-400">Tel: 0802900231, 07068855750, 08068862666</p>
+                {hospitalLogoUrl() && <img src={hospitalLogoUrl() as string} alt="" className="max-h-12 mx-auto mb-1" />}
+                <h3 className="font-bold text-slate-800">{hospitalName()}</h3>
+                <p className="text-xs text-slate-400">{hospitalAddress()}</p>
+                <p className="text-xs text-slate-400">Tel: {hospitalContacts()}</p>
                 <p className="text-xs text-slate-400">Laboratory Report</p>
               </div>
 
@@ -278,7 +280,7 @@ export default function LabHistory() {
                 onClick={() => {
                   const txt = viewDetails.map((d: any) => `${d.analyte_name}: ${d.value} (Ref: ${d.reference_range_low || '?'}–${d.reference_range_high || '?'})`).join('\n')
                   navigator.clipboard?.writeText(
-                    `MACHOKO MEMORIAL HOSPITAL - Laboratory Report\nPatient: ${viewModal.patient_name}\nTest: ${viewModal.test_name}\nApproved by: ${viewModal.approved_by || '—'}\nDate: ${viewModal.approved_at ? new Date(viewModal.approved_at).toLocaleString() : '—'}\n\nResults:\n${txt}`
+                    `${hospitalName()} - Laboratory Report\nPatient: ${viewModal.patient_name}\nTest: ${viewModal.test_name}\nApproved by: ${viewModal.approved_by || '—'}\nDate: ${viewModal.approved_at ? new Date(viewModal.approved_at).toLocaleString() : '—'}\n\nResults:\n${txt}`
                   )
                 }}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors"

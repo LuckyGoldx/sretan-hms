@@ -733,7 +733,7 @@ export default function StaffManagement() {
         >
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
           <div
-            className="relative bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-lg animate-[fadeIn_0.2s_ease-out]"
+            className="relative bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-lg animate-[fadeIn_0.2s_ease-out] max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Modal Header */}

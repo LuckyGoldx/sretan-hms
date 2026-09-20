@@ -1,5 +1,5 @@
 // Referral slip print helper.
-import { HOSPITAL_NAME, HOSPITAL_ADDRESS, HOSPITAL_CONTACTS, escapeHtml } from './print'
+import { hospitalName, hospitalAddress, hospitalContacts, hospitalLogoUrl, escapeHtml } from './print'
 
 export function printReferralSlip(ref: any) {
   const w = window.open('', '_blank', 'width=420,height=640')
@@ -28,9 +28,10 @@ export function printReferralSlip(ref: any) {
 </head>
 <body>
   <div class="center">
-    <h2>${escapeHtml(HOSPITAL_NAME)}</h2>
-    <div class="muted">${escapeHtml(HOSPITAL_ADDRESS)}</div>
-    <div class="muted">${escapeHtml(HOSPITAL_CONTACTS)}</div>
+    ${hospitalLogoUrl() ? `<img src="${escapeHtml(hospitalLogoUrl())}" alt="" style="max-height:48px;max-width:180px;margin-bottom:4px" />` : ''}
+    <h2>${escapeHtml(hospitalName())}</h2>
+    <div class="muted">${escapeHtml(hospitalAddress())}</div>
+    <div class="muted">${escapeHtml(hospitalContacts())}</div>
   </div>
   <div class="dashed"></div>
   <div class="center"><h2>REFERRAL SLIP</h2><div class="muted">${escapeHtml(ref?.referral_number || '')}</div></div>

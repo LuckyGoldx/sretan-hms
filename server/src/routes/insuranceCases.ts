@@ -659,44 +659,92 @@ router.get('/api/insurance/co-pay/:patientId', async (req: Request, res: Respons
 
 router.post('/api/insurance/co-pay/pay', async (req: Request, res: Response) => {
   try {
-    const { patientId, caseId, amount, paymentMethod } = req.body;
+    const { patientId, caseId, amount, paymentMethod, items } = req.body;
     if (!patientId || !caseId || !amount) {
       res.status(400).json({ error: true, message: 'Patient, case, and amount are required' });
       return;
     }
 
-    // Get the case
-    const caseResult = await pool.query('SELECT * FROM insurance_cases WHERE id = $1', [caseId]);
+    // Get the case + its provider (the provider name is snapshotted onto the
+    // receipt so it stays readable even if the provider is later renamed).
+    const caseResult = await pool.query(
+      `SELECT c.*, pr.name AS provider_name
+         FROM insurance_cases c
+         LEFT JOIN insurance_providers pr ON pr.id = c.provider_id
+        WHERE c.id = $1`,
+      [caseId]
+    );
     if (caseResult.rows.length === 0) { res.status(404).json({ error: true, message: 'Case not found' }); return; }
 
-    // Create payment record
+    // Per-line breakdown supplied by the caller's coverage quote / bill split:
+    // the patient share, the insurer share and the line's full price. It is
+    // authoritative so the receipt itemises what the item cost and who paid it.
+    const round2 = (n: any) => Math.round((Number(n) || 0) * 100) / 100;
+    const lines = (Array.isArray(items) ? items : [])
+      .map((it: any) => {
+        const patient = round2(it?.amount ?? it?.patient_amount);
+        const insurance = round2(it?.insurance_amount ?? it?.insurer_amount);
+        const rawTotal = it?.line_total ?? it?.total;
+        const lineTotal = rawTotal !== undefined && rawTotal !== null ? round2(rawTotal) : round2(patient + insurance);
+        return {
+          description: String(it?.description || it?.item_name || 'Co-pay item').trim() || 'Co-pay item',
+          amount: patient,
+          insurance,
+          line_total: lineTotal > 0 ? lineTotal : round2(patient + insurance),
+        };
+      })
+      .filter((l: any) => l.amount > 0 || l.insurance > 0);
+    const collected = lines.length > 0
+      ? round2(lines.reduce((s: number, l: any) => s + l.amount, 0))
+      : round2(amount);
+    const insuredTotal = lines.length > 0
+      ? round2(lines.reduce((s: number, l: any) => s + l.insurance, 0))
+      : 0;
+
+    // Create payment record. payments.total_amount stays the patient portion
+    // actually collected; the insurer figure is informational (a claim), so it
+    // is stored separately and never added to the collected cash total. The case
+    // reference is also kept in notes for legacy readers.
     const paymentId = crypto.randomUUID();
     const receiptNumber = `COP-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(Math.floor(Math.random() * 9999)).padStart(4, '0')}`;
     const payTenantId = caseResult.rows[0].tenant_id;
+    const caseNumber = caseResult.rows[0].case_number;
+    const providerName = caseResult.rows[0].provider_name || null;
+    const coPayNote = `Co-pay for case ${caseNumber}`;
 
     await pool.query(
-      `INSERT INTO payments (id, tenant_id, patient_id, total_amount, payment_method, receipt_number, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'paid')`,
-      [paymentId, payTenantId, patientId, amount, paymentMethod || 'cash', receiptNumber]
+      `INSERT INTO payments (id, tenant_id, patient_id, total_amount, payment_method, receipt_number, status, notes,
+                             insurance_case_id, insurance_provider_id, insurance_provider_name, insurance_case_number, insurance_amount)
+       VALUES ($1, $2, $3, $4, $5, $6, 'paid', $7, $8, $9, $10, $11, $12)`,
+      [paymentId, payTenantId, patientId, collected, paymentMethod || 'cash', receiptNumber, coPayNote,
+       caseId, caseResult.rows[0].provider_id || null, providerName, caseNumber, insuredTotal]
     );
 
-    const coPayDesc = `Co-pay for case ${caseResult.rows[0].case_number}`;
-    await pool.query(
-      `INSERT INTO payment_items (tenant_id, payment_id, service_type, description, item_name, quantity, unit_price, total_price)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [payTenantId, paymentId, 'insurance_co_pay', coPayDesc, coPayDesc, 1, amount, amount]
-    );
+    const insertItem = `INSERT INTO payment_items (tenant_id, payment_id, service_type, description, item_name, quantity, unit_price, total_price, insurance_amount, line_total)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`;
+    if (lines.length > 0) {
+      for (const l of lines) {
+        await pool.query(insertItem, [payTenantId, paymentId, 'insurance_co_pay', l.description, l.description, 1, l.amount, l.amount, l.insurance, l.line_total]);
+      }
+    } else {
+      // Legacy callers with no breakdown keep the single descriptive line.
+      await pool.query(insertItem, [payTenantId, paymentId, 'insurance_co_pay', coPayNote, coPayNote, 1, collected, collected, 0, collected]);
+    }
 
     // Update case co_pay_collected
     await pool.query(
       'UPDATE insurance_cases SET co_pay_collected = COALESCE(co_pay_collected,0) + $1 WHERE id = $2',
-      [amount, caseId]
+      [collected, caseId]
     );
 
     res.status(201).json({
       payment_id: paymentId,
       receipt_number: receiptNumber,
-      amount,
+      amount: collected,
+      insurance_amount: insuredTotal,
+      provider_name: providerName,
+      case_number: caseNumber,
+      items: lines,
       message: 'Co-pay collected successfully',
     });
   } catch (err: any) {

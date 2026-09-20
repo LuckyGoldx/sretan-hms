@@ -4,8 +4,9 @@ import {
   ShoppingCart, Search, Loader2, Plus, X, CheckCircle, Trash2, Package, User, CreditCard, Building2, Wallet, Minus, ArrowLeft, Printer, AlertTriangle, Clock, FileDown, Undo2, Percent, Eye, Users, Shield,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import InsuranceReceiptSplit from './InsuranceReceiptSplit'
 import { buildReceiptHtml, generateReceiptNumber, openPrint, receiptDate, receiptTime } from '../utils/print'
-import { fetchActiveInsuranceCase, billToInsuranceAndCollect } from '../utils/insuranceBilling'
+import { fetchActiveInsuranceCase, fetchCoverageQuote, billToInsuranceAndCollect, insurancePaymentLabel } from '../utils/insuranceBilling'
 
 const PAGE_SIZE = 30
 const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
@@ -59,6 +60,11 @@ interface Receipt {
   discount: number
   date: string
   co_pay_amount?: number
+  patient_amount?: number
+  insurance_amount?: number
+  provider_name?: string | null
+  case_number?: string | null
+  payment_method?: string
 }
 
 function isSameDay(iso: string): boolean {
@@ -82,7 +88,7 @@ export default function WalkInSales() {
   const [loading, setLoading] = useState(true)
   const [cart, setCart] = useState<CartItem[]>([])
   const [customerName, setCustomerName] = useState('')
-  const [paymentMethod, setPaymentMethod] = useState('cash')
+  const [paymentMethod, setPaymentMethod] = useState('')
   const [drugSearch, setDrugSearch] = useState('')
   const [discountState, setDiscountState] = useState(0)
   const [showDiscount, setShowDiscount] = useState(false)
@@ -102,6 +108,8 @@ export default function WalkInSales() {
   const [insuranceInWindow, setInsuranceInWindow] = useState(true)
   const [insuranceLoading, setInsuranceLoading] = useState(false)
   const [billToInsurance, setBillToInsurance] = useState(false)
+  const [coverageQuote, setCoverageQuote] = useState<any>(null)
+  const [quoteLoading, setQuoteLoading] = useState(false)
   const printWinRef = useRef<Window | null>(null)
 
   function closeReceipt() {
@@ -150,6 +158,25 @@ export default function WalkInSales() {
     } catch { setInsuranceInfo(null); setInsuranceInWindow(true); setBillToInsurance(false) } finally { setInsuranceLoading(false) }
   }
 
+  // Co-pay preview for insurance sales, so the method selector is only shown
+  // (and required) when the patient actually owes a co-pay.
+  useEffect(() => {
+    if (!billToInsurance || !insuranceInfo || !selectedPatient || cart.length === 0) { setCoverageQuote(null); setQuoteLoading(false); return }
+    let cancelled = false
+    setQuoteLoading(true)
+    const items = cart.map((i) => ({
+      service_type: 'pharmacy', service_id: null, coverage_item_id: null,
+      description: `${i.drug_name}${i.unit && i.unit !== (i.base_unit || 'unit') ? ` (${i.quantity} ${i.unit})` : ''}`,
+      quantity: i.quantity, unit_price: i.unit_price,
+    }))
+    fetchCoverageQuote(selectedPatient.id, items)
+      .then((q) => { if (!cancelled) setCoverageQuote(q) })
+      .catch(() => { if (!cancelled) setCoverageQuote(null) })
+      .finally(() => { if (!cancelled) setQuoteLoading(false) })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [billToInsurance, insuranceInfo?.id, selectedPatient?.id, cart])
+
   const filteredDrugs = inventory.filter((i: any) =>
     i.drug_name.toLowerCase().includes(drugSearch.toLowerCase())
   )
@@ -166,6 +193,10 @@ export default function WalkInSales() {
   const discountApplied = showDiscount ? Math.min(Math.max(discountState || 0, 0), cartSubtotal) : 0
   const cartTotal = cartSubtotal - discountApplied
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+  // Insurance with no co-pay collects nothing, so the method selector is hidden
+  // and not required; a co-pay does require a method.
+  const insuranceCoPay = billToInsurance ? Number(coverageQuote?.patient?.co_pay || 0) : 0
+  const methodRequired = !billToInsurance || insuranceCoPay > 0
 
   const filteredSales = tabSales.filter((s) => {
     if (!salesSearch) return true
@@ -258,10 +289,11 @@ export default function WalkInSales() {
     setCart((prev) => prev.map((c) => (c.drug_name === name && c.unit === unit) ? { ...c, unit_price: price } : c))
   }
 
-  function clearCart() { setCart([]); setCustomerName(''); setPaymentMethod('cash'); setError(''); setDiscountState(0); setShowDiscount(false); setSelectedPatient(null); setPatientSearch(''); setPatientResults([]); setInsuranceInfo(null); setBillToInsurance(false) }
+  function clearCart() { setCart([]); setCustomerName(''); setPaymentMethod(''); setError(''); setDiscountState(0); setShowDiscount(false); setSelectedPatient(null); setPatientSearch(''); setPatientResults([]); setInsuranceInfo(null); setBillToInsurance(false); setCoverageQuote(null) }
 
   async function handleCheckout() {
     if (cart.length === 0) { setError('Cart is empty'); return }
+    if (methodRequired && !paymentMethod) { setError('Select a payment method before completing the sale.'); return }
     setSubmitting(true); setError('')
     const soldItems = [...cart]
     const receiptCustomer = selectedPatient ? selectedPatient.full_name : customerName.trim()
@@ -310,9 +342,14 @@ export default function WalkInSales() {
         setReceipt({
           items: soldItems,
           customer: receiptCustomer || 'Walk-in Customer',
-          payment: `${receiptPayment}${result.patient_total > 0 ? ` · Co-pay ₦${result.patient_total.toLocaleString()}` : ''}`,
-          total: result.insurer_total,
+          payment: insurancePaymentLabel(result.insurer_total, result.patient_total, paymentMethod),
+          total: result.insurer_total + result.patient_total,
+          insurance_amount: result.insurer_total,
+          patient_amount: result.patient_total,
           co_pay_amount: result.patient_total,
+          provider_name: insuranceInfo.provider_name || result.provider_name || null,
+          case_number: result.case_number || insuranceInfo.case_number || null,
+          payment_method: methodRequired ? paymentMethod : '',
           discount: discountApplied,
           date: new Date().toISOString(),
         })
@@ -394,6 +431,7 @@ export default function WalkInSales() {
     if (!receipt) return
     if (printWinRef.current) { try { printWinRef.current.close() } catch {} }
     var d = new Date(receipt.date)
+    var money = (n: number) => `₦${(Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
     var html = buildReceiptHtml({
       receiptNumber: generateReceiptNumber('MMH'),
       date: receiptDate(d),
@@ -409,6 +447,9 @@ export default function WalkInSales() {
       })),
       discount: receipt.discount,
       total: receipt.total,
+      notes: receipt.insurance_amount != null
+        ? `Billed to ${receipt.provider_name || 'insurance'}${receipt.case_number ? ' · ' + receipt.case_number : ''} — Insurance paid ${money(receipt.insurance_amount)} · Patient paid ${money(receipt.patient_amount ?? 0)} · Total billed ${money(receipt.total)}`
+        : undefined,
     })
     var win = openPrint(html, 300, 560)
     if (!win) { setPrintNotice('Print window was blocked — please allow pop-ups for this site, then try again.'); return }
@@ -547,24 +588,28 @@ export default function WalkInSales() {
             </button>
           ) : null
         )}
-        {billToInsurance ? (
+        {billToInsurance && (
           <div className="flex items-center justify-between gap-2 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-xs">
             <span className="font-semibold text-emerald-700 flex items-center gap-2"><Building2 size={14} /> Insurance</span>
             <span className="font-bold text-emerald-700 truncate">{insuranceInfo?.provider_name}</span>
           </div>
-        ) : (
-          <div className="grid grid-cols-3 gap-2">
-            {(['cash', 'card', 'transfer'] as const).map((m) => {
-              const Icon = paymentIcons[m]
-              return (
-                <button key={m} onClick={() => setPaymentMethod(m)}
-                  className={`flex flex-col items-center gap-1 px-2 py-2 rounded-lg border text-[11px] font-medium transition-all ${
-                    paymentMethod === m ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}>
-                  <Icon size={16} /> {m.charAt(0).toUpperCase() + m.slice(1)}
-                </button>
-              )
-            })}
+        )}
+        {methodRequired && (
+          <div>
+            <p className="text-[10px] font-medium text-slate-400 mb-1.5">{billToInsurance ? 'Co-pay payment method' : 'Payment method'}</p>
+            <div className="grid grid-cols-3 gap-2">
+              {(['cash', 'card', 'transfer'] as const).map((m) => {
+                const Icon = paymentIcons[m]
+                return (
+                  <button key={m} onClick={() => setPaymentMethod(m)}
+                    className={`flex flex-col items-center gap-1 px-2 py-2 rounded-lg border text-[11px] font-medium transition-all ${
+                      paymentMethod === m ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}>
+                    <Icon size={16} /> {m.charAt(0).toUpperCase() + m.slice(1)}
+                  </button>
+                )
+              })}
+            </div>
           </div>
         )}
         <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none">
@@ -592,7 +637,7 @@ export default function WalkInSales() {
             <p className="text-xl font-bold text-slate-800">₦{cartTotal.toFixed(2)}</p>
           </div>
         </div>
-        <button onClick={handleCheckout} disabled={submitting || cart.length === 0}
+        <button onClick={handleCheckout} disabled={submitting || cart.length === 0 || (methodRequired && !paymentMethod) || (billToInsurance && quoteLoading)}
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 hover:scale-[1.01] transition-all disabled:opacity-50">
           {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
           {submitting ? 'Processing...' : (billToInsurance ? `Bill ₦${cartTotal.toFixed(2)} to Insurance` : `Complete Sale — ₦${cartTotal.toFixed(2)}`)}
@@ -897,24 +942,30 @@ export default function WalkInSales() {
                   </div>
                 ))}
               </div>
-              {receipt.discount > 0 && (
-                <div className="flex items-center justify-between text-sm text-rose-600">
-                  <span>Discount</span><span>−₦{receipt.discount.toFixed(2)}</span>
-                </div>
+              {receipt.insurance_amount != null ? (
+                <InsuranceReceiptSplit receipt={receipt} />
+              ) : (
+                <>
+                  {receipt.discount > 0 && (
+                    <div className="flex items-center justify-between text-sm text-rose-600">
+                      <span>Discount</span><span>−₦{receipt.discount.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-100">
+                    <div>
+                      <p className="text-xs text-slate-400">
+                        {receipt.items.reduce((s, i) => s + i.quantity, 0)} units
+                        <span className="mx-1">·</span>
+                        {receipt.payment}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-slate-400">Total</p>
+                      <p className="text-xl font-bold text-slate-800">₦{receipt.total.toFixed(2)}</p>
+                    </div>
+                  </div>
+                </>
               )}
-              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                <div>
-                  <p className="text-xs text-slate-400">
-                    {receipt.items.reduce((s, i) => s + i.quantity, 0)} units
-                    <span className="mx-1">·</span>
-                    {receipt.payment}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-slate-400">Total</p>
-                  <p className="text-xl font-bold text-slate-800">₦{receipt.total.toFixed(2)}</p>
-                </div>
-              </div>
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex items-center justify-between gap-3 flex-shrink-0">
               <button onClick={closeReceipt}
@@ -933,7 +984,7 @@ export default function WalkInSales() {
       {/* Sale Details Modal */}
       {viewSale && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setViewSale(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-semibold text-slate-800 flex items-center gap-2"><ShoppingCart size={18} className="text-primary" /> Sale Details</h3>
               <button onClick={() => setViewSale(null)} className="p-1 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>

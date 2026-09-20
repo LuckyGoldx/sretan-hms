@@ -237,7 +237,13 @@ router.get('/api/pharmacy-bills', async (req: Request, res: Response) => {
                                              JOIN encounters e6 ON e6.id = pr6.encounter_id
                                             WHERE e6.patient_id = b.patient_id
                                               AND lower(trim(pr6.drug_name)) = lower(trim(i.drug_name))
-                                            ORDER BY pr6.created_at DESC LIMIT 1)))
+                                            ORDER BY pr6.created_at DESC LIMIT 1)),
+                              'instructions', COALESCE(pr.instructions,
+                                          (SELECT pr7.instructions FROM prescriptions pr7
+                                             JOIN encounters e7 ON e7.id = pr7.encounter_id
+                                            WHERE e7.patient_id = b.patient_id
+                                              AND lower(trim(pr7.drug_name)) = lower(trim(i.drug_name))
+                                            ORDER BY pr7.created_at DESC LIMIT 1)))
                             ORDER BY i.created_at)
                        FROM pharmacy_bill_items i
                        LEFT JOIN prescriptions pr ON pr.id = i.prescription_id

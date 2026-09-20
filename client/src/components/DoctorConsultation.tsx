@@ -1356,7 +1356,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
       {/* Prescription Detail Modal */}
       {rxDetailModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setRxDetailModal(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
               <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2"><Pill className="w-4 h-4 text-primary" /> Prescription Details</h3>
               <button onClick={() => setRxDetailModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X className="w-4 h-4 text-slate-400" /></button>
@@ -1493,7 +1493,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
       {/* Order Modals (lab / radiology) */}
       {activeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!labSubmitting && !radiologySubmitting) setActiveModal(null) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                 {activeModal === 'lab' ? <><Microscope className="w-4 h-4 text-primary" /> Order Lab Test</> : <><Scan className="w-4 h-4 text-primary" /> Order Radiology</>}
@@ -1783,7 +1783,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
       {/* ICD-11 Confirmation Modal */}
       {icdConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setIcdConfirmModal(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="bg-gradient-to-r from-blue-500 to-primary px-6 py-4">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center"><Search size={16} className="text-white" /></div>
@@ -1830,7 +1830,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
       {/* ANC Visit Confirmation Modal */}
       {showAncModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAncModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-4">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center"><Baby size={16} className="text-white" /></div>
@@ -1928,7 +1928,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
 
       {showStartConfirm && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!visitBusy) setShowStartConfirm(false) }}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="bg-gradient-to-r from-emerald-600 to-teal-600 px-6 py-5 text-white">
               <div className="flex items-center gap-3">
                 <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur flex items-center justify-center text-lg font-bold">
@@ -1976,7 +1976,7 @@ export default function DoctorConsultation({ referral }: { referral?: any }) {
 
       {activeConsultBlock && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setActiveConsultBlock(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-6 py-5 text-white">
               <div className="flex items-center gap-3">
                 <div className="w-11 h-11 rounded-full bg-white/20 backdrop-blur flex items-center justify-center"><AlertTriangle size={20} /></div>

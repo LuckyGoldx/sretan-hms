@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import api from '../hooks/superadminApi'
 import { THEMES, getThemeDef } from '../utils/themes'
+import { refreshClinicInfo } from '../utils/clinicInfo'
 import SchemaSqlViewer from './SchemaSqlViewer'
 import SchemaUpdateBanner from './SchemaUpdateBanner'
 
@@ -398,7 +399,7 @@ export default function SuperAdminTenantDetail() {
 
       {showDeleteConfirm && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => { if (!deleting) setShowDeleteConfirm(false) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-lg font-semibold text-slate-800">
                 {deleteStep === 1 && 'Delete Hospital — Warning'}
@@ -1101,7 +1102,7 @@ function BackupsTab({ tenantId }: { tenantId: string }) {
 
       {confirmAction && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => { if (!busyAction) setConfirmAction(null) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-lg font-semibold text-slate-800">Restore Hospital Backup</h2>
               <button onClick={() => setConfirmAction(null)} className="p-1 rounded-lg hover:bg-slate-100"><X className="w-5 h-5 text-slate-400" /></button>
@@ -1195,11 +1196,17 @@ function SettingsTab({ tenant, onSaved }: { tenant: Tenant; onSaved: () => void 
     api.get('/superadmin/settings')
       .then((res) => { setSavedMasterCode(res.data.master_code || ''); setMasterCodeInput(res.data.master_code || '') })
       .catch(() => {})
-    fetch('/api/setup/status')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setLogoUrl(d?.logo_url || null))
-      .catch(() => {})
+    refreshLogoPreview()
   }, [])
+
+  // Re-read the served logo so the preview reflects the file on disk (after an
+  // upload, and after saving).
+  function refreshLogoPreview() {
+    return fetch('/api/setup/status')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setLogoUrl(d?.logo_url ? `${d.logo_url}?t=${Date.now()}` : null))
+      .catch(() => {})
+  }
 
   async function handleLogoUpload() {
     if (!logoFile) return
@@ -1211,6 +1218,8 @@ function SettingsTab({ tenant, onSaved }: { tenant: Tenant; onSaved: () => void 
       await api.post('/setup/upload-logo', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
       setLogoUrl('/assets/logo.png?t=' + Date.now())
       setLogoFile(null)
+      refreshClinicInfo().catch(() => {})
+      refreshLogoPreview().catch(() => {})
       setMessage('Logo uploaded successfully')
     } catch {
       setMessage('Logo upload failed')
@@ -1246,6 +1255,11 @@ function SettingsTab({ tenant, onSaved }: { tenant: Tenant; onSaved: () => void 
         ...modules,
       })
       setMessage('Configuration saved successfully')
+      // Branding is served from /api/setup/status (cached). Refresh it so the
+      // active hospital's new name/address/phone/logo show up immediately in
+      // receipts, lab reports and other printables without a reload.
+      refreshClinicInfo().catch(() => {})
+      refreshLogoPreview().catch(() => {})
       onSaved()
     } catch (err: any) {
       setMessage(err.response?.data?.message || 'Failed to save configuration')
@@ -1266,6 +1280,7 @@ function SettingsTab({ tenant, onSaved }: { tenant: Tenant; onSaved: () => void 
           <div>
             <label className={labelCls}>Phone</label>
             <input type="text" value={form.phone_number} onChange={(e) => set('phone_number', e.target.value)} className={inputCls} />
+            <p className="text-[11px] text-slate-400 mt-1.5">Separate multiple numbers with commas — shown on all receipts, lab reports and invoices.</p>
           </div>
           <div className="md:col-span-2">
             <label className={labelCls}>Address</label>

@@ -1072,7 +1072,7 @@ export default function MaternityPatientDetail({ id: idProp, hideBack }: { id?: 
       {/* ICD-11 Confirmation Modal */}
       {icdConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setIcdConfirmModal(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-4">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center"><Search size={16} className="text-white" /></div>
@@ -1117,7 +1117,7 @@ export default function MaternityPatientDetail({ id: idProp, hideBack }: { id?: 
       {/* Lab Order Modal */}
       {activeConsultModal === 'lab' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setActiveConsultModal(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-sm font-semibold text-slate-800 flex items-center gap-2"><FlaskConical size={16} className="text-blue-500" /> Order Lab Test</h2>
               <button onClick={() => setActiveConsultModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
@@ -1152,7 +1152,7 @@ export default function MaternityPatientDetail({ id: idProp, hideBack }: { id?: 
       {/* Radiology Order Modal */}
       {activeConsultModal === 'radiology' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setActiveConsultModal(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-sm font-semibold text-slate-800 flex items-center gap-2"><ScanLine size={16} className="text-indigo-500" /> Order Radiology</h2>
               <button onClick={() => setActiveConsultModal(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
@@ -1261,7 +1261,7 @@ export default function MaternityPatientDetail({ id: idProp, hideBack }: { id?: 
       {/* ANC Visit Confirmation Modal */}
       {showAncModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowAncModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="bg-gradient-to-r from-purple-500 to-pink-500 px-6 py-4">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center"><Baby size={16} className="text-white" /></div>

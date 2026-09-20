@@ -279,7 +279,7 @@ export default function SuperAdminBackup() {
 
       {confirmAction && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => { if (!busyAction) setConfirmAction(null) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
               <h2 className="text-lg font-semibold text-slate-800">
                 {confirmAction.type === 'restore' ? 'Restore Backup' : 'Delete Backup'}

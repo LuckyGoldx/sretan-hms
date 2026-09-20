@@ -95,7 +95,7 @@ function TokenGate({ onVerified }: { onVerified: () => void }) {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 max-w-md mx-auto">
+    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 max-w-md mx-auto max-h-[90vh] overflow-y-auto">
       <div className="w-14 h-14 bg-blue-100 rounded-xl flex items-center justify-center mx-auto mb-4">
         <Key className="w-7 h-7 text-blue-600" />
       </div>
@@ -276,7 +276,7 @@ export default function SetupConsole() {
   if (configured) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 max-w-md w-full text-center">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 max-w-md w-full text-center max-h-[90vh] overflow-y-auto">
           <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-slate-800 mb-1">System is already configured</h2>
           <p className="text-sm text-slate-500 mb-6">
@@ -301,7 +301,7 @@ export default function SetupConsole() {
   if (success) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 max-w-md w-full text-center">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 max-w-md w-full text-center max-h-[90vh] overflow-y-auto">
           <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-slate-800 mb-1">Configuration Saved</h2>
           <p className="text-sm text-slate-500 mb-6">

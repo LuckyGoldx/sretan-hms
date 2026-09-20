@@ -147,6 +147,11 @@ export default function PharmacyBills() {
   const pagedQueue = filteredQueue.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE)
   const pagedBills = filteredBills.slice((safePage - 1) * PER_PAGE, safePage * PER_PAGE)
 
+  // Single-item bills show the doctor's note; multi-item bills show the
+  // per-drug instructions instead (the aggregated note is ambiguous there).
+  const dispenseItems = dispenseModal?.items || []
+  const dispenseMulti = dispenseItems.length > 1
+
   // Item names only (no unit), first two / 50 chars, with a "see more" popup.
   function renderItemNames(items: any[], title: string) {
     const { text, hasMore } = conciseNames(items.map((i) => i.drug_name))
@@ -276,64 +281,59 @@ export default function PharmacyBills() {
       {/* Dispense confirmation modal */}
       {dispenseModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (busy !== dispenseModal.id) setDispenseModal(null) }}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
               <h3 className="font-semibold text-slate-800 flex items-center gap-2"><CheckCircle size={18} className="text-emerald-500" /> Confirm Dispense</h3>
               <button onClick={() => setDispenseModal(null)} className="text-slate-400 hover:text-slate-600 p-1"><X size={18} /></button>
             </div>
-            <div className="px-5 py-4 space-y-4">
+            <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1">
               <div className="space-y-1">
                 <p className="text-sm text-slate-600"><span className="font-semibold">Bill:</span> {dispenseModal.bill_number}</p>
-                {(dispenseModal.items || []).length === 1 ? (
+                {(dispenseModal.items || []).length === 1 && (
                   <>
                     <p className="text-sm text-slate-600"><span className="font-semibold">Drug:</span> {dispenseModal.items[0].drug_name}</p>
                     <p className="text-sm text-slate-600"><span className="font-semibold">Dosage:</span> {dispenseModal.items[0].dosage || '—'}</p>
                   </>
-                ) : (
-                  <div className="text-sm text-slate-600">
-                    <span className="font-semibold">Drugs:</span>
-                    <div className="mt-0.5 space-y-0.5">
-                      {(dispenseModal.items || []).map((li: any) => (
-                        <p key={li.id} className="text-xs text-slate-600">{li.drug_name}{li.dosage ? ` · ${li.dosage}` : ''}</p>
-                      ))}
-                    </div>
-                  </div>
                 )}
                 <p className="text-sm text-slate-600"><span className="font-semibold">Patient:</span> {dispenseModal.patient_name || 'Unknown'}{dispenseModal.hospital_number ? ` · ${dispenseModal.hospital_number}` : ''}</p>
                 {dispenseModal.doctor_name && <p className="text-sm text-slate-600 flex items-center gap-1"><Stethoscope size={14} className="text-slate-400" /><span className="font-semibold">Prescribed by:</span> {dispenseModal.doctor_name}</p>}
               </div>
-              <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3 text-center">
-                <p className="text-[11px] uppercase tracking-wide text-emerald-700">Quantified quantity</p>
-                <p className="text-2xl font-bold text-emerald-800">
-                  {(dispenseModal.items || []).length === 1
-                    ? ((dispenseModal.items[0].quantity ?? '—'))
-                    : (dispenseModal.items || []).length}
-                </p>
-              </div>
-              {dispenseModal.doctor_notes && (
-                <div>
-                  <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1"><ClipboardList size={12} /> Doctor's Note</p>
-                  <div className="rounded-xl bg-slate-50 border border-slate-100 px-3.5 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">{dispenseModal.doctor_notes}</div>
+              {(dispenseModal.items || []).length === 1 ? (
+                <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3 text-center">
+                  <p className="text-[11px] uppercase tracking-wide text-emerald-700">Quantified quantity</p>
+                  <p className="text-2xl font-bold text-emerald-800">{dispenseModal.items[0].quantity}{dispenseModal.items[0].unit ? ` ${dispenseModal.items[0].unit}` : ''}</p>
                 </div>
+              ) : (
+                <p className="text-sm text-slate-600"><span className="font-semibold">Drugs:</span> {(dispenseModal.items || []).length} items</p>
               )}
               <div className="rounded-xl border border-slate-200 divide-y divide-slate-100">
                 {(dispenseModal.items || []).map((li: any) => (
-                  <div key={li.id} className="flex items-center justify-between px-3.5 py-2.5 text-sm">
-                    <span className="text-slate-700">{li.drug_name}</span>
-                    <span className="text-xs text-slate-500">
-                      {li.quantity}{li.unit ? ` ${li.unit}` : ''} @ ₦{Number(li.unit_price || 0).toLocaleString()}
-                      <span className="font-semibold text-slate-800 ml-2">₦{Number(li.total_price || 0).toLocaleString()}</span>
-                    </span>
+                  <div key={li.id} className="px-3.5 py-2.5 text-sm space-y-0.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="text-slate-700 font-medium">{li.drug_name}</span>
+                      <span className="text-xs text-slate-500 text-right whitespace-nowrap">
+                        <strong className="text-slate-800">{li.quantity}{li.unit ? ` ${li.unit}` : ''}</strong> @ ₦{Number(li.unit_price || 0).toLocaleString()}
+                        <span className="font-semibold text-slate-800 ml-2">₦{Number(li.total_price || 0).toLocaleString()}</span>
+                      </span>
+                    </div>
+                    {li.dosage && <p className="text-xs text-slate-500">Dosage: {li.dosage}</p>}
+                    {li.instructions && dispenseMulti && <p className="text-xs text-slate-500 italic">Instructions: {li.instructions}</p>}
                   </div>
                 ))}
                 <div className="flex items-center justify-between px-3.5 py-2.5 text-sm font-bold bg-slate-50">
                   <span>Total</span><span>₦{Number(dispenseModal.total || 0).toLocaleString()}</span>
                 </div>
               </div>
+              {!dispenseMulti && dispenseModal.doctor_notes && (
+                <div>
+                  <p className="text-xs font-medium text-slate-500 mb-1 flex items-center gap-1"><ClipboardList size={12} /> Instructions</p>
+                  <div className="rounded-xl bg-slate-50 border border-slate-100 px-3.5 py-2.5 text-sm text-slate-700 whitespace-pre-wrap">{dispenseModal.doctor_notes}</div>
+                </div>
+              )}
               <p className="text-xs text-emerald-600 flex items-center gap-1"><CheckCircle size={12} /> Paid at Paypoint — dispensing will deduct the stock.</p>
               {error && <p className="text-xs text-rose-600 flex items-center gap-1"><AlertTriangle size={12} /> {error}</p>}
             </div>
-            <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-3">
+            <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-3 flex-shrink-0">
               <button onClick={() => setDispenseModal(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
               <button onClick={async () => { await dispense(dispenseModal); setDispenseModal(null) }} disabled={busy === dispenseModal.id}
                 className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-600 disabled:opacity-50">

@@ -80,7 +80,7 @@ export default function Login() {
   if (!configured) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 max-w-md w-full text-center">
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 max-w-md w-full text-center max-h-[90vh] overflow-y-auto">
           <Building2 className="w-12 h-12 text-slate-300 mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-slate-800 mb-2">Clinic Not Configured</h2>
           <p className="text-sm text-slate-500 mb-6">
@@ -119,13 +119,6 @@ export default function Login() {
           )}
           <h1 className="text-xl font-bold">{config?.hospital_name || 'MACHOKO HMS'}</h1>
           <p className="text-sm text-white/80 mt-1">Excellence in Healthcare Delivery</p>
-          {(config?.address || config?.phone_number) && (
-            <p className="text-xs text-white/70 mt-2">
-              {config.address}
-              {config.address && config.phone_number ? ' · ' : ''}
-              {config.phone_number}
-            </p>
-          )}
         </div>
 
         <div className="bg-white rounded-2xl rounded-t-none shadow-sm border border-slate-200 border-t-0 p-8">

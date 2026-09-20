@@ -188,7 +188,7 @@ export default function InsuranceStaff() {
       {/* Add/Edit Staff Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold text-slate-800">{editing ? 'Edit Staff' : 'Add Staff'}</h2>
               <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X className="w-5 h-5 text-slate-400" /></button>
@@ -248,7 +248,7 @@ export default function InsuranceStaff() {
       {/* Activate/Deactivate Confirmation Modal */}
       {confirmToggle && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setConfirmToggle(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-4 mb-4">
               <div className={`p-3 rounded-full ${confirmToggle.is_active ? 'bg-rose-50' : 'bg-emerald-50'}`}>
                 {confirmToggle.is_active
@@ -286,7 +286,7 @@ export default function InsuranceStaff() {
       {/* Delete Confirmation Modal (Super Admin only) */}
       {confirmDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setConfirmDelete(null)}>
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 p-6" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-md mx-4 p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center gap-4 mb-4">
               <div className="p-3 rounded-full bg-rose-50">
                 <AlertTriangle className="w-6 h-6 text-rose-500" />

@@ -28,6 +28,9 @@ export default function InsuranceProviders() {
   const [coverageTab, setCoverageTab] = useState('lab')
   const [coverageRules, setCoverageRules] = useState<any[]>([])
   const [coverageSaving, setCoverageSaving] = useState(false)
+  // Held as a string so the box can be cleared and left blank (blank = no
+  // default coverage). A provider with no stored value defaults to 100.
+  const [defaultCoverage, setDefaultCoverage] = useState('100')
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
@@ -67,6 +70,9 @@ export default function InsuranceProviders() {
       const res = await api.get(`/insurance/providers/${p.id}/coverage`)
       setCoverageData(res.data)
       setCoverageRules(res.data.rules || [])
+      const stored = res.data?.provider?.default_coverage_pct
+      // null = explicitly blanked (no coverage); missing = provider default 100.
+      setDefaultCoverage(stored === null ? '' : stored === undefined ? '100' : String(Number(stored)))
     } catch { setCoverageData(null) }
   }
 
@@ -75,8 +81,9 @@ export default function InsuranceProviders() {
     setCoverageSaving(true)
     try {
       const { default: api } = await import('../hooks/useAxios')
+      const def = defaultCoverage.trim() === '' ? null : Number(defaultCoverage)
       await api.put(`/insurance/providers/${coverageProvider.id}/coverage`, {
-        default_coverage_pct: coverageData?.provider?.default_coverage_pct,
+        default_coverage_pct: def,
         rules: coverageRules,
       })
       setShowCoverageModal(false)
@@ -202,7 +209,7 @@ export default function InsuranceProviders() {
       {/* Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-lg font-semibold text-slate-800">{editing ? 'Edit Provider' : 'Add Provider'}</h2>
               <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X className="w-5 h-5 text-slate-400" /></button>
@@ -264,7 +271,7 @@ export default function InsuranceProviders() {
       {/* Deactivate/Activate Confirmation Modal (2 steps) */}
       {confirmToggle && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setConfirmToggle(null); setToggleStep(1) }}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="px-6 pt-6 pb-4 text-center">
               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3 ${toggleStep === 2 ? (confirmToggle.is_active ? 'bg-red-50' : 'bg-emerald-50') : (confirmToggle.is_active ? 'bg-amber-50' : 'bg-emerald-50')}`}>
                 {confirmToggle.is_active ? (
@@ -313,7 +320,7 @@ export default function InsuranceProviders() {
       {/* Delete Provider Confirmation Modal (3 steps) — Super Admin only */}
       {confirmDelete && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { setConfirmDelete(null); setDeleteStep(1) }}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="px-6 pt-6 pb-4 text-center">
               <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-3 ${deleteStep === 3 ? 'bg-red-50' : deleteStep === 2 ? 'bg-rose-50' : 'bg-slate-50'}`}>
                 <AlertTriangle className={`w-7 h-7 ${deleteStep === 3 ? 'text-red-500' : deleteStep === 2 ? 'text-rose-500' : 'text-slate-400'}`} />
@@ -378,7 +385,7 @@ export default function InsuranceProviders() {
       {/* Delete Result Modal */}
       {deleteResult && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setDeleteResult(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <div className="px-6 pt-6 pb-4 text-center">
               <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center mx-auto mb-3">
                 <Building2 className="w-7 h-7 text-emerald-600" />
@@ -411,14 +418,15 @@ export default function InsuranceProviders() {
             </div>
             <div className="px-6 py-3 bg-slate-50 border-b border-slate-100 flex-shrink-0 flex items-center gap-4">
               <label className="text-sm font-medium text-slate-600">Default Coverage %</label>
-              <input type="number" min="0" max="100" value={coverageData.provider?.default_coverage_pct ?? 100}
+              <input type="number" min="0" max="100" value={defaultCoverage} placeholder="100"
                 onChange={e => {
-                  const v = parseInt(e.target.value)
-                  if (!isNaN(v) && v >= 0 && v <= 100) setCoverageData((d:any) => ({ ...d, provider: { ...d.provider, default_coverage_pct: v } }))
-                  else if (e.target.value === '') setCoverageData((d:any) => ({ ...d, provider: { ...d.provider, default_coverage_pct: 100 } }))
+                  const raw = e.target.value
+                  if (raw === '') { setDefaultCoverage(''); return }
+                  const n = Number(raw)
+                  if (Number.isFinite(n) && n >= 0 && n <= 100) setDefaultCoverage(String(n))
                 }}
                 className="w-20 px-3 py-1.5 rounded-xl border border-slate-200 text-sm text-center font-medium" />
-              <span className="text-xs text-slate-400">Applies when no category rule is set</span>
+              <span className="text-xs text-slate-400">Applies when no category rule is set — blank means no coverage (0%)</span>
             </div>
 
             {/* Category Tabs */}
@@ -536,7 +544,7 @@ export default function InsuranceProviders() {
                         })
                       }}
                       className="w-20 px-2 py-1 rounded-lg border border-slate-200 text-sm text-center" />
-                    <span className="text-xs text-slate-400">% (blank = uses provider default: {coverageData.provider?.default_coverage_pct}%)</span>
+                    <span className="text-xs text-slate-400">% (blank = uses provider default: {defaultCoverage.trim() === '' ? 'no coverage (0%)' : `${defaultCoverage}%`})</span>
                   </div>
 
                   {/* Admission: per-ward bed-night coverage */}
