@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import InsuranceReceiptSplit from './InsuranceReceiptSplit'
 import { printPaymentReceipt } from '../utils/print'
-import { fetchActiveInsuranceCase, fetchCoverageQuote, billToInsuranceAndCollect, insurancePaymentLabel } from '../utils/insuranceBilling'
+import { fetchActiveInsuranceCase, fetchCoverageQuote, billToInsuranceAndCollect, insurancePaymentLabel, quotedUnitPrice, quotedLineTotal } from '../utils/insuranceBilling'
 import {
   ShoppingCart, Search, Loader2, Plus, X, CheckCircle, Trash2, Banknote, CreditCard, Landmark, Smartphone, Pill, FlaskConical, Scan, Building2, Printer, User, Phone, Users,
 } from 'lucide-react'
@@ -148,6 +148,9 @@ export default function PaypointDashboard() {
   function removeFromCart(i: number) { setCart((p) => p.filter((_, idx) => idx !== i)) }
   function updateQty(i: number, q: number) { setCart((p) => p.map((c, idx) => idx === i ? { ...c, quantity: Math.max(1, q) } : c)) }
   const total = cart.reduce((s, c) => s + c.unit_price * c.quantity, 0)
+  // While billing to insurance, show the effective (tariff) price from the quote.
+  const cartUnit = (item: any, i: number) => (billToInsurance && coverageQuote) ? quotedUnitPrice(coverageQuote, i, item.unit_price) : (Number(item.unit_price) || 0)
+  const cartLine = (item: any, i: number) => (billToInsurance && coverageQuote) ? quotedLineTotal(coverageQuote, i, item.unit_price, item.quantity) : (Number(item.unit_price) || 0) * (Number(item.quantity) || 1)
   // Insurance with no co-pay collects nothing, so the method selector is hidden
   // and not required; a co-pay does require a method.
   const insuranceCoPay = billToInsurance ? Number(coverageQuote?.patient?.co_pay || 0) : 0
@@ -160,7 +163,7 @@ export default function PaypointDashboard() {
     setSubmitting(true)
     try {
       if (billToInsurance && insuranceInfo && selectedPatient) {
-        const items = cart.map((c) => ({ service_type: c.service_type || 'walkin_service', service_id: c.service_id || null, description: c.description, quantity: c.quantity, unit_price: c.unit_price }))
+        const items = cart.map((c) => ({ service_type: c.service_type || 'walkin_service', service_id: c.service_id || null, coverage_item_id: c.coverage_item_id || null, description: c.description, quantity: c.quantity, unit_price: c.unit_price }))
         const result = await billToInsuranceAndCollect({
           patientId: selectedPatient.id,
           caseId: insuranceInfo.id,
@@ -229,11 +232,11 @@ export default function PaypointDashboard() {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-slate-800 truncate">{item.description}</p>
               <div className="flex items-center gap-2 mt-1 text-xs">
-                <span className="font-medium text-emerald-700">₦{item.unit_price.toLocaleString()}</span>
+                <span className="font-medium text-emerald-700">₦{cartUnit(item, i).toLocaleString()}</span>
                 <span className="text-slate-400">×</span>
                 <input type="number" min={1} value={item.quantity} onChange={(e) => updateQty(i, parseInt(e.target.value) || 1)}
                   className="w-12 rounded border border-slate-200 px-1.5 py-0.5 text-xs text-center focus:ring-2 focus:ring-primary outline-none" />
-                <span className="font-medium text-slate-800">= ₦{(item.unit_price * item.quantity).toLocaleString()}</span>
+                <span className="font-medium text-slate-800">= ₦{cartLine(item, i).toLocaleString()}</span>
               </div>
             </div>
             <button onClick={() => removeFromCart(i)} className="p-1 rounded-lg hover:bg-rose-50 text-slate-300 hover:text-rose-500"><X size={14} /></button>

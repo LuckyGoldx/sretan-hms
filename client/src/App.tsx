@@ -158,7 +158,7 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/dashboard', label: 'Dashboard', icon: Pill, roles: ['Pharmacist'], category: 'Dashboard' },
   { to: '/paypoint/dashboard', label: 'Dashboard', icon: Banknote, roles: ['Paypoint'], category: 'Dashboard' },
   { to: '/finance/dashboard', label: 'Dashboard', icon: TrendingUp, roles: ['Finance'], category: 'Dashboard' },
-  { to: '/dashboard', label: 'Dashboard', icon: BarChart3, roles: ['Admin'], category: 'Dashboard' },
+  { to: '/dashboard', label: 'Dashboard', icon: BarChart3, roles: ['Admin', 'SuperAdmin'], category: 'Dashboard' },
   // ── Clinical ──
   { to: '/patients/register', label: 'Register Patient', icon: UserPlus, roles: ['Records', 'Admin'], category: 'Clinical', module: 'module_records' },
   { to: '/triage', label: 'Triage', icon: Stethoscope, roles: ['Nurse', 'Admin'], category: 'Clinical', module: ['module_nurses', 'module_triage', 'module_consultation'] },
@@ -243,9 +243,9 @@ const sidebarLinks: SidebarLink[] = [
   { to: '/admin/insurance/providers', label: 'Providers', icon: Building2, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
   { to: '/admin/insurance/staff', label: 'Staff', icon: Users, roles: ['Admin'], category: 'Insurance', module: 'module_insurance' },
   // ── Administration ──
-{ to: '/services-inventory', label: 'Services Inventory', icon: Building2, roles: ['Admin'], category: 'Administration' },
+{ to: '/services-inventory', label: 'Services Inventory', icon: Building2, roles: ['Admin', 'SuperAdmin'], category: 'Administration' },
 { to: '/departments', label: 'Departments', icon: Building2, roles: ['Admin'], category: 'Administration' },
-{ to: '/admin/wards', label: 'Ward Management', icon: Bed, roles: ['Admin'], category: 'Administration' },
+{ to: '/admin/wards', label: 'Ward Management', icon: Bed, roles: ['Admin', 'SuperAdmin'], category: 'Administration' },
 { to: '/audit-logs', label: 'Audit Logs', icon: ScrollText, roles: ['Admin'], category: 'Administration' },
   { to: '/staff', label: 'Staff Management', icon: Users, roles: ['Admin'], category: 'Administration' },
   { to: '/setup', label: 'Setup', icon: Settings, roles: ['Admin'], category: 'Administration' },
@@ -417,7 +417,9 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   }
 
   const displayName = user?.name || 'User'
-  const displayRole = user?.role || ''
+  // A Super Admin who has entered a hospital keeps role 'Admin' for clinical
+  // access, but should be labelled Super Admin. user_type is authoritative.
+  const displayRole = (user as any)?.user_type === 'superadmin' ? 'SuperAdmin' : (user?.role || '')
   const role = user?.role || getRole()
   const currentUserId = user?.id || (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
 
@@ -715,7 +717,6 @@ function HomeRedirect() {
   var role = getRole()
   if (!role) return <Navigate to="/login" replace />
   if (role === 'InsuranceStaff') return <Navigate to="/insurance/dashboard" replace />
-  if (role === 'SuperAdmin') return <Navigate to="/superadmin" replace />
   if (role === 'Radiology') return <Navigate to="/radiology" replace />
   return <Navigate to="/dashboard" replace />
 }
@@ -917,7 +918,7 @@ export default function App() {
             path="/admin/wards"
             element={
               <Layout>
-                <ProtectedRoute roles={['Admin']}>
+                <ProtectedRoute roles={['Admin', 'SuperAdmin']}>
                   <Suspense fallback={<LoadingFallback />}>
                     <WardManagement />
                   </Suspense>
@@ -1064,7 +1065,7 @@ export default function App() {
           <Route path="/maternity/labour-summary" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Specialist']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityLabourSummary /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
           <Route path="/maternity/postnatal" element={<Layout><ProtectedRoute roles={['Doctor', 'Nurse', 'Admin', 'Specialist']}><Suspense fallback={<LoadingFallback />}><MaternityGuard><MaternityPostnatalWard /></MaternityGuard></Suspense></ProtectedRoute></Layout>} />
           <Route
-            path="/services-inventory" element={<Layout><ProtectedRoute roles={['Admin']}><Suspense fallback={<LoadingFallback />}><ServiceInventory /></Suspense></ProtectedRoute></Layout>} />
+            path="/services-inventory" element={<Layout><ProtectedRoute roles={['Admin', 'SuperAdmin']}><Suspense fallback={<LoadingFallback />}><ServiceInventory /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance/dashboard" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinanceDashboard /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance/billing" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinancePatientBilling /></Suspense></ProtectedRoute></Layout>} />
           <Route path="/finance/payment-history" element={<Layout><ProtectedRoute roles={['Admin', 'Finance']}><Suspense fallback={<LoadingFallback />}><FinancePaymentHistory /></Suspense></ProtectedRoute></Layout>} />

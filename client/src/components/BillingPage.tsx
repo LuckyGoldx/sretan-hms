@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import InsuranceReceiptSplit from './InsuranceReceiptSplit'
-import { insurancePaymentLabel } from '../utils/insuranceBilling'
+import { insurancePaymentLabel, quotedUnitPrice, quotedLineTotal } from '../utils/insuranceBilling'
 import { printPaymentReceipt } from '../utils/print'
 import {
   Search, Loader2, Plus, X, CheckCircle, Trash2, Banknote, CreditCard, Landmark, Smartphone, ArrowLeft, User, Receipt, Building2, Pill, FlaskConical, Scan, ShoppingCart, Printer, ChevronLeft, ChevronRight, Shield,
@@ -137,6 +137,9 @@ export default function BillingPage() {
   function removeFromCart(i: number) { setCart((p) => p.filter((_, idx) => idx !== i)) }
   function updateQty(i: number, q: number) { setCart((p) => p.map((c, idx) => idx === i ? { ...c, quantity: Math.max(1, q) } : c)) }
   const total = cart.reduce((s, c) => s + c.unit_price * c.quantity, 0)
+  // While billing to insurance, show the effective (tariff) price from the quote.
+  const cartUnit = (item: any, i: number) => (billToInsurance && quote) ? quotedUnitPrice(quote, i, item.unit_price) : (Number(item.unit_price) || 0)
+  const cartLine = (item: any, i: number) => (billToInsurance && quote) ? quotedLineTotal(quote, i, item.unit_price, item.quantity) : (Number(item.unit_price) || 0) * (Number(item.quantity) || 1)
   const insuranceReady = !billToInsurance || (!!quote?.hasActiveCase && quote.in_window !== false && !quoteLoading)
   const billAmount = Number(quote?.insurer?.covered ?? total)
   const coPayAmount = Number(quote?.patient?.co_pay ?? 0)
@@ -421,14 +424,14 @@ export default function BillingPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="flex-1"><label className="text-[10px] text-slate-400">Price</label>
-                        <div className="w-full rounded-lg border border-slate-100 bg-white px-2.5 py-1.5 text-sm font-medium text-emerald-700">₦{(item.unit_price || 0).toLocaleString()}</div>
+                        <div className="w-full rounded-lg border border-slate-100 bg-white px-2.5 py-1.5 text-sm font-medium text-emerald-700">₦{cartUnit(item, i).toLocaleString()}</div>
                       </div>
                       <div className="w-16"><label className="text-[10px] text-slate-400">Qty</label>
                         <input type="number" min={1} value={item.quantity} onChange={(e) => updateQty(i, parseInt(e.target.value) || 1)}
                           className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-primary outline-none" />
                       </div>
                       <div className="min-w-[60px] text-right"><label className="text-[10px] text-slate-400">Total</label>
-                        <p className="text-sm font-bold text-slate-800">₦{(item.unit_price * item.quantity).toLocaleString()}</p>
+                        <p className="text-sm font-bold text-slate-800">₦{cartLine(item, i).toLocaleString()}</p>
                       </div>
                     </div>
                   </div>

@@ -13,6 +13,29 @@ function isAdmin(req: Request): boolean {
   return isSuperAdmin(req) || canManageStaff(req);
 }
 
+/**
+ * Provider codes are generated once at creation and never edited. Derive a
+ * short, stable base from the name (initials, else first letters), then add a
+ * numeric suffix only if that code is already used by this tenant.
+ */
+async function generateProviderCode(tenantId: string, name: string): Promise<string> {
+  const cleaned = String(name || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const words = String(name || '').toUpperCase().split(/\s+/).filter(Boolean);
+  let base = words.map((w) => w.replace(/[^A-Z0-9]/g, '')[0] || '').join('').slice(0, 4);
+  if (base.length < 2) base = cleaned.slice(0, 4);
+  if (!base) base = 'INS';
+
+  for (let i = 0; i < 1000; i++) {
+    const candidate = i === 0 ? base : `${base}${i}`;
+    const exists = await pool.query(
+      'SELECT 1 FROM insurance_providers WHERE tenant_id = $1 AND code = $2 LIMIT 1',
+      [tenantId, candidate]
+    );
+    if (exists.rows.length === 0) return candidate;
+  }
+  return `${base}${Date.now()}`;
+}
+
 router.get('/api/insurance/providers', async (req: Request, res: Response) => {
   try {
     const insuranceUser = getInsuranceUser(req);
@@ -55,13 +78,33 @@ router.post('/api/insurance/providers', async (req: Request, res: Response) => {
   try {
     if (!isAdmin(req)) { res.status(403).json({ error: true, message: 'Forbidden' }); return; }
     const { name, code, category, contact_person, contact_phone, contact_email, address } = req.body;
-    if (!name || !code) { res.status(400).json({ error: true, message: 'Name and code are required' }); return; }
+    if (!name) { res.status(400).json({ error: true, message: 'Provider name is required' }); return; }
     const id = crypto.randomUUID();
     const tenantId = getTenantId();
+
+    // Staff may type a code at creation; a blank code is generated. The code is
+    // immutable once saved (PUT ignores it).
+    let finalCode: string;
+    const typedCode = String(code || '').trim().toUpperCase();
+    if (typedCode) {
+      if (!/^[A-Z0-9][A-Z0-9\-_]{0,49}$/.test(typedCode)) {
+        res.status(400).json({ error: true, message: 'Code may only contain letters, numbers, dash and underscore (max 50).' });
+        return;
+      }
+      const dup = await pool.query(
+        'SELECT 1 FROM insurance_providers WHERE tenant_id = $1 AND code = $2 LIMIT 1',
+        [tenantId, typedCode]
+      );
+      if (dup.rows.length > 0) { res.status(409).json({ error: true, message: `Provider code "${typedCode}" is already in use.` }); return; }
+      finalCode = typedCode;
+    } else {
+      finalCode = await generateProviderCode(tenantId, name);
+    }
+
     const result = await pool.query(
       `INSERT INTO insurance_providers (id, tenant_id, name, code, category, contact_person, contact_phone, contact_email, address)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id, name, code, category, contact_person, contact_phone, contact_email, address, is_active, created_at`,
-      [id, tenantId, name, code.toUpperCase(), category || 'Other', contact_person || null, contact_phone || null, contact_email || null, address || null]
+      [id, tenantId, name, finalCode, category || 'Other', contact_person || null, contact_phone || null, contact_email || null, address || null]
     );
     res.status(201).json(result.rows[0]);
   } catch (err: any) {
@@ -73,30 +116,22 @@ router.post('/api/insurance/providers', async (req: Request, res: Response) => {
 router.put('/api/insurance/providers/:id', async (req: Request, res: Response) => {
   try {
     if (!isAdmin(req)) { res.status(403).json({ error: true, message: 'Forbidden' }); return; }
-    const { name, code, category, contact_person, contact_phone, contact_email, address, is_active } = req.body;
-    // Get old provider data before update
-    const oldProv = await pool.query('SELECT name, category, code, created_at FROM insurance_providers WHERE id = $1', [req.params.id]);
+    // `code` is intentionally ignored: provider codes are generated at creation
+    // and are immutable afterwards.
+    const { name, category, contact_person, contact_phone, contact_email, address, is_active } = req.body;
+    const oldProv = await pool.query('SELECT name, category FROM insurance_providers WHERE id = $1', [req.params.id]);
     if (oldProv.rows.length === 0) { res.status(404).json({ error: true, message: 'Provider not found' }); return; }
     const oldName = oldProv.rows[0].name;
     const oldCategory = oldProv.rows[0].category;
-    const oldCode = oldProv.rows[0].code;
-    const createdAt = new Date(oldProv.rows[0].created_at).getTime();
-    const hoursSinceCreation = (Date.now() - createdAt) / (1000 * 60 * 60);
-
-    // Code change lock: only clinical Super Admin (master token) can change code after 24h
-    if (code && code.toUpperCase() !== oldCode && hoursSinceCreation > 24 && !isSuperAdmin(req)) {
-      res.status(403).json({ error: true, message: 'Provider code is locked after 24 hours of creation. Contact Super Admin to change it.' });
-      return;
-    }
 
     const result = await pool.query(
       `UPDATE insurance_providers SET
-        name = COALESCE($1, name), code = COALESCE($2, code),
-        category = COALESCE($3, category),
-        contact_person = $4, contact_phone = $5, contact_email = $6, address = $7,
-        is_active = COALESCE($8, is_active)
-       WHERE id = $9 AND tenant_id = $10 RETURNING id, name, code, category, contact_person, contact_phone, contact_email, address, is_active, created_at`,
-      [name || null, code ? code.toUpperCase() : null, category || null, contact_person || null, contact_phone || null, contact_email || null, address || null, is_active !== undefined ? is_active : null, req.params.id, getTenantId()]
+        name = COALESCE($1, name),
+        category = COALESCE($2, category),
+        contact_person = $3, contact_phone = $4, contact_email = $5, address = $6,
+        is_active = COALESCE($7, is_active)
+       WHERE id = $8 AND tenant_id = $9 RETURNING id, name, code, category, contact_person, contact_phone, contact_email, address, is_active, created_at`,
+      [name || null, category || null, contact_person || null, contact_phone || null, contact_email || null, address || null, is_active !== undefined ? is_active : null, req.params.id, getTenantId()]
     );
 
     // Cascade changes to all patients linked to this provider

@@ -145,6 +145,12 @@ router.post('/api/pharmacy-bills', async (req: Request, res: Response) => {
       const unit = raw.unit || item.base_unit || 'unit';
       const per = unitsPerTier(item, unit);
       const baseQty = Math.round(qty * per);
+      const available = Math.floor(Number(item.stock_count) || 0);
+      if (baseQty > available) {
+        await client.query('ROLLBACK');
+        res.status(400).json({ error: true, message: `Only ${available} ${item.base_unit || 'unit'} of ${item.drug_name} in stock (this line needs ${baseQty})` });
+        return;
+      }
       const unitPrice = priceForTier(item, unit);
       const total = Math.round(unitPrice * qty * 100) / 100;
       lines.push({ item, unit, qty, baseQty, unitPrice, total, drugName: item.drug_name, prescriptionId: raw.prescription_id || null });
@@ -256,7 +262,9 @@ router.get('/api/pharmacy-bills', async (req: Request, res: Response) => {
     const params: any[] = [tenantId];
     if (status) { params.push(status); q += ` AND b.status = $${params.length}`; }
     if (patient_id) { params.push(patient_id); q += ` AND b.patient_id = $${params.length}`; }
-    q += ' ORDER BY b.created_at DESC';
+    // Paid bills surface by when they were paid (falls back to created_at for
+    // bills that are still awaiting payment).
+    q += ' ORDER BY COALESCE(b.paid_at, b.created_at) DESC';
     const result = await pool.query(q, params);
     res.json(result.rows);
   } catch (err: any) {

@@ -17,13 +17,15 @@ export async function getCoverageForService(
   itemName?: string,
   inventoryItemId?: string | null
 ): Promise<number> {
-  // 1. Exact item override by id
+  // 1. Exact item override by inventory_item_id. The rule follows the ITEM,
+  //    so it is matched regardless of the service_type the biller sent (an item
+  //    can be billed as 'consultation', 'bed_day', 'pharmacy', ...).
   if (inventoryItemId) {
     const byId = await pool.query(
       `SELECT coverage_percentage FROM insurance_provider_coverage_rules
-        WHERE provider_id = $1 AND service_type = $2 AND inventory_item_id = $3
+        WHERE provider_id = $1 AND inventory_item_id = $2
         LIMIT 1`,
-      [providerId, serviceType, inventoryItemId]
+      [providerId, inventoryItemId]
     );
     if (byId.rows.length > 0) return parseFloat(byId.rows[0].coverage_percentage);
   }

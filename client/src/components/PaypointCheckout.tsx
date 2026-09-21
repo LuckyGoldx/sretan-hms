@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import InsuranceReceiptSplit from './InsuranceReceiptSplit'
-import { insurancePaymentLabel } from '../utils/insuranceBilling'
+import { insurancePaymentLabel, quotedUnitPrice, quotedLineTotal } from '../utils/insuranceBilling'
 import { printPaymentReceipt, printDepositReceipt } from '../utils/print'
 import {
   Search, X, Loader2, Receipt, Plus, Trash2, Printer, CreditCard, Building2, Landmark, Smartphone, CheckCircle, ArrowLeft, User, Banknote, FileText, Clock, Package, FlaskConical, Scan, Pill, Home, ShoppingCart, Shield, ChevronLeft, ChevronRight, AlertTriangle,
@@ -37,6 +37,7 @@ function expandPendingItem(item: any): any[] {
     return item.bill_items.map((bi: any) => ({
       ...item,
       line_id: bi.line_id,
+      coverage_item_id: bi.inventory_item_id || item.coverage_item_id || null,
       description: `${bi.drug_name || 'Item'}${bi.unit ? ` (${bi.unit})` : ''}`,
       quantity: Number(bi.quantity) || 1,
       unit_price: Number(bi.unit_price) || 0,
@@ -173,6 +174,9 @@ export default function PaypointCheckout() {
   }, [billToInsurance, cart, selectedPatient?.id])
 
   const total = cart.reduce((s, c) => s + c.unit_price * c.quantity, 0)
+  // While billing to insurance, show the effective (tariff) price from the quote.
+  const cartUnit = (item: any, i: number) => (billToInsurance && coverageQuote) ? quotedUnitPrice(coverageQuote, i, item.unit_price) : (Number(item.unit_price) || 0)
+  const cartLine = (item: any, i: number) => (billToInsurance && coverageQuote) ? quotedLineTotal(coverageQuote, i, item.unit_price, item.quantity) : (Number(item.unit_price) || 0) * (Number(item.quantity) || 1)
   // Insurance with no co-pay collects nothing, so the method selector is hidden
   // and not required; a co-pay does require a method.
   const insuranceCoPay = billToInsurance ? Number(coverageQuote?.patient?.co_pay ?? coPayAmount ?? 0) : 0
@@ -195,7 +199,10 @@ export default function PaypointCheckout() {
           unit_price: c.unit_price,
           insurer_amount: quoteItems[i]?.insurer_amount !== undefined ? quoteItems[i].insurer_amount : (c.unit_price * c.quantity),
         }))
-        const totalBill = cart.reduce((s, c) => s + c.unit_price * c.quantity, 0)
+        // The billed total is the quote's effective (tariff) line prices when
+        // available, so the receipt matches the insurance claim.
+        const quotedLineSum = (quoteItems || []).reduce((s: number, q: any) => s + Number(q.line_total || 0), 0)
+        const totalBill = quotedLineSum > 0 ? quotedLineSum : cart.reduce((s, c) => s + c.unit_price * c.quantity, 0)
         const patientCoPay = coverageQuote?.patient?.co_pay ?? Math.min(coPayAmount, totalBill)
         const insuranceBilled = coverageQuote?.insurer?.covered ?? (totalBill - patientCoPay)
 
@@ -463,14 +470,14 @@ export default function PaypointCheckout() {
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex-1"><label className="text-[10px] text-slate-400">Price</label>
-                          <div className="w-full rounded-lg border border-slate-100 bg-white px-2.5 py-1.5 text-sm font-medium text-emerald-700">₦{(item.unit_price || 0).toLocaleString()}</div>
+                          <div className="w-full rounded-lg border border-slate-100 bg-white px-2.5 py-1.5 text-sm font-medium text-emerald-700">₦{cartUnit(item, i).toLocaleString()}</div>
                         </div>
                         <div className="w-16"><label className="text-[10px] text-slate-400">Qty</label>
                           <input type="number" min={1} value={item.quantity}
                             onChange={(e) => updateQty(i, parseInt(e.target.value) || 1)}
                             className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm focus:ring-2 focus:ring-primary outline-none" /></div>
                         <div className="min-w-[60px] text-right"><label className="text-[10px] text-slate-400">Total</label>
-                          <p className="text-sm font-bold text-slate-800">₦{(item.unit_price * item.quantity).toLocaleString()}</p></div>
+                          <p className="text-sm font-bold text-slate-800">₦{cartLine(item, i).toLocaleString()}</p></div>
                       </div>
                       {billToInsurance && (coverageQuote?.items || [])[i] && (
                         <div className="mt-2 pt-2 border-t border-slate-200/70 text-[10px] space-y-0.5">

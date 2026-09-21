@@ -6,7 +6,7 @@ import {
 
 const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
 
-interface QLine { inventory_item_id: string; unit: string; quantity: number; prescription_id?: string | null }
+interface QLine { inventory_item_id: string; unit: string; quantity: string; prescription_id?: string | null }
 
 function unitsPerTier(item: any, unit: string): number {
   if (item?.carton_label && unit === item.carton_label) return Math.max(1, Number(item.units_per_carton) || 1)
@@ -86,24 +86,37 @@ export default function PharmacyBills() {
     for (const rx of (group.prescriptions || [])) {
       const match = inventory.find((i) => String(i.drug_name || '').trim().toLowerCase() === String(rx.drug_name || '').trim().toLowerCase())
       if (match && !next.some((l) => l.inventory_item_id === match.id)) {
-        next.push({ inventory_item_id: match.id, unit: match.base_unit || 'unit', quantity: 1, prescription_id: rx.id })
+        next.push({ inventory_item_id: match.id, unit: match.base_unit || 'unit', quantity: '1', prescription_id: rx.id })
       }
     }
     setLines(next)
   }
   function addLine() {
     if (!pickItemId) return
-    setLines((prev) => [...prev, { inventory_item_id: pickItemId, unit: (inventory.find((i) => i.id === pickItemId)?.base_unit) || 'unit', quantity: 1 }])
+    setLines((prev) => [...prev, { inventory_item_id: pickItemId, unit: (inventory.find((i) => i.id === pickItemId)?.base_unit) || 'unit', quantity: '1' }])
     setPickItemId('')
   }
   function updateLine(idx: number, patch: Partial<QLine>) {
     setLines((prev) => prev.map((l, i) => i === idx ? { ...l, ...patch } : l))
   }
-  function lineBaseQty(l: QLine) { const it = inventory.find((i) => i.id === l.inventory_item_id); return Math.round(l.quantity * unitsPerTier(it, l.unit)) }
-  function lineTotal(l: QLine) { const it = inventory.find((i) => i.id === l.inventory_item_id); return Math.round(priceForTier(it, l.unit) * l.quantity * 100) / 100 }
+  const qtyOf = (l: QLine) => parseInt(l.quantity, 10) || 0
+  function lineBaseQty(l: QLine) { const it = inventory.find((i) => i.id === l.inventory_item_id); return Math.round(qtyOf(l) * unitsPerTier(it, l.unit)) }
+  function lineTotal(l: QLine) { const it = inventory.find((i) => i.id === l.inventory_item_id); return Math.round(priceForTier(it, l.unit) * qtyOf(l) * 100) / 100 }
+  function lineStock(l: QLine) { const it = inventory.find((i) => i.id === l.inventory_item_id); return Math.floor(Number(it?.stock_count) || 0) }
+  function lineOverStock(l: QLine) { return lineBaseQty(l) > lineStock(l) }
+
+  // Every line needs a positive quantity that does not exceed available stock
+  // (compared in base units, so packs/cartons convert correctly).
+  const linesValid = lines.length > 0 && lines.every((l) => qtyOf(l) > 0 && !!l.inventory_item_id && !lineOverStock(l))
 
   async function submitBill() {
     if (!quantifyRx || lines.length === 0) { setError('Add at least one item'); return }
+    for (const l of lines) {
+      const it = inventory.find((i) => i.id === l.inventory_item_id)
+      if (!it) { setError('Select a valid pharmacy item for every line'); return }
+      if (qtyOf(l) <= 0) { setError(`Enter a quantity for ${it.drug_name}`); return }
+      if (lineOverStock(l)) { setError(`Only ${lineStock(l)} ${it.base_unit || 'unit'} of ${it.drug_name} in stock (this line needs ${lineBaseQty(l)})`); return }
+    }
     setBusy('create'); setError('')
     try {
       await api.post('/pharmacy-bills', {
@@ -111,7 +124,7 @@ export default function PharmacyBills() {
         encounter_id: quantifyRx.encounter_id,
         prescription_id: lines.find((l) => l.prescription_id)?.prescription_id || null,
         billed_by: currentUserId,
-        items: lines.map((l) => ({ inventory_item_id: l.inventory_item_id, unit: l.unit, quantity: l.quantity, prescription_id: l.prescription_id || null })),
+        items: lines.map((l) => ({ inventory_item_id: l.inventory_item_id, unit: l.unit, quantity: qtyOf(l), prescription_id: l.prescription_id || null })),
       })
       setQuantifyRx(null); setLines([])
       await load()
@@ -129,7 +142,11 @@ export default function PharmacyBills() {
     catch (e: any) { setError(e?.response?.data?.message || 'Cancel failed') } finally { setBusy(null) }
   }
 
-  const shown = bills.filter((b) => tab === 'awaiting' ? b.status === 'awaiting_payment' : tab === 'paid' ? b.status === 'paid' : true)
+  // Paid bills are ordered by most recently PAID first (awaiting ones fall back
+  // to when the bill was created).
+  const shown = bills
+    .filter((b) => tab === 'awaiting' ? b.status === 'awaiting_payment' : tab === 'paid' ? b.status === 'paid' : true)
+    .sort((a, b) => new Date(b.paid_at || b.created_at || 0).getTime() - new Date(a.paid_at || a.created_at || 0).getTime())
 
   // Search works across every tab (doctor, patient, phone, hospital number, drug).
   const q = search.trim().toLowerCase()
@@ -355,9 +372,19 @@ export default function PharmacyBills() {
             <div className="p-6 space-y-4">
               <div className="text-sm text-slate-600">
                 <p><strong>{quantifyRx.patient_name}</strong> <span className="text-xs text-slate-400 font-mono">{quantifyRx.hospital_number}</span></p>
-                <div className="text-xs text-slate-500 mt-1 space-y-0.5">
+                {quantifyRx.doctor_name && (
+                  <p className="text-xs text-slate-500 mt-1 flex items-center gap-1"><Stethoscope size={12} className="text-slate-400" /> Prescribed by <strong className="text-slate-700">{quantifyRx.doctor_name}</strong></p>
+                )}
+                <div className="text-xs text-slate-500 mt-2 space-y-2">
                   {(quantifyRx.prescriptions || []).map((rx: any) => (
-                    <p key={rx.id}>Prescribed: <strong>{rx.drug_name}</strong>{rx.dosage ? ` · ${rx.dosage}` : ''}{rx.instructions ? <span className="text-slate-400 italic"> — {rx.instructions}</span> : ''}</p>
+                    <div key={rx.id} className="rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2">
+                      <p>Prescribed: <strong>{rx.drug_name}</strong>{rx.dosage ? ` · ${rx.dosage}` : ''}</p>
+                      {rx.instructions && (
+                        <p className="mt-1 rounded-md border-l-4 border-amber-400 bg-amber-50 px-2.5 py-1.5 text-amber-900 font-semibold italic">
+                          Instructions: {rx.instructions}
+                        </p>
+                      )}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -381,15 +408,20 @@ export default function PharmacyBills() {
               <div className="space-y-2">
                 {lines.map((l, idx) => {
                   const it = inventory.find((i) => i.id === l.inventory_item_id)
+                  const over = lineOverStock(l)
+                  const empty = qtyOf(l) <= 0
                   return (
-                    <div key={idx} className="flex items-center gap-2 bg-slate-50 rounded-xl border border-slate-200 px-3 py-2">
+                    <div key={idx} className={`flex items-center gap-2 rounded-xl border px-3 py-2 ${over ? 'bg-rose-50 border-rose-200' : 'bg-slate-50 border-slate-200'}`}>
                       <span className="flex-1 text-sm text-slate-700">{it?.drug_name}</span>
                       <select value={l.unit} onChange={(e) => updateLine(idx, { unit: e.target.value })} className="rounded-lg border border-slate-200 px-2 py-1 text-xs bg-white">
                         {tiers(it).map((t) => <option key={t} value={t}>{t}</option>)}
                       </select>
-                      <input type="number" min={1} value={l.quantity} onChange={(e) => updateLine(idx, { quantity: Math.max(1, parseInt(e.target.value) || 1) })}
-                        className="w-16 rounded-lg border border-slate-200 px-2 py-1 text-xs text-right" />
-                      <span className="text-xs text-slate-400 w-24 text-right">{lineBaseQty(l)} {it?.base_unit || 'units'}</span>
+                      <input type="number" min={1} inputMode="numeric" value={l.quantity} placeholder="0"
+                        onChange={(e) => updateLine(idx, { quantity: e.target.value.replace(/[^0-9]/g, '') })}
+                        className={`w-16 rounded-lg border px-2 py-1 text-xs text-right ${empty ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`} />
+                      <span className={`text-xs w-28 text-right ${over ? 'text-rose-600 font-semibold' : 'text-slate-400'}`}>
+                        {lineBaseQty(l)} / {lineStock(l)} {it?.base_unit || 'units'}
+                      </span>
                       <span className="text-sm font-semibold text-slate-800 w-20 text-right">₦{lineTotal(l).toLocaleString()}</span>
                       <button onClick={() => setLines((prev) => prev.filter((_, i) => i !== idx))} className="p-1 rounded hover:bg-rose-50 text-rose-500"><Trash2 size={13} /></button>
                     </div>
@@ -401,7 +433,7 @@ export default function PharmacyBills() {
             </div>
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
               <button onClick={() => setQuantifyRx(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
-              <button onClick={submitBill} disabled={busy === 'create' || lines.length === 0} className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
+              <button onClick={submitBill} disabled={busy === 'create' || !linesValid} className="inline-flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50">
                 {busy === 'create' ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Send to Paypoint
               </button>
             </div>

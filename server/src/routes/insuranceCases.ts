@@ -5,6 +5,7 @@ import { autoSyncClinicalServices } from '../utils/autoSyncServices';
 import { readClinicProfile } from '../config/reader';
 import { generateNumber } from '../utils/numbering';
 import { getCoverageForService, isCaseInCoverageWindow, resolveBillingCase } from '../utils/coverageLookup';
+import { getInsuranceUnitPrice, resolveEffectiveUnitPrice, normalizeServiceType } from '../utils/insurancePricing';
 import { resolveMaternityUnlock, getPaidMaternityEntitlement, createMaternityEntitlement } from '../utils/maternityEntitlement';
 
 const router = Router();
@@ -20,7 +21,7 @@ async function markSourceOrderAsPaid(serviceType: string, serviceId: string | nu
   // prescription it was quantified from is settled too.
   if (serviceType === 'pharmacy_bill') {
     try {
-      await pool.query(`UPDATE pharmacy_bills SET status = 'paid' WHERE id = $1 AND status = 'awaiting_payment'`, [serviceId]);
+      await pool.query(`UPDATE pharmacy_bills SET status = 'paid', paid_at = NOW() WHERE id = $1 AND status = 'awaiting_payment'`, [serviceId]);
       await pool.query(
         `UPDATE prescriptions pr
             SET is_paid = true,
@@ -265,18 +266,28 @@ router.post('/api/insurance/cases/:caseId/services', async (req: Request, res: R
     }
 
     // Get tenant_id from case
-    const caseResult = await pool.query('SELECT tenant_id FROM insurance_cases WHERE id = $1', [req.params.caseId]);
+    const caseResult = await pool.query('SELECT tenant_id, provider_id FROM insurance_cases WHERE id = $1', [req.params.caseId]);
     if (caseResult.rows.length === 0) { res.status(404).json({ error: true, message: 'Case not found' }); return; }
 
     const id = crypto.randomUUID();
     const qty = quantity || 1;
-    const price = unit_price || 0;
-    const total = qty * price;
+    const hasPrice = unit_price !== undefined && unit_price !== null && String(unit_price).trim() !== '';
+
+    // A provider tariff override applies when one is configured; otherwise the
+    // caller's price (or 0) stands.
+    let insuranceUnitPrice: number | null = null;
+    try {
+      insuranceUnitPrice = await getInsuranceUnitPrice(caseResult.rows[0].provider_id, service_type, service_name, null);
+    } catch { insuranceUnitPrice = null; }
+    const effective = resolveEffectiveUnitPrice(hasPrice ? (parseFloat(unit_price) || 0) : 0, insuranceUnitPrice);
+    const price = effective.effectiveUnitPrice;
+    const total = Math.round(qty * price * 100) / 100;
 
     const result = await pool.query(
-      `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, clinical_order_id, added_by, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-      [id, caseResult.rows[0].tenant_id, req.params.caseId, service_type, service_name, qty, price, total, clinical_order_id || null, added_by || null, notes || null]
+      `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, default_unit_price, insurance_unit_price, clinical_order_id, added_by, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+      [id, caseResult.rows[0].tenant_id, req.params.caseId, service_type, service_name, qty, price, total,
+       effective.defaultUnitPrice, effective.insuranceUnitPrice, clinical_order_id || null, added_by || null, notes || null]
     );
 
     // Update case total_billed
@@ -1127,17 +1138,22 @@ router.get('/api/insurance/coverage-quote', async (req: Request, res: Response) 
     let totalInsurer = 0;
 
     for (const item of items) {
-      const unitPrice = parseFloat(item.unit_price) || 0;
+      const defaultUnitPrice = parseFloat(item.unit_price) || 0;
       const qty = parseInt(item.quantity) || 1;
-      const lineTotal = Math.round(unitPrice * qty * 100) / 100;
-      const svcType = item.service_type === 'prescription' ? 'pharmacy'
-        : item.service_type === 'pharmacy_bill' ? 'pharmacy'
-        : (item.service_type || 'general');
+      const svcType = normalizeServiceType(item.service_type);
       const itemName = item.description || '';
       // Bed-day charges are priced by the ADMISSION rule for the ward's nightly
       // item (sent as coverage_item_id), not by the daily-charge id.
-      const coverageType = item.service_type === 'bed_day' ? 'admission' : svcType;
+      const coverageType = svcType;
       const coverageItemId = item.coverage_item_id || item.service_id || null;
+
+      // Provider tariff override, falling back to the line's inventory price.
+      let insuranceUnitPrice: number | null = null;
+      try {
+        insuranceUnitPrice = await getInsuranceUnitPrice(billingCase.providerId, coverageType, itemName, coverageItemId);
+      } catch { insuranceUnitPrice = null; }
+      const effective = resolveEffectiveUnitPrice(defaultUnitPrice, insuranceUnitPrice);
+      const lineTotal = Math.round(effective.effectiveUnitPrice * qty * 100) / 100;
 
       // Fail closed: an unconfigured service is 0% covered, and nothing is
       // covered at all outside the case's coverage window.
@@ -1156,6 +1172,12 @@ router.get('/api/insurance/coverage-quote', async (req: Request, res: Response) 
       quoteItems.push({
         service_type: svcType,
         description: itemName,
+        // The price actually billed: the provider's tariff when set, else list.
+        unit_price: effective.effectiveUnitPrice,
+        default_unit_price: effective.defaultUnitPrice,
+        insurance_unit_price: effective.insuranceUnitPrice,
+        price_source: effective.priceSource,
+        quantity: qty,
         line_total: lineTotal,
         coverage: coveragePct,
         insurer_amount: insurerLine,
@@ -1263,10 +1285,19 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
 
     for (const item of items) {
       const serviceType = item.service_type || 'general';
+      const ruleType = normalizeServiceType(serviceType);
       const serviceName = item.description || 'Service';
       const qty = parseInt(item.quantity) || 1;
-      const price = parseFloat(item.unit_price) || 0;
-      const lineTotal = Math.round(qty * price * 100) / 100;
+      const coverageItemId = item.coverage_item_id || item.service_id || null;
+
+      // Provider tariff override wins over the inventory/list price.
+      const defaultUnitPrice = parseFloat(item.default_unit_price ?? item.unit_price) || 0;
+      let insuranceUnitPrice: number | null = null;
+      try {
+        insuranceUnitPrice = await getInsuranceUnitPrice(caseProviderId, ruleType, serviceName, coverageItemId);
+      } catch { insuranceUnitPrice = null; }
+      const effective = resolveEffectiveUnitPrice(defaultUnitPrice, insuranceUnitPrice);
+      const lineTotal = Math.round(qty * effective.effectiveUnitPrice * 100) / 100;
       const id = crypto.randomUUID();
 
       // Per-item split. The insurer is only ever charged its covered share:
@@ -1279,10 +1310,7 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
         insurerAmount = Math.max(0, Math.min(lineTotal, parseFloat(item.insurer_amount) || 0));
         coveragePct = lineTotal > 0 ? Math.round((insurerAmount / lineTotal) * 10000) / 100 : 0;
       } else {
-        // Bed-day charges price against the ward's admission rule.
-        const coverageType = serviceType === 'bed_day' ? 'admission' : serviceType;
-        const coverageItemId = item.coverage_item_id || item.service_id || null;
-        try { coveragePct = await getCoverageForService(caseProviderId, coverageType, serviceName, coverageItemId); } catch { coveragePct = 0; }
+        try { coveragePct = await getCoverageForService(caseProviderId, ruleType, serviceName, coverageItemId); } catch { coveragePct = 0; }
         if (isNaN(coveragePct)) coveragePct = 0;
         coveragePct = Math.max(0, Math.min(100, coveragePct));
         insurerAmount = Math.round(lineTotal * coveragePct) / 100;
@@ -1291,11 +1319,21 @@ router.post('/api/insurance/bill-to-insurance', async (req: Request, res: Respon
       patientTotal = Math.round((patientTotal + patientAmount) * 100) / 100;
 
       const result = await pool.query(
-        `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, source_type, source_id, added_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-        [id, tenantId, targetCaseId, serviceType, serviceName, qty, price, insurerAmount, src, item.service_id || null, created_by || null]
+        `INSERT INTO insurance_case_services (id, tenant_id, case_id, service_type, service_name, quantity, unit_price, total_price, default_unit_price, insurance_unit_price, source_type, source_id, added_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+        [id, tenantId, targetCaseId, serviceType, serviceName, qty, effective.effectiveUnitPrice, insurerAmount,
+         effective.defaultUnitPrice, effective.insuranceUnitPrice, src, item.service_id || null, created_by || null]
       );
-      added.push({ ...result.rows[0], coverage_pct: coveragePct, patient_amount: patientAmount, line_total: lineTotal });
+      added.push({
+        ...result.rows[0],
+        coverage_pct: coveragePct,
+        patient_amount: patientAmount,
+        line_total: lineTotal,
+        unit_price: effective.effectiveUnitPrice,
+        default_unit_price: effective.defaultUnitPrice,
+        insurance_unit_price: effective.insuranceUnitPrice,
+        price_source: effective.priceSource,
+      });
       await markSourceOrderAsPaid(item.service_type, item.service_id || null);
       if (item.service_type === 'folder_activation' && patientId) {
         await pool.query('UPDATE patients SET folder_activated = true WHERE id = $1', [patientId]);

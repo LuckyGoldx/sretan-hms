@@ -16,31 +16,36 @@ router.get('/api/inventory', async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     const { search, below_reorder, category, show_inactive } = req.query;
-    let query = 'SELECT * FROM inventory_items WHERE tenant_id = $1';
+    // department_name is resolved by join so service department labels follow
+    // department renames (department_id is the source of truth).
+    let query = `SELECT i.*, d.name AS department_name
+                   FROM inventory_items i
+                   LEFT JOIN departments d ON d.id = i.department_id
+                  WHERE i.tenant_id = $1`;
     const params: any[] = [tenantId];
     let paramIndex = 2;
 
     if (category) {
-      query += ` AND category = $${paramIndex}`;
+      query += ` AND i.category = $${paramIndex}`;
       params.push(category);
       paramIndex++;
     }
 
     if (search) {
-      query += ` AND drug_name ILIKE $${paramIndex}`;
+      query += ` AND i.drug_name ILIKE $${paramIndex}`;
       params.push(`%${search}%`);
       paramIndex++;
     }
 
     if (below_reorder === 'true') {
-      query += ` AND stock_count <= reorder_level`;
+      query += ` AND i.stock_count <= i.reorder_level`;
     }
 
     if (show_inactive !== 'true') {
-      query += ' AND is_active = true';
+      query += ' AND i.is_active = true';
     }
 
-    query += ' ORDER BY drug_name ASC';
+    query += ' ORDER BY i.drug_name ASC';
 
     const { limit, offset } = parsePagination(req.query);
     query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
@@ -58,8 +63,8 @@ router.post('/api/inventory', async (req: Request, res: Response) => {
     await clockGuard(pool, 'inventory_items');
 
     const tenantId = getTenantId();
-    const { drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, unit_price, amount_type,
-            base_unit, pack_label, units_per_pack, pack_price, carton_label, units_per_carton, carton_price } = req.body;
+    const { drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, unit_price, cost_price, amount_type,
+            base_unit, pack_label, units_per_pack, pack_price, carton_label, units_per_carton, carton_price, department_id } = req.body;
 
     if (!drug_name) {
       res.status(400).json({ error: true, message: 'drug_name is required' });
@@ -67,17 +72,24 @@ router.post('/api/inventory', async (req: Request, res: Response) => {
     }
 
     const id = uuidv4();
+    // Services (category 'general') have no cost price — always stored as 0.
+    const effectiveCategory = category || 'pharmacy';
+    const effectiveCost = effectiveCategory === 'general'
+      ? 0
+      : (cost_price !== undefined && cost_price !== null && cost_price !== '' ? cost_price : null);
     // The category-prefixed unique code is assigned by a database trigger.
     const result = await pool.query(
-      `INSERT INTO inventory_items (id, tenant_id, drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, price, amount_type, base_unit, pack_label, units_per_pack, pack_price, carton_label, units_per_carton, carton_price)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) RETURNING *`,
-      [id, tenantId, drug_name, batch_number || null, stock_count || 0, reorder_level || 10, expiry_date || null, supplier || null, category || 'pharmacy', unit_price || 0, amount_type || 'units',
+      `INSERT INTO inventory_items (id, tenant_id, drug_name, batch_number, stock_count, reorder_level, expiry_date, supplier, category, price, amount_type, base_unit, pack_label, units_per_pack, pack_price, carton_label, units_per_carton, carton_price, cost_price, department_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) RETURNING *`,
+      [id, tenantId, drug_name, batch_number || null, stock_count || 0, reorder_level || 10, expiry_date || null, supplier || null, effectiveCategory, unit_price || 0, amount_type || 'units',
        base_unit || null, pack_label || null,
        units_per_pack !== undefined && units_per_pack !== null ? Math.max(1, parseInt(String(units_per_pack), 10) || 1) : 1,
        pack_price !== undefined && pack_price !== null && pack_price !== '' ? pack_price : null,
        carton_label || null,
        units_per_carton !== undefined && units_per_carton !== null && units_per_carton !== '' ? Math.max(1, parseInt(String(units_per_carton), 10) || 1) : null,
-       carton_price !== undefined && carton_price !== null && carton_price !== '' ? carton_price : null]
+       carton_price !== undefined && carton_price !== null && carton_price !== '' ? carton_price : null,
+       effectiveCost,
+       department_id || null]
     );
 
     res.status(201).json(result.rows[0]);
@@ -93,7 +105,7 @@ router.put('/api/inventory/:id', async (req: Request, res: Response) => {
     const tenantId = getTenantId();
     const { id } = req.params;
     const { stock_count, stock_count_delta, drug_name, batch_number, reorder_level, expiry_date, supplier, unit_price, cost_price, amount_type, is_active,
-            base_unit, pack_label, units_per_pack, pack_price, carton_label, units_per_carton, carton_price } = req.body;
+            base_unit, pack_label, units_per_pack, pack_price, carton_label, units_per_carton, carton_price, department_id } = req.body;
 
     const existing = await pool.query(
       'SELECT * FROM inventory_items WHERE id = $1 AND tenant_id = $2',
@@ -110,6 +122,17 @@ router.put('/api/inventory/:id', async (req: Request, res: Response) => {
       finalStock = existing.rows[0].stock_count + stock_count_delta;
     }
 
+    // supplier / department_id may be explicitly cleared, so update them only
+    // when the caller actually sent the key (null clears, absent leaves as-is).
+    const hasSupplier = Object.prototype.hasOwnProperty.call(req.body, 'supplier');
+    const hasDepartment = Object.prototype.hasOwnProperty.call(req.body, 'department_id');
+
+    // Services (category 'general') always keep cost 0.
+    const isGeneralItem = existing.rows[0].category === 'general';
+    const costToSet = isGeneralItem
+      ? 0
+      : (cost_price !== undefined && cost_price !== null && cost_price !== '' ? cost_price : null);
+
     const result = await pool.query(
       `UPDATE inventory_items SET
         drug_name = COALESCE($1, drug_name),
@@ -117,29 +140,31 @@ router.put('/api/inventory/:id', async (req: Request, res: Response) => {
         stock_count = COALESCE($3, stock_count),
         reorder_level = COALESCE($4, reorder_level),
         expiry_date = COALESCE($5, expiry_date),
-        supplier = COALESCE($6, supplier),
-        price = COALESCE($7, price),
-        cost_price = COALESCE($8, cost_price),
-        amount_type = COALESCE($9, amount_type),
-        is_active = COALESCE($10, is_active),
-        base_unit = COALESCE($11, base_unit),
-        pack_label = COALESCE($12, pack_label),
-        units_per_pack = COALESCE($13, units_per_pack),
-        pack_price = COALESCE($14, pack_price),
-        carton_label = COALESCE($15, carton_label),
-        units_per_carton = COALESCE($16, units_per_carton),
-        carton_price = COALESCE($17, carton_price)
-       WHERE id = $18 AND tenant_id = $19
+        supplier = CASE WHEN $19 THEN $20 ELSE supplier END,
+        price = COALESCE($6, price),
+        cost_price = COALESCE($7, cost_price),
+        amount_type = COALESCE($8, amount_type),
+        is_active = COALESCE($9, is_active),
+        base_unit = COALESCE($10, base_unit),
+        pack_label = COALESCE($11, pack_label),
+        units_per_pack = COALESCE($12, units_per_pack),
+        pack_price = COALESCE($13, pack_price),
+        carton_label = COALESCE($14, carton_label),
+        units_per_carton = COALESCE($15, units_per_carton),
+        carton_price = COALESCE($16, carton_price),
+        department_id = CASE WHEN $21 THEN $22::uuid ELSE department_id END
+       WHERE id = $17 AND tenant_id = $18
        RETURNING *`,
-      [drug_name || null, batch_number || null, finalStock !== undefined ? finalStock : null, reorder_level || null, expiry_date || null, supplier || null,
-       unit_price !== undefined ? unit_price : null, cost_price !== undefined ? cost_price : null, amount_type || null, is_active !== undefined ? is_active : null,
+      [drug_name || null, batch_number || null, finalStock !== undefined ? finalStock : null, reorder_level || null, expiry_date || null,
+       unit_price !== undefined ? unit_price : null, costToSet, amount_type || null, is_active !== undefined ? is_active : null,
        base_unit || null, pack_label || null,
        units_per_pack !== undefined && units_per_pack !== null ? Math.max(1, parseInt(String(units_per_pack), 10) || 1) : null,
        pack_price !== undefined && pack_price !== null && pack_price !== '' ? pack_price : null,
        carton_label || null,
        units_per_carton !== undefined && units_per_carton !== null && units_per_carton !== '' ? Math.max(1, parseInt(String(units_per_carton), 10) || 1) : null,
        carton_price !== undefined && carton_price !== null && carton_price !== '' ? carton_price : null,
-       id, tenantId]
+       id, tenantId,
+       hasSupplier, supplier || null, hasDepartment, department_id || null]
     );
 
     const oldItem = existing.rows[0];

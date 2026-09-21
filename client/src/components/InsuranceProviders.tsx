@@ -1,5 +1,19 @@
 import { useState, useEffect } from 'react'
-import { Loader2, Plus, Edit3, X, Building2, Shield, Trash2, AlertTriangle, ToggleLeft, ToggleRight, Power, Percent } from 'lucide-react'
+import { Loader2, Plus, Edit3, X, Building2, Shield, Trash2, AlertTriangle, ToggleLeft, ToggleRight, Power, Percent, Banknote } from 'lucide-react'
+
+// The service_type a group's category-level rule/price is stored against. Must
+// match the server's serviceGroups.groupServiceType.
+const GROUP_SERVICE_TYPE: Record<string, string> = { services: 'general' }
+const groupServiceType = (group: string) => GROUP_SERVICE_TYPE[group] || group
+const isWardNightlyItem = (item: any) => item?.service_key === 'BED_DAY'
+
+// Items shown in a tab. Every general item belongs to exactly one tab, so the
+// "Services" tab is only the general items not claimed by Consultation /
+// Admission / Maternity / Procedure — no item is shown twice.
+const itemsForTab = (items: any[], tab: string): any[] =>
+  (items || []).filter((i: any) =>
+    i.group === tab && !(tab === 'admission' && isWardNightlyItem(i))
+  )
 
 export default function InsuranceProviders() {
   const [providers, setProviders] = useState<any[]>([])
@@ -31,6 +45,14 @@ export default function InsuranceProviders() {
   // Held as a string so the box can be cleared and left blank (blank = no
   // default coverage). A provider with no stored value defaults to 100.
   const [defaultCoverage, setDefaultCoverage] = useState('100')
+
+  // Service Prices modal (per-provider tariff overrides)
+  const [showPriceModal, setShowPriceModal] = useState(false)
+  const [priceData, setPriceData] = useState<any>(null)
+  const [priceProvider, setPriceProvider] = useState<any>(null)
+  const [priceTab, setPriceTab] = useState('lab')
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, string>>({})
+  const [priceSaving, setPriceSaving] = useState(false)
 
   useEffect(() => {
     try { const u = localStorage.getItem('sretan_user'); if (u) setCurrentUser(JSON.parse(u)) } catch {}
@@ -69,7 +91,19 @@ export default function InsuranceProviders() {
       const { default: api } = await import('../hooks/useAxios')
       const res = await api.get(`/insurance/providers/${p.id}/coverage`)
       setCoverageData(res.data)
-      setCoverageRules(res.data.rules || [])
+      // Item rules are matched by inventory_item_id, so collapse any legacy
+      // duplicates (same item saved under different service_types) to one.
+      const seenItems = new Set<string>()
+      const rules: any[] = []
+      for (const r of [...(res.data.rules || [])].reverse()) {
+        if (r.inventory_item_id) {
+          if (seenItems.has(r.inventory_item_id)) continue
+          seenItems.add(r.inventory_item_id)
+        }
+        rules.push(r)
+      }
+      rules.reverse()
+      setCoverageRules(rules)
       const stored = res.data?.provider?.default_coverage_pct
       // null = explicitly blanked (no coverage); missing = provider default 100.
       setDefaultCoverage(stored === null ? '' : stored === undefined ? '100' : String(Number(stored)))
@@ -91,14 +125,77 @@ export default function InsuranceProviders() {
     finally { setCoverageSaving(false) }
   }
 
+  async function openPricing(p: any) {
+    setPriceProvider(p)
+    setPriceTab('lab')
+    setPriceOverrides({})
+    setShowPriceModal(true)
+    try {
+      const { default: api } = await import('../hooks/useAxios')
+      const res = await api.get(`/insurance/providers/${p.id}/pricing`)
+      setPriceData(res.data)
+      // Key overrides by (group service_type | inventory item). Item rows are
+      // normalised to their current group so a price saved under an older
+      // service_type still shows on the right row (matching is by item id).
+      const groupById = new Map<string, string>()
+      for (const it of (res.data?.inventoryItems || [])) groupById.set(it.id, it.group)
+      const map: Record<string, string> = {}
+      for (const r of (res.data?.prices || [])) {
+        const itemId = r.inventory_item_id
+        const group = itemId ? groupById.get(itemId) : null
+        const serviceType = itemId
+          ? (group ? groupServiceType(group) : (r.service_type || 'general'))
+          : (r.service_type || '')
+        map[`${serviceType}|${itemId || '__none__'}`] = String(Number(r.price))
+      }
+      setPriceOverrides(map)
+    } catch { setPriceData(null) }
+  }
+
+  const priceKey = (serviceType: string, inventoryItemId: string | null) =>
+    `${serviceType}|${inventoryItemId || '__none__'}`
+
+  function setOverride(serviceType: string, inventoryItemId: string | null, value: string) {
+    const key = priceKey(serviceType, inventoryItemId)
+    setPriceOverrides((prev) => {
+      const next = { ...prev }
+      if (String(value).trim() === '') delete next[key]
+      else next[key] = value
+      return next
+    })
+  }
+
+  const overrideValue = (serviceType: string, inventoryItemId: string | null) =>
+    priceOverrides[priceKey(serviceType, inventoryItemId)] ?? ''
+
+  async function savePricing() {
+    if (!priceProvider) return
+    setPriceSaving(true)
+    try {
+      const { default: api } = await import('../hooks/useAxios')
+      const prices = Object.entries(priceOverrides)
+        .filter(([, v]) => String(v).trim() !== '')
+        .map(([k, v]) => {
+          const idx = k.indexOf('|')
+          const service_type = k.slice(0, idx)
+          const itemKey = k.slice(idx + 1)
+          return { service_type, inventory_item_id: itemKey === '__none__' ? null : itemKey, price: Number(v) }
+        })
+      await api.put(`/insurance/providers/${priceProvider.id}/pricing`, { prices, performed_by: currentUser?.id || null })
+      setShowPriceModal(false)
+    } catch (err: any) { alert(err.response?.data?.message || 'Save failed') }
+    finally { setPriceSaving(false) }
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.name || !form.code) { setError('Name and code are required'); return }
+    if (!form.name) { setError('Provider name is required'); return }
     setSaving(true); setError('')
     try {
       const { default: api } = await import('../hooks/useAxios')
       if (editing) {
-        await api.put(`/insurance/providers/${editing.id}`, form)
+        const { code: _ignored, ...payload } = form
+        await api.put(`/insurance/providers/${editing.id}`, payload)
       } else {
         await api.post('/insurance/providers', form)
       }
@@ -178,6 +275,9 @@ export default function InsuranceProviders() {
                       <button onClick={() => openCoverage(p)} className="p-1.5 rounded-lg hover:bg-purple-50 text-slate-400 hover:text-purple-600 transition-all" title="Coverage Rules">
                         <Percent className="w-4 h-4" />
                       </button>
+                      <button onClick={() => openPricing(p)} className="p-1.5 rounded-lg hover:bg-teal-50 text-slate-400 hover:text-teal-600 transition-all" title="Service Prices">
+                        <Banknote className="w-4 h-4" />
+                      </button>
                       <button onClick={() => openEdit(p)} className="p-1.5 rounded-lg hover:bg-blue-50 text-slate-400 hover:text-blue-600 transition-all" title="Edit">
                         <Edit3 className="w-4 h-4" />
                       </button>
@@ -222,10 +322,13 @@ export default function InsuranceProviders() {
                   <input type="text" value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-transparent" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Code *</label>
-                  <input type="text" value={form.code} onChange={e => setForm(p => ({ ...p, code: e.target.value.toUpperCase() }))}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                    placeholder="e.g. GPHMO" />
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Code</label>
+                  <input type="text" value={form.code}
+                    disabled={!!editing} readOnly={!!editing}
+                    onChange={e => { if (!editing) setForm(p => ({ ...p, code: e.target.value.toUpperCase().slice(0, 50) })) }}
+                    className={`w-full px-3 py-2 rounded-xl border border-slate-200 text-sm font-mono focus:ring-2 focus:ring-emerald-500 focus:border-transparent ${editing ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}
+                    placeholder={editing ? '' : 'Auto-generated if blank'} />
+                  <p className="text-[10px] text-slate-400 mt-1">{editing ? 'Code cannot be changed after creation.' : 'Optional. Leave blank to generate automatically.'}</p>
                 </div>
               </div>
               <div>
@@ -441,165 +544,137 @@ export default function InsuranceProviders() {
 
             {/* Tab Content */}
             <div className="flex-1 overflow-y-auto p-6">
-              {/* Inventory categories (lab, pharmacy, radiology, general) */}
-              {['lab', 'pharmacy', 'radiology', 'general'].includes(coverageTab) && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-4">
-                    <label className="text-sm font-medium text-slate-600">All {coverageTab.replace('_', ' ')} </label>
-                    <input type="number" min="0" max="100"
-                      value={(() => {
-                        const catRule = coverageRules.find((r: any) => r.service_type === coverageTab && !r.inventory_item_id)
-                        return catRule?.coverage_percentage ?? ''
-                      })()}
-                      placeholder="Default"
-                      onChange={e => {
-                        const v = e.target.value === '' ? null : parseInt(e.target.value)
-                        setCoverageRules((prev: any) => {
-                          const rest = prev.filter((r: any) => !(r.service_type === coverageTab && !r.inventory_item_id))
-                          if (v !== null && !isNaN(v) && v >= 0 && v <= 100) return [...rest, { service_type: coverageTab, coverage_percentage: v }]
-                          return rest
-                        })
-                      }}
-                      className="w-20 px-2 py-1 rounded-lg border border-slate-200 text-sm text-center" />
-                    <span className="text-xs text-slate-400">%</span>
-                  </div>
+              {/* Every tab: category-level rule, optional per-ward table, then item rows */}
+              <div className="space-y-4">
+                <div className="flex items-center gap-4">
+                  <label className="text-sm font-medium text-slate-600">All {coverageTab}</label>
+                  <input type="number" min="0" max="100"
+                    value={(() => {
+                      const st = groupServiceType(coverageTab)
+                      const catRule = coverageRules.find((r: any) => r.service_type === st && !r.inventory_item_id)
+                      return catRule?.coverage_percentage ?? ''
+                    })()}
+                    placeholder="Default"
+                    onChange={e => {
+                      const st = groupServiceType(coverageTab)
+                      const v = e.target.value === '' ? null : parseInt(e.target.value)
+                      setCoverageRules((prev: any) => {
+                        const rest = prev.filter((r: any) => !(r.service_type === st && !r.inventory_item_id))
+                        if (v !== null && !isNaN(v) && v >= 0 && v <= 100) return [...rest, { service_type: st, coverage_percentage: v }]
+                        return rest
+                      })
+                    }}
+                    className="w-20 px-2 py-1 rounded-lg border border-slate-200 text-sm text-center" />
+                  <span className="text-xs text-slate-400">% (blank = provider default: {defaultCoverage.trim() === '' ? 'no coverage (0%)' : `${defaultCoverage}%`})</span>
+                </div>
 
+                {/* Admission: per-ward bed-night coverage */}
+                {coverageTab === 'admission' && (
                   <div>
-                    <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Individual Overrides</h4>
-                    <div className="max-h-96 overflow-y-auto border border-slate-200 rounded-xl">
-                      <table className="w-full text-sm">
-                        <thead><tr className="bg-slate-50 sticky top-0">
-                          <th className="text-left py-2 px-3 font-medium text-slate-600 text-xs">Item</th>
-                          <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Stock</th>
-                          <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Coverage %</th>
-                        </tr></thead>
-                        <tbody>
-                          {coverageData.inventoryItems
-                            ?.filter((i: any) => i.category === coverageTab)
-                            .map((item: any) => {
-                              const override = coverageRules.find((r: any) => r.inventory_item_id === item.id)
+                    <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Per-ward bed-night coverage</h4>
+                    {(coverageData.wards || []).length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">No wards configured yet.</p>
+                    ) : (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden max-h-96 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead><tr className="bg-slate-50 sticky top-0">
+                            <th className="text-left py-2 px-3 font-medium text-slate-600 text-xs">Ward</th>
+                            <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Beds</th>
+                            <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Coverage %</th>
+                          </tr></thead>
+                          <tbody>
+                            {(coverageData.wards || []).map((w: any) => {
+                              const override = w.bed_day_item_id
+                                ? coverageRules.find((r: any) => r.inventory_item_id === w.bed_day_item_id)
+                                : null
                               return (
-                                <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50">
-                                  <td className="py-2 px-3 text-xs font-medium">
-                                    {item.drug_name}
-                                    {item.code && <span className="ml-2 font-mono text-[10px] text-slate-400">{item.code}</span>}
-                                  </td>
+                                <tr key={w.id} className="border-t border-slate-100 hover:bg-slate-50">
+                                  <td className="py-2 px-3 text-xs font-medium">{w.name}{w.code ? ` (${w.code})` : ''}</td>
+                                  <td className="py-2 px-3 text-center text-xs text-slate-500">{w.bed_count}</td>
                                   <td className="py-2 px-3 text-center">
-                                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${item.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
-                                      {item.is_active ? 'Active' : 'Inactive'}
-                                    </span>
-                                  </td>
-                                  <td className="py-2 px-3 text-center">
-                                    <div className="flex items-center justify-center gap-2">
+                                    {w.bed_day_item_id ? (
                                       <input type="number" min="0" max="100"
                                         value={override?.coverage_percentage ?? ''}
                                         placeholder="—"
                                         onChange={e => {
                                           const v = e.target.value === '' ? null : parseInt(e.target.value)
                                           setCoverageRules((prev: any) => {
-                                            const rest = prev.filter((r: any) => !(r.inventory_item_id === item.id))
-                                            if (v !== null && !isNaN(v) && v >= 0 && v <= 100) return [...rest, { service_type: coverageTab, inventory_item_id: item.id, coverage_percentage: v }]
+                                            const rest = prev.filter((r: any) => !(r.inventory_item_id === w.bed_day_item_id))
+                                            if (v !== null && !isNaN(v) && v >= 0 && v <= 100) return [...rest, { service_type: 'admission', inventory_item_id: w.bed_day_item_id, coverage_percentage: v }]
                                             return rest
                                           })
                                         }}
                                         className="w-20 px-2 py-1 rounded-lg border border-slate-200 text-xs text-center" />
-                                      {override && (
-                                        <button onClick={() => setCoverageRules((prev: any) => prev.filter((r: any) => r.inventory_item_id !== item.id))}
-                                          className="p-0.5 text-slate-300 hover:text-rose-500"><X size={12} /></button>
-                                      )}
-                                    </div>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400">No nightly rate item</span>
+                                    )}
                                   </td>
                                 </tr>
                               )
                             })}
-                        </tbody>
-                      </table>
-                    </div>
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    <p className="text-[11px] text-slate-400 mt-1">Blank uses the admission category rule (or the provider default).</p>
+                  </div>
+                )}
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Individual Overrides</h4>
+                  <div className="max-h-96 overflow-y-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-sm">
+                      <thead><tr className="bg-slate-50 sticky top-0">
+                        <th className="text-left py-2 px-3 font-medium text-slate-600 text-xs">Item</th>
+                        <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Stock</th>
+                        <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Coverage %</th>
+                      </tr></thead>
+                      <tbody>
+                        {itemsForTab(coverageData.inventoryItems, coverageTab)
+                          .map((item: any) => {
+                            const override = coverageRules.find((r: any) => r.inventory_item_id === item.id)
+                            return (
+                              <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50">
+                                <td className="py-2 px-3 text-xs font-medium">
+                                  {item.drug_name}
+                                  {item.code && <span className="ml-2 font-mono text-[10px] text-slate-400">{item.code}</span>}
+                                </td>
+                                <td className="py-2 px-3 text-center">
+                                  <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium ${item.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                                    {item.is_active ? 'Active' : 'Inactive'}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                    <input type="number" min="0" max="100"
+                                      value={override?.coverage_percentage ?? ''}
+                                      placeholder="—"
+                                      onChange={e => {
+                                        const v = e.target.value === '' ? null : parseInt(e.target.value)
+                                        setCoverageRules((prev: any) => {
+                                          const rest = prev.filter((r: any) => !(r.inventory_item_id === item.id))
+                                          if (v !== null && !isNaN(v) && v >= 0 && v <= 100) return [...rest, { service_type: groupServiceType(item.group || coverageTab), inventory_item_id: item.id, coverage_percentage: v }]
+                                          return rest
+                                        })
+                                      }}
+                                      className="w-20 px-2 py-1 rounded-lg border border-slate-200 text-xs text-center" />
+                                    {override && (
+                                      <button onClick={() => setCoverageRules((prev: any) => prev.filter((r: any) => r.inventory_item_id !== item.id))}
+                                        className="p-0.5 text-slate-300 hover:text-rose-500"><X size={12} /></button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        {itemsForTab(coverageData.inventoryItems, coverageTab).length === 0 && (
+                          <tr><td colSpan={3} className="py-8 text-center text-xs text-slate-400 italic">No items in this tab</td></tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
-              )}
-
-              {/* Non-inventory categories (consultation, admission, maternity, procedure, fluid, folder_activation) */}
-              {!['lab', 'pharmacy', 'radiology', 'general'].includes(coverageTab) && (
-                <div className="space-y-4">
-                  <p className="text-sm text-slate-500">
-                    {coverageTab === 'admission'
-                      ? 'The admission processing fee is set at the category level; each ward\u2019s bed-night can be configured below.'
-                      : `${coverageTab.replace('_', ' ')} services are set at the category level only.`}
-                  </p>
-                  <div className="flex items-center gap-4">
-                    <label className="text-sm font-medium text-slate-600">Coverage %</label>
-                    <input type="number" min="0" max="100"
-                      value={(() => {
-                        const catRule = coverageRules.find((r: any) => r.service_type === coverageTab && !r.inventory_item_id)
-                        return catRule?.coverage_percentage ?? ''
-                      })()}
-                      placeholder="Default"
-                      onChange={e => {
-                        const v = e.target.value === '' ? null : parseInt(e.target.value)
-                        setCoverageRules((prev: any) => {
-                          const rest = prev.filter((r: any) => !(r.service_type === coverageTab && !r.inventory_item_id))
-                          if (v !== null && !isNaN(v) && v >= 0 && v <= 100) return [...rest, { service_type: coverageTab, coverage_percentage: v }]
-                          return rest
-                        })
-                      }}
-                      className="w-20 px-2 py-1 rounded-lg border border-slate-200 text-sm text-center" />
-                    <span className="text-xs text-slate-400">% (blank = uses provider default: {defaultCoverage.trim() === '' ? 'no coverage (0%)' : `${defaultCoverage}%`})</span>
-                  </div>
-
-                  {/* Admission: per-ward bed-night coverage */}
-                  {coverageTab === 'admission' && (
-                    <div>
-                      <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Per-ward bed-night coverage</h4>
-                      {(coverageData.wards || []).length === 0 ? (
-                        <p className="text-xs text-slate-400 italic">No wards configured yet.</p>
-                      ) : (
-                        <div className="border border-slate-200 rounded-xl overflow-hidden max-h-96 overflow-y-auto">
-                          <table className="w-full text-sm">
-                            <thead><tr className="bg-slate-50 sticky top-0">
-                              <th className="text-left py-2 px-3 font-medium text-slate-600 text-xs">Ward</th>
-                              <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Beds</th>
-                              <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Coverage %</th>
-                            </tr></thead>
-                            <tbody>
-                              {(coverageData.wards || []).map((w: any) => {
-                                const override = w.bed_day_item_id
-                                  ? coverageRules.find((r: any) => r.service_type === 'admission' && r.inventory_item_id === w.bed_day_item_id)
-                                  : null
-                                return (
-                                  <tr key={w.id} className="border-t border-slate-100 hover:bg-slate-50">
-                                    <td className="py-2 px-3 text-xs font-medium">{w.name}{w.code ? ` (${w.code})` : ''}</td>
-                                    <td className="py-2 px-3 text-center text-xs text-slate-500">{w.bed_count}</td>
-                                    <td className="py-2 px-3 text-center">
-                                      {w.bed_day_item_id ? (
-                                        <input type="number" min="0" max="100"
-                                          value={override?.coverage_percentage ?? ''}
-                                          placeholder="—"
-                                          onChange={e => {
-                                            const v = e.target.value === '' ? null : parseInt(e.target.value)
-                                            setCoverageRules((prev: any) => {
-                                              const rest = prev.filter((r: any) => r.inventory_item_id !== w.bed_day_item_id)
-                                              if (v !== null && !isNaN(v) && v >= 0 && v <= 100) return [...rest, { service_type: 'admission', inventory_item_id: w.bed_day_item_id, coverage_percentage: v }]
-                                              return rest
-                                            })
-                                          }}
-                                          className="w-20 px-2 py-1 rounded-lg border border-slate-200 text-xs text-center" />
-                                      ) : (
-                                        <span className="text-[10px] text-slate-400">No nightly rate item</span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                      <p className="text-[11px] text-slate-400 mt-1">Blank uses the admission category rule (or the provider default).</p>
-                    </div>
-                  )}
-                </div>
-              )}
+              </div>
             </div>
 
             {/* Footer */}
@@ -609,6 +684,141 @@ export default function InsuranceProviders() {
                 className="flex items-center gap-2 px-5 py-2 bg-purple-600 text-white text-sm font-medium rounded-xl hover:bg-purple-700 disabled:opacity-50 transition-all">
                 {coverageSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Percent className="w-4 h-4" />}
                 Save Coverage Rules
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Service Prices Modal */}
+      {showPriceModal && priceData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={() => setShowPriceModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-100 w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between flex-shrink-0">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-800">Service Prices — {priceProvider?.name}</h2>
+                <p className="text-xs text-slate-400">Set the price this provider is billed. Blank uses the inventory price.</p>
+              </div>
+              <button onClick={() => setShowPriceModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X className="w-5 h-5 text-slate-400" /></button>
+            </div>
+
+            {/* Category Tabs */}
+            <div className="flex gap-1 px-6 py-2 border-b border-slate-100 flex-shrink-0 overflow-x-auto">
+              {priceData.categories?.map((cat: string) => (
+                <button key={cat} onClick={() => setPriceTab(cat)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-all capitalize ${priceTab === cat ? 'bg-teal-100 text-teal-700' : 'text-slate-500 hover:bg-slate-50'}`}>
+                  {cat.replace('_', ' ')}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="space-y-4">
+                <p className="text-sm text-slate-500">
+                  The <strong>inventory price</strong> is shown for reference. Enter a price to override it for {priceProvider?.name}; a blank uses the inventory price.
+                </p>
+
+                <div className="flex items-center gap-4">
+                  <label className="text-sm font-medium text-slate-600">All {priceTab}</label>
+                  <input type="number" min="0" step="0.01"
+                    value={overrideValue(groupServiceType(priceTab), null)}
+                    placeholder="Inventory default"
+                    onChange={e => setOverride(groupServiceType(priceTab), null, e.target.value)}
+                    className="w-32 px-2 py-1 rounded-lg border border-slate-200 text-sm text-center" />
+                  <span className="text-xs text-slate-400">₦ category default (blank = item/inventory price)</span>
+                </div>
+
+                {priceTab === 'admission' && (
+                  <div>
+                    <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Per-ward nightly price</h4>
+                    {(priceData.wards || []).length === 0 ? (
+                      <p className="text-xs text-slate-400 italic">No wards configured yet.</p>
+                    ) : (
+                      <div className="border border-slate-200 rounded-xl overflow-x-auto max-h-96 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead><tr className="bg-slate-50 sticky top-0">
+                            <th className="text-left py-2 px-3 font-medium text-slate-600 text-xs">Ward</th>
+                            <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Inventory Price</th>
+                            <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Insurance Price</th>
+                          </tr></thead>
+                          <tbody>
+                            {(priceData.wards || []).map((w: any) => {
+                              const invPrice = Number(w.bed_day_default_price) || 0
+                              return (
+                                <tr key={w.id} className="border-t border-slate-100 hover:bg-slate-50">
+                                  <td className="py-2 px-3 text-xs font-medium">{w.name}{w.code ? ` (${w.code})` : ''}</td>
+                                  <td className="py-2 px-3 text-center text-xs text-slate-500">
+                                    {w.bed_day_item_id ? `₦${invPrice.toLocaleString()}` : <span className="text-[10px] text-slate-400">No nightly rate item</span>}
+                                  </td>
+                                  <td className="py-2 px-3 text-center">
+                                    {w.bed_day_item_id ? (
+                                      <input type="number" min="0" step="0.01"
+                                        value={overrideValue('admission', w.bed_day_item_id)}
+                                        placeholder="—"
+                                        onChange={e => setOverride('admission', w.bed_day_item_id, e.target.value)}
+                                        className="w-28 px-2 py-1 rounded-lg border border-slate-200 text-xs text-center" />
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400">—</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    <p className="text-[11px] text-slate-400 mt-1">Blank uses the admission category price (or the inventory/default price).</p>
+                  </div>
+                )}
+
+                <div>
+                  <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Individual Item Prices</h4>
+                  <div className="border border-slate-200 rounded-xl overflow-x-auto max-h-96 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="bg-slate-50 sticky top-0">
+                        <th className="text-left py-2 px-3 font-medium text-slate-600 text-xs">Item</th>
+                        <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Inventory Price</th>
+                        <th className="text-center py-2 px-3 font-medium text-slate-600 text-xs">Insurance Price</th>
+                      </tr></thead>
+                      <tbody>
+                        {itemsForTab(priceData.inventoryItems, priceTab)
+                          .map((item: any) => {
+                            const invPrice = Number(item.price) || 0
+                            return (
+                              <tr key={item.id} className="border-b border-slate-100 hover:bg-slate-50">
+                                <td className="py-2 px-3 text-xs font-medium">
+                                  {item.drug_name}
+                                  {item.code && <span className="ml-2 font-mono text-[10px] text-slate-400">{item.code}</span>}
+                                </td>
+                                <td className="py-2 px-3 text-center text-xs text-slate-500">₦{invPrice.toLocaleString()}</td>
+                                <td className="py-2 px-3 text-center">
+                                  <input type="number" min="0" step="0.01"
+                                    value={overrideValue(groupServiceType(item.group || priceTab), item.id)}
+                                    placeholder="—"
+                                    onChange={e => setOverride(groupServiceType(item.group || priceTab), item.id, e.target.value)}
+                                    className="w-28 px-2 py-1 rounded-lg border border-slate-200 text-xs text-center" />
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        {itemsForTab(priceData.inventoryItems, priceTab).length === 0 && (
+                          <tr><td colSpan={3} className="py-8 text-center text-xs text-slate-400 italic">No items in this tab</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex-shrink-0 flex justify-end gap-3">
+              <button onClick={() => setShowPriceModal(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-xl">Cancel</button>
+              <button onClick={savePricing} disabled={priceSaving}
+                className="flex items-center gap-2 px-5 py-2 bg-teal-600 text-white text-sm font-medium rounded-xl hover:bg-teal-700 disabled:opacity-50 transition-all">
+                {priceSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Banknote className="w-4 h-4" />}
+                Save Service Prices
               </button>
             </div>
           </div>

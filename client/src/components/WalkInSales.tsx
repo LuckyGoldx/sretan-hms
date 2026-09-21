@@ -6,7 +6,7 @@ import {
 import { useNavigate } from 'react-router-dom'
 import InsuranceReceiptSplit from './InsuranceReceiptSplit'
 import { buildReceiptHtml, generateReceiptNumber, openPrint, receiptDate, receiptTime } from '../utils/print'
-import { fetchActiveInsuranceCase, fetchCoverageQuote, billToInsuranceAndCollect, insurancePaymentLabel } from '../utils/insuranceBilling'
+import { fetchActiveInsuranceCase, fetchCoverageQuote, billToInsuranceAndCollect, insurancePaymentLabel, quotedLineTotal } from '../utils/insuranceBilling'
 
 const PAGE_SIZE = 30
 const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
@@ -29,6 +29,10 @@ interface CartItem {
   carton_label?: string | null
   units_per_carton?: number
   carton_price?: number | null
+  // Inventory item id (from the catalogue) so insurance tariff/coverage rules
+  // can be resolved per item.
+  id?: string
+  coverage_item_id?: string | null
 }
 
 // Base units deducted for one sale unit of an item (unit=1, pack, carton).
@@ -165,7 +169,7 @@ export default function WalkInSales() {
     let cancelled = false
     setQuoteLoading(true)
     const items = cart.map((i) => ({
-      service_type: 'pharmacy', service_id: null, coverage_item_id: null,
+      service_type: 'pharmacy', service_id: null, coverage_item_id: i.coverage_item_id || i.id || null,
       description: `${i.drug_name}${i.unit && i.unit !== (i.base_unit || 'unit') ? ` (${i.quantity} ${i.unit})` : ''}`,
       quantity: i.quantity, unit_price: i.unit_price,
     }))
@@ -192,6 +196,11 @@ export default function WalkInSales() {
   const cartSubtotal = cart.reduce((sum, item) => sum + item.unit_price * item.quantity, 0)
   const discountApplied = showDiscount ? Math.min(Math.max(discountState || 0, 0), cartSubtotal) : 0
   const cartTotal = cartSubtotal - discountApplied
+  // While billing to insurance, the billed total is the sum of the quote's
+  // effective (tariff) line prices, not the list prices.
+  const quotedCartTotal = (billToInsurance && coverageQuote?.items?.length)
+    ? coverageQuote.items.reduce((s: number, q: any) => s + Number(q.line_total || 0), 0)
+    : cartTotal
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
   // Insurance with no co-pay collects nothing, so the method selector is hidden
   // and not required; a co-pay does require a method.
@@ -302,7 +311,7 @@ export default function WalkInSales() {
     try {
       if (billToInsurance && insuranceInfo && selectedPatient) {
         const items = cart.map((i) => ({
-          service_type: 'pharmacy', service_id: null,
+          service_type: 'pharmacy', service_id: null, coverage_item_id: i.coverage_item_id || i.id || null,
           description: `${i.drug_name}${i.unit && i.unit !== (i.base_unit || 'unit') ? ` (${i.quantity} ${i.unit})` : ''}`,
           quantity: i.quantity, unit_price: i.unit_price, unit: i.unit || null, base_quantity: i.base_quantity ?? i.quantity,
         }))
@@ -467,7 +476,7 @@ export default function WalkInSales() {
         <p className="text-xs mt-1">Add drugs from inventory or scan</p>
       </div>
     )
-    return cart.map((item) => {
+    return cart.map((item, i) => {
       const unit = item.unit || item.base_unit || 'unit'
       const perSale = unitsPerSaleUnit({ ...item, unit })
       const baseQty = item.base_quantity ?? Math.round(item.quantity * perSale)
@@ -502,7 +511,7 @@ export default function WalkInSales() {
               onChange={(e) => updatePrice(item.drug_name, unit, parseFloat(e.target.value) || 0)}
               className="w-20 rounded-lg border border-slate-200 px-2 py-1 text-xs text-right focus:ring-2 focus:ring-primary outline-none" />
           </div>
-          <span className="text-sm font-bold text-slate-800 w-16 text-right">₦{(item.unit_price * item.quantity).toFixed(2)}</span>
+          <span className="text-sm font-bold text-slate-800 w-16 text-right">₦{(billToInsurance && coverageQuote ? quotedLineTotal(coverageQuote, i, item.unit_price, item.quantity) : item.unit_price * item.quantity).toFixed(2)}</span>
         </div>
         {perSale > 1 && <p className="text-[10px] text-slate-400 mt-0.5">{tierLabel}{item.stock_count} {item.base_unit} in stock</p>}
       </div>
@@ -634,13 +643,13 @@ export default function WalkInSales() {
           </div>
           <div className="text-right">
             <p className="text-xs text-slate-400">Total</p>
-            <p className="text-xl font-bold text-slate-800">₦{cartTotal.toFixed(2)}</p>
+            <p className="text-xl font-bold text-slate-800">₦{quotedCartTotal.toFixed(2)}</p>
           </div>
         </div>
         <button onClick={handleCheckout} disabled={submitting || cart.length === 0 || (methodRequired && !paymentMethod) || (billToInsurance && quoteLoading)}
           className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 hover:scale-[1.01] transition-all disabled:opacity-50">
           {submitting ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
-          {submitting ? 'Processing...' : (billToInsurance ? `Bill ₦${cartTotal.toFixed(2)} to Insurance` : `Complete Sale — ₦${cartTotal.toFixed(2)}`)}
+          {submitting ? 'Processing...' : (billToInsurance ? `Bill ₦${quotedCartTotal.toFixed(2)} to Insurance` : `Complete Sale — ₦${quotedCartTotal.toFixed(2)}`)}
         </button>
       </div>
     )

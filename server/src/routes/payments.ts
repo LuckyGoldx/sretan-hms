@@ -57,7 +57,7 @@ async function markOrderAsPaid(item: any): Promise<void> {
     }
     // A pharmacy bill moves to 'paid' (its stock was already held at creation).
     if (item.service_type === 'pharmacy_bill') {
-      await pool.query(`UPDATE pharmacy_bills SET status = 'paid' WHERE id = $1 AND status = 'awaiting_payment'`, [item.service_id]);
+      await pool.query(`UPDATE pharmacy_bills SET status = 'paid', paid_at = NOW() WHERE id = $1 AND status = 'awaiting_payment'`, [item.service_id]);
       return;
     }
     const tableMap: Record<string, string> = {
@@ -98,6 +98,12 @@ async function resolveCostAtPayment(item: any, tenantId: string): Promise<number
   const st = item.service_type;
   const name = cleanItemDescription(item.description);
   try {
+    // Services carry no cost basis, so profit is always computed at cost 0 for
+    // them regardless of what a caller might send. Stock items (pharmacy, lab,
+    // radiology, and their source orders) keep their real cost below.
+    if (['consultation', 'referral_fee', 'procedure', 'maternity', 'treatment', 'fluid', 'general', 'walkin_service', 'billing', 'other'].includes(st)) {
+      return 0;
+    }
     if (st === 'pharmacy_bill') {
       // Priced by the pharmacist; no separate cost to resolve here.
       return 0;
@@ -424,7 +430,7 @@ router.post('/api/payments', async (req: Request, res: Response) => {
         await client.query(`UPDATE referrals SET consultant_fee_status = 'paid' WHERE id = ANY($1)`, [Array.from(paidReferralIds)]);
       }
       if (paidPharmacyBillIds.size > 0) {
-        await client.query(`UPDATE pharmacy_bills SET status = 'paid', payment_id = $2 WHERE id = ANY($1) AND status = 'awaiting_payment'`, [Array.from(paidPharmacyBillIds), paymentId]);
+        await client.query(`UPDATE pharmacy_bills SET status = 'paid', payment_id = $2, paid_at = NOW() WHERE id = ANY($1) AND status = 'awaiting_payment'`, [Array.from(paidPharmacyBillIds), paymentId]);
         // Settle every prescription this bill was quantified from (by link) and,
         // for older bills without the per-line link, by patient + drug name.
         await client.query(

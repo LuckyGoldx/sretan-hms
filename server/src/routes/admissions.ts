@@ -39,15 +39,22 @@ function admissionScopeClause(scope: { scoped: boolean; staffId: string | null; 
   };
 }
 
-router.get("/api/wards", async (_req: Request, res: Response) => {
+router.get("/api/wards", async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
+    // Disabled wards are hidden unless an admin explicitly asks for them (the
+    // management pages need them in order to re-enable).
+    const includeInactive = String(req.query.include_inactive || "") === "true" && isAdminRequest(req);
     const result = await pool.query(
       `SELECT w.*,
               (SELECT i.price FROM inventory_items i
                WHERE i.ward_id = w.id AND i.service_key = 'BED_DAY' AND i.is_active = true
-               ORDER BY i.created_at DESC LIMIT 1) as bed_rate
-       FROM wards w WHERE w.tenant_id = $1 ORDER BY w.name`,
+               ORDER BY i.created_at DESC LIMIT 1) as bed_rate,
+              (SELECT COUNT(*)::int FROM admissions a WHERE a.ward_id = w.id AND a.status = 'active') as occupied_count,
+              (SELECT COUNT(*)::int FROM admissions a WHERE a.ward_id = w.id) as admission_count
+       FROM wards w
+       WHERE w.tenant_id = $1 ${includeInactive ? "" : "AND w.is_active = true"}
+       ORDER BY w.name`,
       [tenantId]
     );
     res.json(result.rows);
@@ -58,7 +65,34 @@ router.get("/api/wards", async (_req: Request, res: Response) => {
 
 function isAdminRequest(req: Request): boolean {
   const role = String(req.headers["x-user-role"] || "");
-  return role === "" || role === "Admin";
+  return role === "" || role === "Admin" || role === "SuperAdmin";
+}
+
+// Deleting a ward is reserved for the Super Admin (not even hospital Admin).
+// A Super Admin who has "entered" a hospital carries role 'Admin' plus
+// user_type 'superadmin', so both signals are honoured.
+function isSuperAdminRequest(req: Request): boolean {
+  const role = String(req.headers["x-user-role"] || "");
+  const userType = String(req.headers["x-user-type"] || "");
+  return role === "SuperAdmin" || userType === "superadmin";
+}
+
+// Short unique ward code, e.g. "Renal Ward" -> RW, then RW1, RW2...
+async function generateWardCode(tenantId: string, name: string): Promise<string> {
+  const cleaned = String(name || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const words = String(name || "").toUpperCase().split(/\s+/).filter(Boolean);
+  let base = words.map((w) => w.replace(/[^A-Z0-9]/g, "")[0] || "").join("").slice(0, 4);
+  if (base.length < 2) base = cleaned.slice(0, 4);
+  if (!base) base = "WARD";
+  for (let i = 0; i < 1000; i++) {
+    const candidate = (i === 0 ? base : `${base}${i}`).slice(0, 20);
+    const exists = await pool.query(
+      "SELECT 1 FROM wards WHERE tenant_id = $1 AND code = $2 LIMIT 1",
+      [tenantId, candidate]
+    );
+    if (exists.rows.length === 0) return candidate;
+  }
+  return `${base}${Date.now()}`.slice(0, 20);
 }
 
 // POST /api/wards -- create a ward AND its linked per-night inventory item
@@ -84,21 +118,44 @@ router.post("/api/wards", async (req: Request, res: Response) => {
       res.status(409).json({ error: true, message: "A ward with this name already exists" });
       return;
     }
-    const wardId = uuidv4();
-    const itemId = uuidv4();
     const rate = parseFloat(price);
     if (isNaN(rate) || rate < 0) {
       res.status(400).json({ error: true, message: "Bed price per night must be a non-negative number" });
       return;
     }
 
+    // Code may be typed in, or left blank to auto-generate. It is immutable
+    // after creation.
+    let wardCode: string;
+    const typedCode = String(code || "").trim().toUpperCase();
+    if (typedCode) {
+      if (!/^[A-Z0-9][A-Z0-9\-_]{0,19}$/.test(typedCode)) {
+        res.status(400).json({ error: true, message: "Code may only contain letters, numbers, dash and underscore (max 20)." });
+        return;
+      }
+      const codeDup = await pool.query(
+        "SELECT 1 FROM wards WHERE tenant_id = $1 AND code = $2 LIMIT 1",
+        [tenantId, typedCode]
+      );
+      if (codeDup.rows.length > 0) {
+        res.status(409).json({ error: true, message: `Ward code "${typedCode}" is already in use.` });
+        return;
+      }
+      wardCode = typedCode;
+    } else {
+      wardCode = await generateWardCode(tenantId, cleanName);
+    }
+
+    const wardId = uuidv4();
+    const itemId = uuidv4();
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
       await client.query(
-        `INSERT INTO wards (id, tenant_id, name, code, description)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [wardId, tenantId, cleanName, code || null, description || null]
+        `INSERT INTO wards (id, tenant_id, name, code, description, is_active)
+         VALUES ($1, $2, $3, $4, $5, true)`,
+        [wardId, tenantId, cleanName, wardCode, description || null]
       );
       await client.query(
         `INSERT INTO inventory_items (id, tenant_id, drug_name, category, price, cost_price, amount_type, is_active, ward_id, service_key)
@@ -114,7 +171,7 @@ router.post("/api/wards", async (req: Request, res: Response) => {
     }
 
     res.status(201).json({
-      ward: { id: wardId, name: cleanName, code: code || null, description: description || null },
+      ward: { id: wardId, name: cleanName, code: wardCode, description: description || null, is_active: true },
       item: { id: itemId, name: `${cleanName} Admission (Per Night)`, price: rate, service_key: 'BED_DAY' },
     });
   } catch (err: any) {
@@ -126,13 +183,14 @@ router.post("/api/wards", async (req: Request, res: Response) => {
   }
 });
 
-// PUT /api/wards/:id -- update a ward's bed price per night by updating its
-// LINKED inventory item (single source of truth). Names remain freely editable.
+// PUT /api/wards/:id -- update nightly price, description, or enable/disable.
+// A ward with patients currently admitted cannot be edited or disabled, and the
+// code is immutable after creation.
 router.put("/api/wards/:id", async (req: Request, res: Response) => {
   try {
     const tenantId = getTenantId();
     if (!isAdminRequest(req)) {
-      res.status(403).json({ error: true, message: "Only administrators can update ward bed rates" });
+      res.status(403).json({ error: true, message: "Only administrators can update wards" });
       return;
     }
     const wardId = String(req.params.id);
@@ -146,40 +204,123 @@ router.put("/api/wards/:id", async (req: Request, res: Response) => {
     }
     const oldWard = ward.rows[0];
 
-    const rate = req.body.price !== undefined ? parseFloat(req.body.price) : NaN;
-    if (isNaN(rate) || rate < 0) {
-      res.status(400).json({ error: true, message: "Bed price per night must be a non-negative number" });
+    // Locked while patients are currently admitted.
+    const occupied = await pool.query(
+      "SELECT COUNT(*)::int AS n FROM admissions WHERE ward_id = $1 AND status = 'active'",
+      [wardId]
+    );
+    if ((occupied.rows[0]?.n || 0) > 0) {
+      res.status(409).json({ error: true, message: "This ward currently has admitted patients and cannot be edited or disabled." });
       return;
     }
 
-    // Update the linked bed item (create it first if it is somehow missing).
-    const linked = await pool.query(
-      `SELECT id FROM inventory_items
-       WHERE tenant_id = $1 AND ward_id = $2 AND service_key = 'BED_DAY' AND is_active = true
-       ORDER BY created_at DESC LIMIT 1`,
-      [tenantId, wardId]
-    );
-    if (linked.rows.length > 0) {
-      await pool.query("UPDATE inventory_items SET price = $1 WHERE id = $2", [rate, linked.rows[0].id]);
-    } else {
-      await pool.query(
-        `INSERT INTO inventory_items (id, tenant_id, drug_name, category, price, cost_price, amount_type, is_active, ward_id, service_key)
-         VALUES ($1, $2, $3, 'general', $4, 0, 'units', true, $5, 'BED_DAY')`,
-        [uuidv4(), tenantId, `${oldWard.name} Admission (Per Night)`, rate, wardId]
+    // Nightly price is optional on update; when sent, it updates the linked item.
+    const hasPrice = req.body.price !== undefined && req.body.price !== null && req.body.price !== "";
+    if (hasPrice) {
+      const rate = parseFloat(req.body.price);
+      if (isNaN(rate) || rate < 0) {
+        res.status(400).json({ error: true, message: "Bed price per night must be a non-negative number" });
+        return;
+      }
+      const linked = await pool.query(
+        `SELECT id FROM inventory_items
+         WHERE tenant_id = $1 AND ward_id = $2 AND service_key = 'BED_DAY' AND is_active = true
+         ORDER BY created_at DESC LIMIT 1`,
+        [tenantId, wardId]
       );
+      if (linked.rows.length > 0) {
+        await pool.query("UPDATE inventory_items SET price = $1 WHERE id = $2", [rate, linked.rows[0].id]);
+      } else {
+        await pool.query(
+          `INSERT INTO inventory_items (id, tenant_id, drug_name, category, price, cost_price, amount_type, is_active, ward_id, service_key)
+           VALUES ($1, $2, $3, 'general', $4, 0, 'units', true, $5, 'BED_DAY')`,
+          [uuidv4(), tenantId, `${oldWard.name} Admission (Per Night)`, rate, wardId]
+        );
+      }
     }
 
+    const hasActive = typeof req.body.is_active === "boolean";
     const result = await pool.query(
-      "UPDATE wards SET code = COALESCE($1, code), description = COALESCE($2, description) WHERE id = $3 RETURNING *",
-      [req.body.code || null, req.body.description || null, wardId]
+      `UPDATE wards SET
+         description = COALESCE($1, description),
+         is_active = COALESCE($2, is_active)
+       WHERE id = $3 AND tenant_id = $4
+       RETURNING *`,
+      [req.body.description || null, hasActive ? req.body.is_active : null, wardId, tenantId]
     );
     const newWard = result.rows[0];
+
+    const bedItem = await pool.query(
+      `SELECT price FROM inventory_items
+        WHERE tenant_id = $1 AND ward_id = $2 AND service_key = 'BED_DAY' AND is_active = true
+        ORDER BY created_at DESC LIMIT 1`,
+      [tenantId, wardId]
+    );
+
     await pool.query(
       `INSERT INTO audit_logs (tenant_id, action, table_name, record_id, performed_by, old_data, new_data)
        VALUES ($1, 'UPDATE', 'wards', $2, $3, $4, $5)`,
       [tenantId, wardId, req.body.performed_by || null, JSON.stringify(oldWard), JSON.stringify(newWard)]
     );
-    res.json({ ...newWard, bed_rate: rate });
+    res.json({ ...newWard, bed_rate: bedItem.rows[0] ? parseFloat(bedItem.rows[0].price) : 0 });
+  } catch (err: any) {
+    res.status(500).json({ error: true, message: err.message });
+  }
+});
+
+// DELETE /api/wards/:id -- delete a ward, its beds (FK cascade) and its linked
+// per-night inventory item. Blocked when the ward has admission records so
+// clinical history is never destroyed.
+router.delete("/api/wards/:id", async (req: Request, res: Response) => {
+  try {
+    const tenantId = getTenantId();
+    // Only the Super Admin may delete a ward. Everyone else can disable it.
+    if (!isSuperAdminRequest(req)) {
+      res.status(403).json({ error: true, message: "Only the Super Admin can delete a ward. Disable it instead." });
+      return;
+    }
+    const wardId = String(req.params.id);
+    const ward = await pool.query("SELECT * FROM wards WHERE id = $1 AND tenant_id = $2", [wardId, tenantId]);
+    if (ward.rows.length === 0) {
+      res.status(404).json({ error: true, message: "Ward not found" });
+      return;
+    }
+
+    const used = await pool.query("SELECT COUNT(*)::int AS n FROM admissions WHERE ward_id = $1", [wardId]);
+    if ((used.rows[0]?.n || 0) > 0) {
+      res.status(409).json({ error: true, message: "This ward has admission records and cannot be deleted. Transfer or clear those admissions first." });
+      return;
+    }
+
+    const linked = await pool.query(
+      "SELECT id FROM inventory_items WHERE tenant_id = $1 AND ward_id = $2",
+      [tenantId, wardId]
+    );
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      // Clean insurance rules tied to the nightly item (no FK on those tables).
+      for (const row of linked.rows) {
+        await client.query("DELETE FROM insurance_provider_coverage_rules WHERE inventory_item_id = $1", [row.id]);
+        await client.query("DELETE FROM insurance_provider_service_prices WHERE inventory_item_id = $1", [row.id]);
+      }
+      await client.query("DELETE FROM inventory_items WHERE tenant_id = $1 AND ward_id = $2", [tenantId, wardId]);
+      await client.query("DELETE FROM wards WHERE id = $1 AND tenant_id = $2", [wardId, tenantId]);
+      await client.query(
+        `INSERT INTO audit_logs (tenant_id, action, table_name, record_id, performed_by, old_data, new_data)
+         VALUES ($1, 'DELETE', 'wards', $2, $3, $4, $5)`,
+        [tenantId, wardId, req.body?.performed_by || null, JSON.stringify(ward.rows[0]), null]
+      );
+      await client.query("COMMIT");
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+
+    res.json({ message: "Ward deleted" });
   } catch (err: any) {
     res.status(500).json({ error: true, message: err.message });
   }
@@ -274,6 +415,19 @@ router.post("/api/admissions", async (req: Request, res: Response) => {
     const { patient_id, ward_id, notes, admitted_by } = req.body;
     if (!patient_id || !ward_id) {
       res.status(400).json({ error: true, message: "patient_id and ward_id are required" });
+      return;
+    }
+    // A disabled ward is not usable.
+    const wardCheck = await pool.query(
+      "SELECT is_active FROM wards WHERE id = $1 AND tenant_id = $2",
+      [ward_id, tenantId]
+    );
+    if (wardCheck.rows.length === 0) {
+      res.status(404).json({ error: true, message: "Ward not found" });
+      return;
+    }
+    if (wardCheck.rows[0].is_active === false) {
+      res.status(409).json({ error: true, message: "This ward is disabled and cannot be used for new admissions." });
       return;
     }
     if (!admitted_by) {

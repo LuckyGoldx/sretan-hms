@@ -42,12 +42,14 @@ export function cleanItemDescription(description: string | undefined): string {
 }
 
 // Batch inventory price lookup keyed by lowercase name (mirrors Paypoint).
+// The inventory item id travels with the price so insurance tariff/coverage
+// overrides can be resolved per item (not only at category level).
 export async function loadInventoryPriceMap(
   tenantId: string,
   category: string,
   names: Array<string | null | undefined>
-): Promise<Map<string, { price: any; cost: any }>> {
-  const map = new Map<string, { price: any; cost: any }>();
+): Promise<Map<string, { price: any; cost: any; id: string | null }>> {
+  const map = new Map<string, { price: any; cost: any; id: string | null }>();
   const unique = Array.from(
     new Set(names.map((n) => String(n || '').trim().toLowerCase()).filter(Boolean))
   );
@@ -55,7 +57,7 @@ export async function loadInventoryPriceMap(
   try {
     const result = await pool.query(
       `SELECT DISTINCT ON (lower(drug_name))
-              lower(drug_name) AS lname, price, cost_price
+              lower(drug_name) AS lname, id, price, cost_price
        FROM inventory_items
        WHERE tenant_id = $1 AND category = $2 AND is_active = true
          AND lower(drug_name) = ANY($3::text[])
@@ -63,7 +65,7 @@ export async function loadInventoryPriceMap(
       [tenantId, category, unique]
     );
     for (const row of result.rows) {
-      map.set(row.lname, { price: row.price, cost: row.cost_price });
+      map.set(row.lname, { price: row.price, cost: row.cost_price, id: row.id });
     }
   } catch {}
   return map;
@@ -106,6 +108,7 @@ export async function buildBasePendingItems(
     pool.query(`SELECT b.id, b.bill_number, b.total, b.created_at,
               (SELECT json_agg(json_build_object(
                         'line_id', pbi.id, 'drug_name', pbi.drug_name, 'unit', pbi.unit,
+                        'inventory_item_id', pbi.inventory_item_id,
                         'quantity', pbi.quantity, 'unit_price', pbi.unit_price, 'total_price', pbi.total_price)
                       ORDER BY pbi.created_at)
                  FROM pharmacy_bill_items pbi WHERE pbi.bill_id = b.id) AS bill_items
@@ -117,18 +120,39 @@ export async function buildBasePendingItems(
   const patient = folderRes.rows[0];
   const items: PendingItem[] = [];
 
+  // Stable keyed items (admission fee, consultation types, specialist fee,
+  // folder activation, maternity booking) so those charges carry a real
+  // inventory item id and insurance item-level rules can match them.
+  const keyedRes = await pool.query(
+    `SELECT DISTINCT ON (service_key) service_key, id, price
+       FROM inventory_items
+      WHERE tenant_id = $1 AND is_active = true AND service_key = ANY($2::text[])
+      ORDER BY service_key, created_at DESC`,
+    [tenantId, ['FOLDER_ACTIVATION', 'ADMISSION_FEE', 'CONSULTATION_NEW', 'CONSULTATION_FOLLOWUP', 'SPECIALIST_CONSULTATION', 'MATERNITY_BOOKING']]
+  ).catch(() => ({ rows: [] as any[] }));
+  const keyed = new Map<string, { id: string; price: number }>();
+  for (const r of keyedRes.rows) keyed.set(r.service_key, { id: r.id, price: parseFloat(r.price) || 0 });
+
   if (!patient?.folder_activated) {
-    const folderFee = await pool.query(
-      `SELECT price FROM inventory_items
-       WHERE tenant_id = $1 AND is_active = true
-         AND (service_key = 'FOLDER_ACTIVATION'
-              OR (category = 'general' AND drug_name ILIKE '%folder activation%'))
-       ORDER BY (service_key = 'FOLDER_ACTIVATION') DESC,
-                (drug_name ILIKE '%folder activation fee%') DESC, created_at DESC LIMIT 1`,
-      [tenantId]
-    ).catch(() => ({ rows: [] as any[] }));
-    const folderFeePrice = folderFee.rows.length > 0 ? parseFloat(folderFee.rows[0].price) || 0 : 0;
-    items.push({ service_type: 'folder_activation', service_id: null, description: 'Folder Activation / Registration Fee', quantity: 1, unit_price: folderFeePrice, needsPrice: !(folderFeePrice > 0), date: null });
+    const folderKeyed = keyed.get('FOLDER_ACTIVATION');
+    let folderFeeId: string | null = folderKeyed?.id || null;
+    let folderFeePrice = folderKeyed ? folderKeyed.price : 0;
+    if (!folderFeeId) {
+      const folderFee = await pool.query(
+        `SELECT id, price FROM inventory_items
+         WHERE tenant_id = $1 AND is_active = true
+           AND (service_key = 'FOLDER_ACTIVATION'
+                OR (category = 'general' AND drug_name ILIKE '%folder activation%'))
+         ORDER BY (service_key = 'FOLDER_ACTIVATION') DESC,
+                 (drug_name ILIKE '%folder activation fee%') DESC, created_at DESC LIMIT 1`,
+        [tenantId]
+      ).catch(() => ({ rows: [] as any[] }));
+      if (folderFee.rows.length > 0) {
+        folderFeeId = folderFee.rows[0].id;
+        folderFeePrice = parseFloat(folderFee.rows[0].price) || 0;
+      }
+    }
+    items.push({ service_type: 'folder_activation', service_id: null, coverage_item_id: folderFeeId, description: 'Folder Activation / Registration Fee', quantity: 1, unit_price: folderFeePrice, needsPrice: !(folderFeePrice > 0), date: null });
   }
 
   const [rxPrices, labPrices, radPrices] = await Promise.all([
@@ -141,7 +165,7 @@ export async function buildBasePendingItems(
     const hit = rxPrices.get(String(r.drug_name || '').trim().toLowerCase());
     const rxPrice = hit ? parseFloat(hit.price) || 0 : 0;
     const rxCost = hit ? parseFloat(hit.cost) || 0 : 0;
-    items.push({ service_type: 'prescription', service_id: r.id, description: `Prescription: ${r.drug_name} ${r.dosage || ''} × ${r.quantity || ''}`, quantity: r.quantity || 1, unit_price: rxPrice, cost_price: rxCost, needsPrice: !rxPrice, date: r.created_at });
+    items.push({ service_type: 'prescription', service_id: r.id, coverage_type: 'pharmacy', coverage_item_id: hit?.id || null, description: `Prescription: ${r.drug_name} ${r.dosage || ''} × ${r.quantity || ''}`, quantity: r.quantity || 1, unit_price: rxPrice, cost_price: rxCost, needsPrice: !rxPrice, date: r.created_at });
   }
 
   // Quantified pharmacy bills awaiting payment — one row per BILL; the cart
@@ -165,20 +189,22 @@ export async function buildBasePendingItems(
     const hit = labPrices.get(String(r.test_name || '').trim().toLowerCase());
     const labPrice = hit ? parseFloat(hit.price) || 0 : 0;
     const labCost = hit ? parseFloat(hit.cost) || 0 : 0;
-    items.push({ service_type: 'lab', service_id: r.id, description: `Lab: ${r.test_name}`, quantity: 1, unit_price: labPrice, cost_price: labCost, needsPrice: !labPrice, date: r.created_at });
+    items.push({ service_type: 'lab', service_id: r.id, coverage_type: 'lab', coverage_item_id: hit?.id || null, description: `Lab: ${r.test_name}`, quantity: 1, unit_price: labPrice, cost_price: labCost, needsPrice: !labPrice, date: r.created_at });
   }
 
   for (const r of (radiologyRes.rows || [])) {
     const hit = radPrices.get(String(r.imaging_type || '').trim().toLowerCase());
     const radPrice = hit ? parseFloat(hit.price) || 0 : 0;
     const radCost = hit ? parseFloat(hit.cost) || 0 : 0;
-    items.push({ service_type: 'radiology', service_id: r.id, description: `Radiology: ${r.imaging_type}`, quantity: 1, unit_price: radPrice, cost_price: radCost, needsPrice: !radPrice, date: r.created_at });
+    items.push({ service_type: 'radiology', service_id: r.id, coverage_type: 'radiology', coverage_item_id: hit?.id || null, description: `Radiology: ${r.imaging_type}`, quantity: 1, unit_price: radPrice, cost_price: radCost, needsPrice: !radPrice, date: r.created_at });
   }
 
   const admissionFee = await resolveOneTimeAdmissionFee(tenantId).catch(() => null);
-  const admissionFeePrice = admissionFee ? admissionFee.price : 0;
+  const admissionKeyed = keyed.get('ADMISSION_FEE');
+  const admissionFeePrice = admissionFee ? admissionFee.price : (admissionKeyed?.price || 0);
+  const admissionFeeItemId = admissionKeyed?.id || null;
   for (const r of (admissionsRes.rows || [])) {
-    items.push({ service_type: 'admission', service_id: r.id, description: 'Admission Fee', quantity: 1, unit_price: admissionFeePrice, needsPrice: !(admissionFeePrice > 0), date: r.admitted_at });
+    items.push({ service_type: 'admission', service_id: r.id, coverage_item_id: admissionFeeItemId, description: 'Admission Fee', quantity: 1, unit_price: admissionFeePrice, needsPrice: !(admissionFeePrice > 0), date: r.admitted_at });
   }
 
   const bedDaysRes = await pool.query(
@@ -202,11 +228,14 @@ export async function buildBasePendingItems(
 
   (visitsRes.rows || []).forEach((r: any) => {
     const typeLabel = r.visit_type === 'follow_up' ? 'Follow-up' : r.visit_type === 'review' ? 'Review' : 'New';
-    items.push({ service_type: 'consultation', service_id: r.id, description: `Consultation (${typeLabel} visit)`, quantity: 1, unit_price: parseFloat(r.consultation_fee) || 0, needsPrice: !(parseFloat(r.consultation_fee) > 0), date: r.created_at });
+    const consultKey = (r.visit_type === 'follow_up' || r.visit_type === 'review') ? 'CONSULTATION_FOLLOWUP' : 'CONSULTATION_NEW';
+    const consultItem = keyed.get(consultKey);
+    items.push({ service_type: 'consultation', service_id: r.id, coverage_item_id: consultItem?.id || null, description: `Consultation (${typeLabel} visit)`, quantity: 1, unit_price: parseFloat(r.consultation_fee) || 0, needsPrice: !(parseFloat(r.consultation_fee) > 0), date: r.created_at });
   });
 
   (referralsRes.rows || []).forEach((r: any) => {
-    items.push({ service_type: 'referral_fee', service_id: r.id, description: `Specialist Fee — ${r.referral_number}`, quantity: 1, unit_price: parseFloat(r.consultant_fee) || 0, needsPrice: !(parseFloat(r.consultant_fee) > 0), date: r.created_at });
+    const specialistItem = keyed.get('SPECIALIST_CONSULTATION');
+    items.push({ service_type: 'referral_fee', service_id: r.id, coverage_item_id: specialistItem?.id || null, description: `Specialist Fee — ${r.referral_number}`, quantity: 1, unit_price: parseFloat(r.consultant_fee) || 0, needsPrice: !(parseFloat(r.consultant_fee) > 0), date: r.created_at });
   });
 
   // Newest first across all services (rows without a date go last).

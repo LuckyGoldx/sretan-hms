@@ -115,7 +115,7 @@ export default function Dispensing() {
         .map((rx) => ({ kind: 'rx', id: rx.id, date: rx.created_at || '', rx, billId: rxBillId.get(String(rx.id)) || null }))
       const billItems: ReadyItem[] = bills
         .filter((b) => !droppedBillIds.has(b.id))
-        .map((b) => ({ kind: 'bill', id: b.id, date: b.created_at || '', bill: b }))
+        .map((b) => ({ kind: 'bill', id: b.id, date: b.paid_at || b.created_at || '', bill: b }))
 
       const merged = [...rxItems, ...billItems].sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
       setItems(merged)

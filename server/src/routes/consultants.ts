@@ -217,7 +217,7 @@ router.put('/api/departments/:id', async (req: Request, res: Response) => {
         name = COALESCE($1, name),
         code = COALESCE($2, code),
         description = COALESCE($3, description),
-        modules = CASE WHEN $4 IS NULL THEN modules ELSE $4::jsonb END,
+        modules = CASE WHEN $4::text IS NULL THEN modules ELSE $4::jsonb END,
         status = COALESCE($5, status)
        WHERE id = $6 AND tenant_id = $7
        RETURNING *`,

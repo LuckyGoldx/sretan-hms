@@ -43,6 +43,23 @@ export async function fetchCoverageQuote(patientId: string, items: InsuranceCart
 }
 
 /**
+ * The price to show for cart line `i` while billing to insurance: the quote's
+ * effective unit price (the provider's tariff when set, else the list price).
+ * Falls back to the caller's price when there is no quote line.
+ */
+export function quotedUnitPrice(quote: any, i: number, fallbackUnitPrice: number): number {
+  const u = Number(quote?.items?.[i]?.unit_price)
+  return Number.isFinite(u) ? u : (Number(fallbackUnitPrice) || 0)
+}
+
+/** The line total to show for cart line `i` (effective price x quantity). */
+export function quotedLineTotal(quote: any, i: number, fallbackUnitPrice: number, quantity: number): number {
+  const t = Number(quote?.items?.[i]?.line_total)
+  if (Number.isFinite(t)) return t
+  return Math.round((Number(fallbackUnitPrice) || 0) * (Number(quantity) || 1) * 100) / 100
+}
+
+/**
  * Label for a receipt's payment method when insurance is involved:
  *  - 100% covered            -> "INSURANCE"
  *  - part covered + co-pay   -> "INSURANCE + CASH" (or the chosen method)

@@ -2,13 +2,19 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import api from '../hooks/useAxios'
 import {
-  ArrowLeft, Bed, Building2, Loader2, Plus, Trash2, Save, CheckCircle, AlertTriangle,
+  ArrowLeft, Bed, Building2, Loader2, Plus, Trash2, CheckCircle, AlertTriangle, Edit2, X, Power,
 } from 'lucide-react'
 
-const currentUserId: string | null = (() => { try { const u = localStorage.getItem('sretan_user'); if (u) return JSON.parse(u).id } catch {} return null })()
+function readStoredUser(): any {
+  try { const u = localStorage.getItem('sretan_user'); return u ? JSON.parse(u) : null } catch { return null }
+}
 
 export default function WardManagement({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate()
+  // Read per render so a Super Admin login always sees the delete control.
+  const storedUser = readStoredUser()
+  const currentUserId: string | null = storedUser?.id || null
+  const isSuperAdminUser = storedUser?.role === 'SuperAdmin' || storedUser?.user_type === 'superadmin'
   const [wards, setWards] = useState<any[]>([])
   const [beds, setBeds] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -17,7 +23,11 @@ export default function WardManagement({ embedded = false }: { embedded?: boolea
 
   const [newWard, setNewWard] = useState({ name: '', code: '', description: '', price: '' })
   const [adding, setAdding] = useState(false)
-  const [wardPriceDrafts, setWardPriceDrafts] = useState<Record<string, string>>({})
+  const [editWard, setEditWard] = useState<any | null>(null)
+  const [editPrice, setEditPrice] = useState('')
+  const [deleteWard, setDeleteWard] = useState<any | null>(null)
+  const [toggleWard, setToggleWard] = useState<any | null>(null)
+  const [wardBusy, setWardBusy] = useState(false)
   const [bedDrafts, setBedDrafts] = useState<Record<string, string>>({})
   const [newBedNumbers, setNewBedNumbers] = useState<Record<string, string>>({})
 
@@ -25,7 +35,7 @@ export default function WardManagement({ embedded = false }: { embedded?: boolea
     setLoading(true)
     try {
       const [w, b] = await Promise.all([
-        api.get('/wards').catch(() => ({ data: [] })),
+        api.get('/wards?include_inactive=true').catch(() => ({ data: [] })),
         api.get('/beds').catch(() => ({ data: [] })),
       ])
       setWards(Array.isArray(w.data) ? w.data : [])
@@ -47,16 +57,40 @@ export default function WardManagement({ embedded = false }: { embedded?: boolea
     return m
   }, [beds])
 
-  async function saveWardPrice(w: any) {
-    const raw = wardPriceDrafts[w.id] !== undefined ? wardPriceDrafts[w.id] : String(Number(w.bed_rate) || 0)
-    const val = parseFloat(raw)
+  function openEditWard(w: any) {
+    setEditWard(w); setEditPrice(String(Number(w.bed_rate) || 0)); setError('')
+  }
+
+  async function saveEditWard() {
+    if (!editWard) return
+    const val = parseFloat(editPrice)
     if (isNaN(val) || val < 0) { setError('Enter a valid non-negative ward price.'); return }
-    setBusyId(w.id); setError('')
+    setWardBusy(true); setError('')
     try {
-      const r = await api.put(`/wards/${w.id}`, { price: val, performed_by: currentUserId })
-      setWards((prev) => prev.map((x) => x.id === w.id ? { ...x, bed_rate: r.data.bed_rate } : x))
-      setWardPriceDrafts((d) => { const n = { ...d }; delete n[w.id]; return n })
-    } catch (e: any) { setError(e?.response?.data?.message || 'Failed to save ward price.') } finally { setBusyId(null) }
+      const r = await api.put(`/wards/${editWard.id}`, { price: val, performed_by: currentUserId })
+      setWards((prev) => prev.map((x) => x.id === editWard.id ? { ...x, bed_rate: r.data.bed_rate } : x))
+      setEditWard(null)
+    } catch (e: any) { setError(e?.response?.data?.message || 'Failed to save ward price.') } finally { setWardBusy(false) }
+  }
+
+  async function confirmDeleteWard() {
+    if (!deleteWard) return
+    setWardBusy(true); setError('')
+    try {
+      await api.delete(`/wards/${deleteWard.id}`, { data: { performed_by: currentUserId } })
+      setWards((prev) => prev.filter((x) => x.id !== deleteWard.id))
+      setDeleteWard(null)
+    } catch (e: any) { setError(e?.response?.data?.message || 'Failed to delete ward.'); setDeleteWard(null) } finally { setWardBusy(false) }
+  }
+
+  async function confirmToggleWard() {
+    if (!toggleWard) return
+    setWardBusy(true); setError('')
+    try {
+      const r = await api.put(`/wards/${toggleWard.id}`, { is_active: !toggleWard.is_active, performed_by: currentUserId })
+      setWards((prev) => prev.map((x) => x.id === toggleWard.id ? { ...x, is_active: r.data.is_active } : x))
+      setToggleWard(null)
+    } catch (e: any) { setError(e?.response?.data?.message || 'Failed to update ward.'); setToggleWard(null) } finally { setWardBusy(false) }
   }
 
   async function addWard() {
@@ -131,7 +165,7 @@ export default function WardManagement({ embedded = false }: { embedded?: boolea
             placeholder="Ward name (e.g. Renal Ward)"
             className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none sm:col-span-2" />
           <input value={newWard.code} onChange={(e) => setNewWard({ ...newWard, code: e.target.value })}
-            placeholder="Code (e.g. RW)"
+            placeholder="Code (auto if blank)"
             className="rounded-xl border border-slate-200 px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
           <input type="number" min="0" step="0.01" value={newWard.price} onChange={(e) => setNewWard({ ...newWard, price: e.target.value })}
             placeholder="Price / night (₦)"
@@ -152,25 +186,36 @@ export default function WardManagement({ embedded = false }: { embedded?: boolea
         </div>
       ) : wards.map((w) => {
         const wardBeds = bedsByWard.get(w.id) || []
-        const occupied = wardBeds.filter((b) => b.occupied).length
+        const bedOccupied = wardBeds.filter((b) => b.occupied).length
+        const occupiedCount = Number(w.occupied_count ?? bedOccupied)
+        const admissionCount = Number(w.admission_count ?? 0)
+        const isDisabled = w.is_active === false
+        const locked = occupiedCount > 0
         return (
-          <div key={w.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div key={w.id} className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${isDisabled ? 'border-slate-300 opacity-70' : 'border-slate-200'}`}>
             <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center gap-3">
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-slate-800 flex items-center gap-2"><Building2 size={15} className="text-indigo-500" /> {w.name}</p>
-                <p className="text-[11px] text-slate-400">{wardBeds.length} bed(s) · {occupied} occupied · code {w.code || '—'}</p>
+                <p className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                  <Building2 size={15} className="text-indigo-500" /> {w.name}
+                  {isDisabled && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-500">DISABLED</span>}
+                  {locked && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">OCCUPIED</span>}
+                </p>
+                <p className="text-[11px] text-slate-400">{wardBeds.length} bed(s) · {occupiedCount} occupied · code {w.code || '—'}</p>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm text-slate-500">₦</span>
-                <input type="number" min="0" step="0.01"
-                  value={wardPriceDrafts[w.id] !== undefined ? wardPriceDrafts[w.id] : String(Number(w.bed_rate) || 0)}
-                  onChange={(e) => setWardPriceDrafts((d) => ({ ...d, [w.id]: e.target.value }))}
-                  className="w-28 rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-right focus:ring-2 focus:ring-emerald-500 outline-none" />
+                <span className="text-sm font-medium text-slate-700">₦{Number(w.bed_rate || 0).toLocaleString()}</span>
                 <span className="text-[11px] text-slate-400">/ night</span>
-                <button onClick={() => saveWardPrice(w)} disabled={busyId === w.id}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 disabled:opacity-50">
-                  {busyId === w.id ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Save
+                <button onClick={() => openEditWard(w)} disabled={locked}
+                  className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed" title={locked ? 'Ward has admitted patients' : 'Edit ward rate'}><Edit2 size={14} /></button>
+                <button onClick={() => { setToggleWard(w); setError('') }} disabled={locked}
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium disabled:opacity-40 disabled:cursor-not-allowed ${isDisabled ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  title={locked ? 'Ward has admitted patients' : (isDisabled ? 'Enable ward' : 'Disable ward')}>
+                  <Power size={12} /> {isDisabled ? 'Enable' : 'Disable'}
                 </button>
+                {isSuperAdminUser && (
+                  <button onClick={() => { setDeleteWard(w); setError('') }} disabled={admissionCount > 0}
+                    className="p-1.5 rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-500 disabled:opacity-40 disabled:cursor-not-allowed" title={admissionCount > 0 ? 'Ward has admission history and cannot be deleted' : 'Delete ward'}><Trash2 size={14} /></button>
+                )}
               </div>
             </div>
 
@@ -212,6 +257,85 @@ export default function WardManagement({ embedded = false }: { embedded?: boolea
           </div>
         )
       })}
+
+      {/* Edit ward rate */}
+      {editWard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!wardBusy) setEditWard(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-semibold text-slate-800 flex items-center gap-2"><Bed size={18} className="text-emerald-500" /> Edit Ward</h2>
+              <button onClick={() => setEditWard(null)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={18} className="text-slate-400" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Ward</label>
+                <p className="text-sm font-medium text-slate-800">{editWard.name}{editWard.code ? ` (${editWard.code})` : ''}</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-500 mb-1">Price / night (₦)</label>
+                <input type="number" min="0" step="0.01" value={editPrice} onChange={(e) => setEditPrice(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:ring-2 focus:ring-emerald-500 outline-none" />
+              </div>
+              {error && <p className="text-xs text-rose-600">{error}</p>}
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 rounded-b-2xl flex justify-end gap-3">
+              <button onClick={() => setEditWard(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={saveEditWard} disabled={wardBusy}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50">
+                {wardBusy ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />} Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Enable / disable ward confirmation */}
+      {toggleWard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!wardBusy) setToggleWard(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 text-center">
+              <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-3 ${toggleWard.is_active ? 'bg-amber-100' : 'bg-emerald-100'}`}>
+                <Power size={22} className={toggleWard.is_active ? 'text-amber-600' : 'text-emerald-600'} />
+              </div>
+              <h2 className="text-base font-semibold text-slate-800">{toggleWard.is_active ? 'Disable ward?' : 'Enable ward?'}</h2>
+              <p className="text-sm text-slate-500 mt-1">
+                {toggleWard.is_active
+                  ? <><strong>{toggleWard.name}</strong> will be hidden and cannot be used for new admissions.</>
+                  : <><strong>{toggleWard.name}</strong> will become available again for admissions.</>}
+              </p>
+              {error && <p className="text-xs text-rose-600 mt-3">{error}</p>}
+            </div>
+            <div className="px-6 pb-6 flex justify-center gap-3">
+              <button onClick={() => setToggleWard(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={confirmToggleWard} disabled={wardBusy}
+                className={`flex items-center gap-2 px-5 py-2 rounded-xl text-white text-sm font-medium disabled:opacity-50 ${toggleWard.is_active ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
+                {wardBusy ? <Loader2 size={14} className="animate-spin" /> : <Power size={14} />} {toggleWard.is_active ? 'Disable' : 'Enable'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete ward confirmation */}
+      {deleteWard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => { if (!wardBusy) setDeleteWard(null) }}>
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-100 w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="p-6 text-center">
+              <div className="mx-auto w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center mb-3"><Trash2 size={22} className="text-rose-600" /></div>
+              <h2 className="text-base font-semibold text-slate-800">Delete ward?</h2>
+              <p className="text-sm text-slate-500 mt-1"><strong>{deleteWard.name}</strong> and its beds will be removed. This cannot be undone.</p>
+              {error && <p className="text-xs text-rose-600 mt-3">{error}</p>}
+            </div>
+            <div className="px-6 pb-6 flex justify-center gap-3">
+              <button onClick={() => setDeleteWard(null)} className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50">Cancel</button>
+              <button onClick={confirmDeleteWard} disabled={wardBusy}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 disabled:opacity-50">
+                {wardBusy ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />} Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
